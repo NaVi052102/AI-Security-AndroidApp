@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="#1E1E1E"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/tvDialogTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:text="ADD CONTACT"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.1"
+        android:layout_marginBottom="24dp"/>
+
+    <androidx.cardview.widget.CardView
+        android:id="@+id/cardPhotoContainer"
+        android:layout_width="80dp"
+        android:layout_height="80dp"
+        android:layout_gravity="center"
+        android:layout_marginBottom="24dp"
+        app:cardBackgroundColor="#141414"
+        app:cardCornerRadius="40dp"
+        app:cardElevation="0dp">
+
+        <ImageView
+            android:id="@+id/ivDialogPhoto"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="24dp"
+            android:src="@android:drawable/ic_menu_camera"
+            app:tint="#888888" />
+    </androidx.cardview.widget.CardView>
+
+    <EditText
+        android:id="@+id/etContactName"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="#141414"
+        android:hint="Contact Name"
+        android:textColorHint="#555555"
+        android:textColor="#FFFFFF"
+        android:paddingHorizontal="16dp"
+        android:layout_marginBottom="12dp"
+        android:singleLine="true"/>
+
+    <EditText
+        android:id="@+id/etContactNumber"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:background="#141414"
+        android:hint="Phone Number"
+        android:textColorHint="#555555"
+        android:textColor="#FFFFFF"
+        android:paddingHorizontal="16dp"
+        android:layout_marginBottom="24dp"
+        android:inputType="phone"
+        android:singleLine="true"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnCancel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:backgroundTint="#141414"
+            android:text="CANCEL"
+            android:textColor="#888888" />
+
+        <Button
+            android:id="@+id/btnSave"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#2A2A2A"
+            android:text="SAVE"
+            android:textColor="#FFFFFF" />
+    </LinearLayout>
+</LinearLayout>
