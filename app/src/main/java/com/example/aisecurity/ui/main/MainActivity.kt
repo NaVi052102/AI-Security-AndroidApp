@@ -1,13 +1,18 @@
 package com.example.aisecurity.ui.main
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
-import com.example.aisecurity.ui.FakeShutdownActivity // --- NEW IMPORT ---
+import com.example.aisecurity.SecurityAdminReceiver // --- NEW IMPORT ---
+import com.example.aisecurity.ui.FakeShutdownActivity
 import com.example.aisecurity.ui.biometrics.BiometricsFragment
 import com.example.aisecurity.ui.bluetooth.BluetoothFragment
 import com.example.aisecurity.ui.dashboard.DashboardFragment
@@ -19,6 +24,7 @@ import com.example.aisecurity.ui.settings.SettingsFragment
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
+import com.example.aisecurity.ui.HoneypotActivity
 
 class MainActivity : AppCompatActivity() {
 
@@ -89,12 +95,32 @@ class MainActivity : AppCompatActivity() {
                 R.id.side_notifications -> Toast.makeText(this, "Notifications", Toast.LENGTH_SHORT).show()
 
                 // ==========================================
-                // TEST TRIGGER: FAKE SHUTDOWN OVERRIDE
+                // TEST TRIGGER: REAL STEALTH LOCKDOWN
                 // ==========================================
                 R.id.side_help -> {
-                    Toast.makeText(this, "Initiating Fake Shutdown...", Toast.LENGTH_SHORT).show()
-                    val intent = Intent(this@MainActivity, FakeShutdownActivity::class.java)
-                    startActivity(intent)
+                    // 1. Check if we have permission to draw the black screen
+                    if (!Settings.canDrawOverlays(this@MainActivity)) {
+                        Toast.makeText(this@MainActivity, "Please grant Overlay Permission first", Toast.LENGTH_LONG).show()
+                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                        startActivity(intent)
+                    } else {
+                        // 2. Check if we have Device Admin powers
+                        val devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                        val adminComponent = ComponentName(this@MainActivity, SecurityAdminReceiver::class.java)
+
+                        if (!devicePolicyManager.isAdminActive(adminComponent)) {
+                            Toast.makeText(this@MainActivity, "Please Activate Device Admin", Toast.LENGTH_LONG).show()
+                            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+                            intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Command Center requires Admin access to lock the device.")
+                            startActivity(intent)
+                        } else {
+                            // 3. IF WE HAVE BOTH PERMISSIONS, TRIGGER THE LOCKDOWN!
+                            // TRIGGER THE HONEYPOT INSTEAD OF THE BLACK SCREEN
+                            Toast.makeText(this@MainActivity, "Initiating Honeypot Trap...", Toast.LENGTH_SHORT).show()
+                            startActivity(Intent(this@MainActivity, HoneypotActivity::class.java))
+                        }
+                    }
                 }
             }
             drawerLayout.close() // Auto-close the sidebar after clicking an item
