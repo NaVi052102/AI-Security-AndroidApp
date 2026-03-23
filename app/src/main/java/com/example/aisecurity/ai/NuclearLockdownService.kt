@@ -74,7 +74,7 @@ class NuclearLockdownService : Service() {
                 if (dpm.isAdminActive(adminComponent)) {
                     dpm.lockNow()
                 }
-                delay(500) // Sleep the screen every 500ms
+                delay(2500) // Sleep the screen every 500ms
             }
 
             // Auto-stop after 15 seconds so you can use your emulator again

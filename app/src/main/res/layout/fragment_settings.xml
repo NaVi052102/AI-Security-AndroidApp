@@ -9,7 +9,7 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Security Protocol"
+        android:text="Lockdown Recovery Message"
         android:textSize="22sp"
         android:textStyle="bold"
         android:textColor="#212121"
@@ -18,36 +18,40 @@
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Choose how the AI reacts when a thief is detected."
+        android:text="This message will be permanently pinned to the screen if the phone is locked down."
         android:textSize="14sp"
         android:textColor="#757575"
         android:layout_marginBottom="16dp"/>
 
-    <RadioGroup
-        android:id="@+id/securityRadioGroup"
+    <EditText
+        android:id="@+id/etWarningMessage"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@android:drawable/dialog_holo_light_frame"
-        android:padding="16dp"
-        android:layout_marginBottom="32dp">
+        android:hint="E.g. This phone has been lost or stolen."
+        android:inputType="textMultiLine"
+        android:lines="3"
+        android:gravity="top"
+        android:background="@android:drawable/editbox_background"
+        android:padding="12dp"
+        android:layout_marginBottom="16dp"/>
 
-        <RadioButton
-            android:id="@+id/radioGhostMode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Ghost Mode (Silent Honeypot)"
-            android:textSize="16sp"
-            android:padding="8dp"/>
+    <EditText
+        android:id="@+id/etContactNumber"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="Backup Phone Number to call"
+        android:inputType="phone"
+        android:background="@android:drawable/editbox_background"
+        android:padding="12dp"
+        android:layout_marginBottom="16dp"/>
 
-        <RadioButton
-            android:id="@+id/radioNuclearMode"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Nuclear Mode (Siren &amp; Lock Loop)"
-            android:textSize="16sp"
-            android:padding="8dp"
-            android:layout_marginTop="8dp"/>
-    </RadioGroup>
+    <Button
+        android:id="@+id/btnSaveMessage"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:text="SAVE RECOVERY INFO"
+        android:backgroundTint="#1976D2"
+        android:layout_marginBottom="32dp"/>
 
     <View
         android:layout_width="match_parent"
@@ -55,28 +59,11 @@
         android:background="#E0E0E0"
         android:layout_marginBottom="32dp"/>
 
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Developer Testing"
-        android:textSize="18sp"
-        android:textStyle="bold"
-        android:textColor="#212121"
-        android:layout_marginBottom="8dp"/>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Manually trigger the selected security protocol without waiting for the AI."
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="16dp"/>
-
     <Button
         android:id="@+id/btnTestSecurity"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:text="TEST PROTOCOL NOW"
+        android:text="TEST ULTIMATE LOCKDOWN"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textColor="#FFFFFF"

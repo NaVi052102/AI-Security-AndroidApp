@@ -1,63 +1,55 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/honeypotRoot"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#2C3E50"> <TextView
-    android:id="@+id/fakeSearchBar"
-    android:layout_width="match_parent"
-    android:layout_height="50dp"
-    android:layout_margin="24dp"
-    android:background="#E0E0E0"
-    android:gravity="center_vertical"
-    android:paddingStart="16dp"
-    android:text="G   Search..."
-    android:textColor="#757575"
-    android:textSize="18sp"
-    app:layout_constraintTop_toTopOf="parent" />
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#B71C1C"> <TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="⚠️"
+    android:textSize="80sp"
+    android:layout_marginBottom="16dp"/>
 
-    <GridLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="40dp"
-        android:alignmentMode="alignBounds"
-        android:columnCount="4"
-        android:padding="16dp"
-        android:useDefaultMargins="true"
-        app:layout_constraintTop_toBottomOf="@id/fakeSearchBar">
-
-        <LinearLayout android:orientation="vertical" android:gravity="center" android:onClick="onFakeAppClicked">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#F1C40F" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Gallery" android:textColor="#FFFFFF" android:layout_marginTop="4dp"/>
-        </LinearLayout>
-
-        <LinearLayout android:orientation="vertical" android:gravity="center" android:onClick="onFakeAppClicked">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#3498DB" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Messages" android:textColor="#FFFFFF" android:layout_marginTop="4dp"/>
-        </LinearLayout>
-
-        <LinearLayout android:orientation="vertical" android:gravity="center" android:onClick="onFakeAppClicked">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#95A5A6" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Settings" android:textColor="#FFFFFF" android:layout_marginTop="4dp"/>
-        </LinearLayout>
-
-        <LinearLayout android:orientation="vertical" android:gravity="center" android:onClick="onFakeAppClicked">
-            <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#E74C3C" />
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Chrome" android:textColor="#FFFFFF" android:layout_marginTop="4dp"/>
-        </LinearLayout>
-
-    </GridLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="100dp"
-        android:background="#40000000"
+        android:text="DEVICE LOCKED"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
         android:gravity="center"
-        android:orientation="horizontal"
-        app:layout_constraintBottom_toBottomOf="parent">
+        android:layout_marginBottom="32dp"/>
 
-        <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#2ECC71" android:layout_margin="16dp" android:onClick="onFakeAppClicked"/> <ImageView android:layout_width="60dp" android:layout_height="60dp" android:background="#9B59B6" android:layout_margin="16dp" android:onClick="onFakeAppClicked"/> </LinearLayout>
+    <TextView
+        android:id="@+id/tvDisplayMessage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="This device has been lost or stolen."
+        android:textSize="20sp"
+        android:textColor="#FFCDD2"
+        android:gravity="center"
+        android:layout_marginBottom="24dp"/>
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Please Contact:"
+        android:textSize="16sp"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tvDisplayNumber"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="555-0199"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:gravity="center"/>
+
+</LinearLayout>
