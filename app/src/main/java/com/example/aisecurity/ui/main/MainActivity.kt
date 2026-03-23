@@ -20,11 +20,11 @@ import com.example.aisecurity.ui.logs.LogsFragment
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
-import com.example.aisecurity.ui.settings.SettingsFragment
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
 import com.example.aisecurity.ui.HoneypotActivity
+import com.example.aisecurity.ui.SettingsFragment
 
 class MainActivity : AppCompatActivity() {
 

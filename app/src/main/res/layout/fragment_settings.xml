@@ -1,119 +1,85 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:padding="24dp"
+    android:background="#FAFAFA">
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:layout_marginBottom="24dp"
-        android:letterSpacing="0.1"
-        android:text="SYSTEM SETTINGS"
-        android:textColor="#6B7B8A"
+        android:text="Security Protocol"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#212121"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Choose how the AI reacts when a thief is detected."
         android:textSize="14sp"
-        android:textStyle="bold" />
+        android:textColor="#757575"
+        android:layout_marginBottom="16dp"/>
 
-    <com.google.android.material.card.MaterialCardView
+    <RadioGroup
+        android:id="@+id/securityRadioGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardBackgroundColor="#141414"
-        app:cardCornerRadius="12dp"
-        app:strokeColor="#2A2A2A"
-        app:strokeWidth="1dp">
+        android:background="@android:drawable/dialog_holo_light_frame"
+        android:padding="16dp"
+        android:layout_marginBottom="32dp">
 
-        <LinearLayout
+        <RadioButton
+            android:id="@+id/radioGhostMode"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
+            android:text="Ghost Mode (Silent Honeypot)"
+            android:textSize="16sp"
+            android:padding="8dp"/>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="TRUSTED SMS COMMANDERS"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+        <RadioButton
+            android:id="@+id/radioNuclearMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Nuclear Mode (Siren &amp; Lock Loop)"
+            android:textSize="16sp"
+            android:padding="8dp"
+            android:layout_marginTop="8dp"/>
+    </RadioGroup>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:layout_marginBottom="16dp"
-                android:text="Manage numbers authorized to locate this phone."
-                android:textColor="#888888"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnManageContacts"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:backgroundTint="#1E1E1E"
-                android:text="Manage Contacts"
-                android:textColor="#2196F3"
-                app:strokeColor="#2A2A2A"
-                app:strokeWidth="1dp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSecretKnock"
-                android:layout_width="match_parent"
-                android:layout_height="60dp"
-                android:layout_marginTop="12dp"
-                android:backgroundTint="#1E1E1E"
-                android:text="SET SECRET KNOCK"
-                android:textColor="#FFFFFF"
-                app:strokeColor="#2A2A2A"
-                app:strokeWidth="1dp" />
-
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <com.google.android.material.card.MaterialCardView
+    <View
         android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="#E0E0E0"
+        android:layout_marginBottom="32dp"/>
+
+    <TextView
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        app:cardBackgroundColor="#141414"
-        app:cardCornerRadius="12dp"
-        app:strokeColor="#2A2A2A"
-        app:strokeWidth="1dp">
+        android:text="Developer Testing"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:textColor="#212121"
+        android:layout_marginBottom="8dp"/>
 
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Manually trigger the selected security protocol without waiting for the AI."
+        android:textSize="14sp"
+        android:textColor="#757575"
+        android:layout_marginBottom="16dp"/>
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
-                android:text="ACTIVE DEFENSES"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switchAi"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="AI Touch Dynamics"
-                android:textColor="#CCCCCC"
-                android:textSize="14sp" />
-
-            <com.google.android.material.switchmaterial.SwitchMaterial
-                android:id="@+id/switchProximity"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:text="Watch Proximity Lock"
-                android:textColor="#CCCCCC"
-                android:textSize="14sp" />
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+    <Button
+        android:id="@+id/btnTestSecurity"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:text="TEST PROTOCOL NOW"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:backgroundTint="#D32F2F" />
 
 </LinearLayout>

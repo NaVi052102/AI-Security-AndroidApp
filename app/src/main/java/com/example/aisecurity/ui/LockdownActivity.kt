@@ -9,20 +9,19 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
-import androidx.activity.ComponentActivity // <-- THE FIX IS HERE
+import androidx.activity.ComponentActivity
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
-import com.example.aisecurity.ai.SecurityEnforcer
+import com.example.aisecurity.ai.SecurityAdminReceiver // <-- Correctly imports your new security badge!
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-// <-- AND HERE
 class LockdownActivity : ComponentActivity() {
 
     private var imageCapture: ImageCapture? = null
@@ -94,7 +93,8 @@ class LockdownActivity : ComponentActivity() {
 
     private fun lockPhoneAndExit() {
         val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-        val adminComponent = ComponentName(this, SecurityEnforcer.AdminReceiver::class.java)
+        // THE FIX IS HERE: Pointing directly to your new SecurityAdminReceiver class
+        val adminComponent = ComponentName(this, SecurityAdminReceiver::class.java)
 
         if (dpm.isAdminActive(adminComponent)) {
             Log.d("Lockdown", "Executing immediate screen lock...")

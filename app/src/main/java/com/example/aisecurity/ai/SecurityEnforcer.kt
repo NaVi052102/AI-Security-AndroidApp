@@ -1,46 +1,64 @@
 package com.example.aisecurity.ai
 
-import android.app.admin.DeviceAdminReceiver
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.util.Log
+import com.example.aisecurity.ui.LiveLogger
 
 class SecurityEnforcer(private val context: Context) {
 
-    fun lockDevice(triggerReason: String) {
-        Log.d("AI_SECURITY", "Threat Detected! Reason: $triggerReason")
-
-        // ==========================================
-        // STEP 1: LAUNCH THE GHOST SCREEN (Selfie + Lock)
-        // ==========================================
-        // This launches the invisible LockdownActivity which will silently snap the
-        // picture and then immediately lock the phone.
-        val lockdownIntent = Intent(context, com.example.aisecurity.ui.LockdownActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-        }
-        context.startActivity(lockdownIntent)
-
-        // ==========================================
-        // STEP 2: FIRE THE STEALTH SMS TRACKER
-        // ==========================================
-        val tracker = LocationTracker(context)
-        tracker.grabLocationAndSendStealthSMS()
+    // The two tiers of security you designed
+    enum class SecurityLevel {
+        GHOST_MODE,   // Tier 1: The Fake App Honeypot
+        NUCLEAR       // Tier 2: The Siren & Screen Lock Loop
     }
 
-    // ==========================================
-    // THE ADMIN RECEIVER
-    // ==========================================
-    // This tells the Android OS that your app has permission to turn off the screen
-    class AdminReceiver : DeviceAdminReceiver() {
-        override fun onEnabled(context: Context, intent: Intent) {
-            super.onEnabled(context, intent)
-            Log.d("AI_SECURITY", "Device Admin Enabled")
-        }
+    // Called by TouchDynamicsService when the AI detects an anomaly
+    fun lockDevice(reason: String) {
+        LiveLogger.log("🚨 THREAT DETECTED: $reason")
 
-        override fun onDisabled(context: Context, intent: Intent) {
-            super.onDisabled(context, intent)
-            Log.d("AI_SECURITY", "Device Admin Disabled")
+        // Read the user's preferred security level (Defaults to GHOST_MODE)
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val levelString = prefs.getString("security_level", SecurityLevel.GHOST_MODE.name)
+        val level = SecurityLevel.valueOf(levelString ?: SecurityLevel.GHOST_MODE.name)
+
+        when (level) {
+            SecurityLevel.GHOST_MODE -> {
+                LiveLogger.log("👻 Deploying Honeypot (Ghost Mode)...")
+
+
+                val intent = Intent(context, HoneypotActivity::class.java).apply {
+                    // We must use these flags because we are launching from a background service
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                }
+                context.startActivity(intent)
+
+            }
+            SecurityLevel.NUCLEAR -> {
+                LiveLogger.log("☢️ Deploying Nuclear Lockdown (Siren & Lock Loop)...")
+                val intent = Intent(context, NuclearLockdownService::class.java)
+                context.startService(intent)
+            }
         }
+    }
+
+    // Called via SMS Kill-Switch to rescue the phone
+    fun disengageLockdown() {
+        LiveLogger.log("✅ Device unlocked by owner.")
+
+        // Stop the Nuclear Siren & Loop if it is currently running
+        val intent = Intent(context, NuclearLockdownService::class.java)
+        context.stopService(intent)
+
+        // Reset the AI's risk score to 0 so it doesn't instantly lock you out again!
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putInt("current_risk", 0).apply()
+    }
+
+    // A helper function for your UI.
+    // Call this when the user clicks a button to change their security settings.
+    fun setSecurityLevel(level: SecurityLevel) {
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putString("security_level", level.name).apply()
+        LiveLogger.log("⚙️ Security Level updated to: ${level.name}")
     }
 }
