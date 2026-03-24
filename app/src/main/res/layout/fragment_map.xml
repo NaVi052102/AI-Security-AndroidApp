@@ -4,9 +4,10 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="@color/app_background">
 
     <FrameLayout
+        android:id="@+id/map_container"
         android:layout_width="0dp"
         android:layout_height="0dp"
         app:layout_constraintTop_toTopOf="parent"
@@ -27,15 +28,13 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <com.google.android.material.card.MaterialCardView
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        app:cardBackgroundColor="#F21E1E1E"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="8dp"
-        app:strokeColor="#2A2A2A"
-        app:strokeWidth="1dp"
+        android:layout_margin="20dp"
+        android:background="@drawable/glass_card"
+        android:orientation="vertical"
+        android:padding="20dp"
         app:layout_constraintTop_toTopOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
@@ -43,57 +42,50 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-
-                <TextView
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="SECURE TRACKING"
-                    android:textColor="#FFFFFF"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.1"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tvNetworkStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="CHECKING..."
-                    android:textColor="#AAAAAA"
-                    android:textSize="10sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
             <TextView
-                android:id="@+id/tvLocationStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:letterSpacing="0.1"
+                android:text="SECURE TRACKING"
+                android:textColor="@color/text_main"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvNetworkStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Waiting for SMS coordinates..."
-                android:textColor="#888888"
+                android:background="#1A34C759"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="CHECKING"
+                android:textColor="#34C759"
                 android:textSize="12sp"
-                android:layout_marginTop="6dp"/>
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSettings"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:backgroundTint="#141414"
-                android:text="Set Target Number"
-                android:textColor="#2196F3"
-                android:textSize="12sp"
-                app:strokeColor="#2A2A2A"
-                app:strokeWidth="1dp" />
-
+                android:textStyle="bold" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+
+        <TextView
+            android:id="@+id/tvLocationStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:layout_marginBottom="20dp"
+            android:text="Waiting for SMS coordinates..."
+            android:textColor="@color/text_muted"
+            android:textSize="14sp" />
+
+        <Button
+            android:id="@+id/btnSettings"
+            android:layout_width="match_parent"
+            android:layout_height="55dp"
+            android:backgroundTint="?attr/colorPrimary"
+            android:text="SET TARGET NUMBER"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
+    </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

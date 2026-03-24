@@ -2,71 +2,120 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/app_background"
     android:orientation="vertical"
-    android:padding="24dp"
-    android:background="#FAFAFA">
+    android:padding="24dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="32dp"
+        android:background="@drawable/glass_card"
+        android:padding="16dp">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Dark Mode"
+            android:textColor="@color/text_main"
+            android:textSize="18sp"
+            android:textStyle="bold" />
+
+        <com.google.android.material.switchmaterial.SwitchMaterial
+            android:id="@+id/switchTheme"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Lockdown Recovery Message"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="#212121"
-        android:layout_marginBottom="8dp"/>
+        android:layout_marginBottom="8dp"
+        android:text="Recovery Protocol"
+        android:textColor="@color/text_main"
+        android:textSize="26sp"
+        android:textStyle="bold" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="This message will be permanently pinned to the screen if the phone is locked down."
-        android:textSize="14sp"
-        android:textColor="#757575"
-        android:layout_marginBottom="16dp"/>
+        android:layout_marginBottom="24dp"
+        android:text="This message will be permanently pinned to the screen if the phone enters lockdown mode."
+        android:textColor="@color/text_muted"
+        android:textSize="14sp" />
 
-    <EditText
-        android:id="@+id/etWarningMessage"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="E.g. This phone has been lost or stolen."
-        android:inputType="textMultiLine"
-        android:lines="3"
-        android:gravity="top"
-        android:background="@android:drawable/editbox_background"
-        android:padding="12dp"
-        android:layout_marginBottom="16dp"/>
+        android:background="@drawable/glass_card"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:layout_marginBottom="32dp">
 
-    <EditText
-        android:id="@+id/etContactNumber"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="Backup Phone Number to call"
-        android:inputType="phone"
-        android:background="@android:drawable/editbox_background"
-        android:padding="12dp"
-        android:layout_marginBottom="16dp"/>
+        <EditText
+            android:id="@+id/etWarningMessage"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            android:background="@color/glass_fill"
+            android:gravity="top"
+            android:hint="E.g. This phone has been lost..."
+            android:textColorHint="@color/text_muted"
+            android:textColor="@color/text_main"
+            android:inputType="textMultiLine"
+            android:lines="3"
+            android:padding="16dp" />
 
-    <Button
-        android:id="@+id/btnSaveMessage"
-        android:layout_width="match_parent"
-        android:layout_height="50dp"
-        android:text="SAVE RECOVERY INFO"
-        android:backgroundTint="#1976D2"
-        android:layout_marginBottom="32dp"/>
+        <EditText
+            android:id="@+id/etContactNumber"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:background="@color/glass_fill"
+            android:hint="Backup Phone Number"
+            android:textColorHint="@color/text_muted"
+            android:textColor="@color/text_main"
+            android:inputType="phone"
+            android:padding="16dp" />
+
+        <Button
+            android:id="@+id/btnSaveMessage"
+            android:layout_width="match_parent"
+            android:layout_height="55dp"
+            android:backgroundTint="#007AFF"
+            android:text="SAVE SYSTEM CONFIG"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
+    </LinearLayout>
 
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:background="#E0E0E0"
-        android:layout_marginBottom="32dp"/>
+        android:layout_marginBottom="32dp"
+        android:background="@color/glass_border" />
 
     <Button
-        android:id="@+id/btnTestSecurity"
+        android:id="@+id/btnTestNuclear"
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:text="TEST ULTIMATE LOCKDOWN"
-        android:textSize="16sp"
-        android:textStyle="bold"
+        android:backgroundTint="#8B0000"
+        android:text="TEST NUCLEAR LOCKDOWN"
         android:textColor="#FFFFFF"
-        android:backgroundTint="#D32F2F" />
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="12dp" />
+
+    <Button
+        android:id="@+id/btnTestPersistent"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:backgroundTint="#D97706"
+        android:text="TEST SAFE PERSISTENT LOCK"
+        android:textColor="#FFFFFF"
+        android:textSize="14sp"
+        android:textStyle="bold" />
 
 </LinearLayout>

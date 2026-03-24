@@ -1,25 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
-    <group android:checkableBehavior="single">
-        <item
-            android:id="@+id/side_bluetooth"
-            android:icon="@drawable/ic_custom_bluetooth"
-            android:title="Bluetooth Connection" />
-        <item
-            android:id="@+id/side_permissions"
-            android:icon="@drawable/ic_custom_permissions"
-            android:title="App Permissions" />
-        <item
-            android:id="@+id/side_settings"
-            android:icon="@drawable/ic_custom_settings_sliders"
-            android:title="System Settings" />
-        <item
-            android:id="@+id/side_notifications"
-            android:icon="@drawable/ic_custom_notifications"
-            android:title="Notifications" />
-        <item
-            android:id="@+id/side_help"
-            android:icon="@drawable/ic_custom_help"
-            android:title="Help &amp; Support" />
-    </group>
+
+    <item android:title="System Configuration">
+        <menu>
+            <item
+                android:id="@+id/side_bluetooth"
+                android:icon="@android:drawable/stat_sys_data_bluetooth"
+                android:title="Bluetooth Link" />
+            <item
+                android:id="@+id/side_permissions"
+                android:icon="@android:drawable/ic_secure"
+                android:title="System Permissions" />
+        </menu>
+    </item>
+
+    <item android:title="Audit &amp; Logs">
+        <menu>
+            <item
+                android:id="@+id/side_logs"
+                android:icon="@android:drawable/ic_menu_recent_history"
+                android:title="Security Audit Logs" />
+        </menu>
+    </item>
+
+    <item android:title="Application">
+        <menu>
+            <item
+                android:id="@+id/side_settings"
+                android:icon="@android:drawable/ic_menu_preferences"
+                android:title="Settings &amp; Theme" />
+            <item
+                android:id="@+id/side_help"
+                android:icon="@android:drawable/ic_menu_help"
+                android:title="Help &amp; Support" />
+        </menu>
+    </item>
+
 </menu>

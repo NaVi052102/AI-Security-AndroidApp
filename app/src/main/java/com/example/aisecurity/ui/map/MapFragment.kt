@@ -18,6 +18,7 @@ import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.Button // --- Updated Import ---
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -31,7 +32,6 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
-import com.google.android.material.button.MaterialButton
 
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
@@ -49,7 +49,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private lateinit var googleMapContainer: View
     private lateinit var tvLocationStatus: TextView
     private lateinit var tvNetworkStatus: TextView
-    private lateinit var btnSettings: MaterialButton
+    private lateinit var btnSettings: Button // --- Updated Type ---
 
     private lateinit var targetPoint: GeoPoint
     private lateinit var gTargetLatLng: LatLng
@@ -85,10 +85,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         tvNetworkStatus = view.findViewById(R.id.tvNetworkStatus)
         btnSettings = view.findViewById(R.id.btnSettings)
 
-        // --- FIXED: Use HIDE and ADD so the map is preserved in the backstack! ---
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
+                // Ensure TrustedContactsFragment actually exists in your project!
                 .add(R.id.fragment_container, com.example.aisecurity.ui.settings.TrustedContactsFragment())
                 .addToBackStack("TrustedContacts")
                 .commit()
@@ -120,8 +120,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     private fun switchToOnlineMap() {
         if (googleMapContainer.visibility == View.VISIBLE) return
-        tvNetworkStatus.text = "ONLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#4CAF50"))
+
+        // --- UPDATED GLASS PILL STYLING ---
+        tvNetworkStatus.text = "● ONLINE"
+        tvNetworkStatus.setTextColor(Color.parseColor("#34C759")) // Green text
+        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1A34C759")) // 10% Green bg
+
         map.visibility = View.GONE
         googleMapContainer.visibility = View.VISIBLE
         val mapFragment = childFragmentManager.findFragmentById(R.id.googleMapContainer) as SupportMapFragment
@@ -130,8 +134,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     private fun switchToOfflineMap() {
         if (map.visibility == View.VISIBLE) return
-        tvNetworkStatus.text = "OFFLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#FF9800"))
+
+        // --- UPDATED GLASS PILL STYLING ---
+        tvNetworkStatus.text = "● OFFLINE"
+        tvNetworkStatus.setTextColor(Color.parseColor("#FF9500")) // Orange text
+        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1AFF9500")) // 10% Orange bg
+
         googleMapContainer.visibility = View.GONE
         map.visibility = View.VISIBLE
     }
@@ -140,15 +148,21 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (gMap != null) return
         gMap = googleMap
 
-        try {
-            gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark))
-        } catch (e: Exception) { e.printStackTrace() }
+        // --- DYNAMIC GOOGLE MAPS THEME ---
+        if (isDarkMode()) {
+            try {
+                gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark))
+            } catch (e: Exception) { e.printStackTrace() }
+        } else {
+            // Clears the dark style, returning it to the default bright Google Maps
+            gMap?.setMapStyle(null)
+        }
 
         gMap?.addMarker(MarkerOptions().position(gTargetLatLng).title("Stolen Phone"))
         gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(gTargetLatLng, 15f))
 
         gMapPolyline = gMap?.addPolyline(PolylineOptions()
-            .color(Color.parseColor("#2196F3"))
+            .color(Color.parseColor("#007AFF")) // Changed to our new Tech Blue
             .width(12f)
             .geodesic(false))
 
@@ -164,15 +178,23 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     private fun setupOfflineMap() {
-        val darkTileSource = object : OnlineTileSourceBase(
-            "CartoDbDark", 1, 20, 256, ".png",
-            arrayOf("https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/")
+        // --- DYNAMIC OFFLINE MAP THEME ---
+        val tileUrl = if (isDarkMode()) {
+            "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/"
+        } else {
+            "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/" // The bright map version!
+        }
+
+        val dynamicTileSource = object : OnlineTileSourceBase(
+            "CartoDbDynamic", 1, 20, 256, ".png",
+            arrayOf(tileUrl)
         ) {
             override fun getTileURLString(pMapTileIndex: Long): String {
                 return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + mImageFilenameEnding
             }
         }
-        map.setTileSource(darkTileSource)
+        map.setTileSource(dynamicTileSource)
+
         map.setMultiTouchControls(true)
         map.controller.setZoom(15.0)
         map.controller.setCenter(targetPoint)
@@ -183,7 +205,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         targetMarker.title = "Stolen Phone"
         map.overlays.add(targetMarker)
 
-        routingLine.outlinePaint.color = Color.parseColor("#2196F3")
+        routingLine.outlinePaint.color = Color.parseColor("#007AFF") // Changed to our new Tech Blue
         routingLine.outlinePaint.strokeWidth = 12f
         map.overlays.add(routingLine)
 
@@ -272,4 +294,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
+
+    private fun isDarkMode(): Boolean {
+        val currentNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
+        return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
 }

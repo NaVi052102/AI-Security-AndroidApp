@@ -1,190 +1,140 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="@color/app_background"
     android:orientation="vertical"
-    android:padding="16dp">
-
-    <androidx.cardview.widget.CardView
-        android:id="@+id/cardStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardBackgroundColor="#1E1E1E"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="4dp">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:gravity="center"
-            android:orientation="vertical"
-            android:padding="24dp">
-
-            <TextView
-                android:id="@+id/tvRiskScore"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="0%"
-                android:textColor="#4CAF50"
-                android:textSize="48sp"
-                android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tvStatusLabel"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="SYSTEM SECURE"
-                android:textColor="#AAAAAA"
-                android:textSize="14sp"
-                android:letterSpacing="0.1"
-                android:layout_marginTop="4dp"/>
-
-            <ProgressBar
-                android:id="@+id/linearProgress"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="120dp"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:progress="0"
-                android:max="50"
-                android:progressTint="#4CAF50" />
-
-            <TextView
-                android:id="@+id/tvScore"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="Training: 0/50 Swipes"
-                android:textColor="#666666"
-                android:textSize="12sp" />
-        </LinearLayout>
-    </androidx.cardview.widget.CardView>
+    android:padding="20dp">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:orientation="horizontal">
+        android:background="@drawable/glass_card"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:padding="40dp"
+        android:layout_marginBottom="24dp">
 
-        <Button
-            android:id="@+id/btnAction"
-            android:layout_width="0dp"
+        <TextView
+            android:id="@+id/tvTrainingPercentage"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:backgroundTint="#2196F3"
-            android:text="Permissions"
-            android:textColor="#FFFFFF" />
+            android:text="0%"
+            android:textColor="@color/text_main"
+            android:textSize="80sp"
+            android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/btnReset"
-            android:layout_width="0dp"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#333333"
-            android:text="Reset AI"
-            android:textColor="#FF5252" />
+            android:layout_marginTop="8dp"
+            android:letterSpacing="0.2"
+            android:text="GATHERING DATA..."
+            android:textColor="#007AFF"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="60dp"
+            android:layout_height="2dp"
+            android:layout_marginTop="16dp"
+            android:layout_marginBottom="16dp"
+            android:background="@color/glass_border" />
+
+        <TextView
+            android:id="@+id/tvTrainingProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Training: 0 / 50 Swipes"
+            android:textColor="@color/text_muted"
+            android:textSize="14sp" />
     </LinearLayout>
 
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/cardAppFlow"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        app:cardBackgroundColor="#141414"
-        app:cardCornerRadius="12dp"
-        app:strokeColor="#2A2A2A"
-        app:strokeWidth="1dp">
+        android:orientation="horizontal"
+        android:layout_marginBottom="24dp">
+
+        <Button
+            android:id="@+id/btnStopTraining"
+            android:layout_width="0dp"
+            android:layout_height="55dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:backgroundTint="#2A1B1B"
+            android:text="PAUSE"
+            android:textColor="#FF9500"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/btnResetAi"
+            android:layout_width="0dp"
+            android:layout_height="55dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:backgroundTint="#2A1515"
+            android:text="PURGE AI"
+            android:textColor="#FF3B30"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/glass_card"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:layout_marginBottom="24dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.1"
+            android:text="APP TRANSITION TRACKER"
+            android:textColor="@color/text_muted"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="20dp">
+            android:orientation="horizontal">
 
             <TextView
-                android:layout_width="wrap_content"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:text="APP TRANSITION TRACKER"
-                android:textColor="#6B7B8A"
-                android:textSize="12sp"
+                android:layout_weight="1"
+                android:text="System UI"
+                android:textColor="@color/text_main"
+                android:textSize="16sp" />
+
+            <View
+                android:layout_width="1dp"
+                android:layout_height="match_parent"
+                android:background="@color/glass_border"
+                android:layout_marginHorizontal="16dp"/>
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:gravity="end"
+                android:text="Monitoring..."
+                android:textColor="#34C759"
                 android:textStyle="bold"
-                android:letterSpacing="0.15"
-                android:layout_marginBottom="20dp" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:baselineAligned="false">
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-
-                    <TextView
-                        android:id="@+id/tvPreviousApp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="System UI"
-                        android:textColor="#888888"
-                        android:textSize="14sp"
-                        android:textStyle="normal"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
-
-                <View
-                    android:layout_width="1dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginHorizontal="16dp"
-                    android:background="#2A2A2A" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical"
-                    android:gravity="center">
-
-                    <TextView
-                        android:id="@+id/tvCurrentApp"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Monitoring..."
-                        android:textColor="#FFFFFF"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:maxLines="1"
-                        android:ellipsize="end"/>
-                </LinearLayout>
-            </LinearLayout>
+                android:textSize="16sp" />
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
+    </LinearLayout>
 
     <TextView
-        android:layout_width="match_parent"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:letterSpacing="0.1"
         android:text="LIVE APP INSIGHTS"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:letterSpacing="0.05"
-        android:layout_marginBottom="12dp"/>
-
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerAppStats"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        tools:listitem="@layout/item_app_usage" />
+        android:textColor="@color/text_muted"
+        android:textSize="12sp"
+        android:textStyle="bold" />
 
 </LinearLayout>

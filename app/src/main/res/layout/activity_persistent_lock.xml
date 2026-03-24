@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="32dp"
+    android:background="#8B0000"> <TextView
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:text="⚠️"
+    android:textSize="80sp"
+    android:layout_marginBottom="16dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="DEVICE LOCKED"
+        android:textSize="32sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:layout_marginBottom="32dp"/>
+
+    <TextView
+        android:id="@+id/tvDisplayMessage"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="This device has been lost or stolen."
+        android:textSize="20sp"
+        android:textColor="#FFCDD2"
+        android:gravity="center"
+        android:layout_marginBottom="24dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Please Contact:"
+        android:textSize="16sp"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:id="@+id/tvDisplayNumber"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="555-0199"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:textColor="#FFFFFF"
+        android:gravity="center"
+        android:layout_marginBottom="48dp"/>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#1AFFFFFF"
+        android:orientation="vertical"
+        android:padding="20dp"
+        android:gravity="center">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="AUTHORIZED OVERRIDE"
+            android:textSize="12sp"
+            android:textColor="#FFCDD2"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="16dp"/>
+
+        <EditText
+            android:id="@+id/etPinOverride"
+            android:layout_width="200dp"
+            android:layout_height="50dp"
+            android:background="#33FFFFFF"
+            android:gravity="center"
+            android:hint="ENTER PIN"
+            android:textColorHint="#99FFFFFF"
+            android:textColor="#FFFFFF"
+            android:inputType="numberPassword"
+            android:maxLength="6"
+            android:textSize="18sp"
+            android:letterSpacing="0.3"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnUnlockScreen"
+            android:layout_width="match_parent"
+            android:layout_height="55dp"
+            android:backgroundTint="#000000"
+            android:text="DISENGAGE LOCK"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+</LinearLayout>

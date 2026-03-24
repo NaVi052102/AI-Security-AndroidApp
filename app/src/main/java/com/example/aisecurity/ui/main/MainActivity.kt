@@ -1,18 +1,12 @@
 package com.example.aisecurity.ui.main
 
-import android.app.admin.DevicePolicyManager
-import android.content.ComponentName
 import android.content.Context
-import android.content.Intent
 import android.os.Bundle
-import android.provider.Settings
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
-import com.example.aisecurity.SecurityAdminReceiver // --- NEW IMPORT ---
-import com.example.aisecurity.ui.FakeShutdownActivity
 import com.example.aisecurity.ui.biometrics.BiometricsFragment
 import com.example.aisecurity.ui.bluetooth.BluetoothFragment
 import com.example.aisecurity.ui.dashboard.DashboardFragment
@@ -20,11 +14,11 @@ import com.example.aisecurity.ui.logs.LogsFragment
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
+import com.example.aisecurity.ui.SettingsFragment
+import com.example.aisecurity.ui.help.HelpFragment // --- NEW IMPORT ---
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
-import com.example.aisecurity.ui.HoneypotActivity
-import com.example.aisecurity.ui.SettingsFragment
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,6 +26,15 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val isNightMode = prefs.getBoolean("dark_mode", true)
+
+        if (isNightMode) {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+        } else {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+        }
+
         setContentView(R.layout.activity_main)
 
         drawerLayout = findViewById(R.id.drawer_layout)
@@ -69,10 +72,6 @@ class MainActivity : AppCompatActivity() {
                     loadFragment(MapFragment())
                     topAppBar.title = "Tracker Map"
                 }
-                R.id.nav_logs -> {
-                    loadFragment(LogsFragment())
-                    topAppBar.title = "Security Logs"
-                }
             }
             true
         }
@@ -92,38 +91,17 @@ class MainActivity : AppCompatActivity() {
                     loadFragment(PermissionsFragment())
                     topAppBar.title = "App Permissions"
                 }
-                R.id.side_notifications -> Toast.makeText(this, "Notifications", Toast.LENGTH_SHORT).show()
-
-                // ==========================================
-                // TEST TRIGGER: REAL STEALTH LOCKDOWN
-                // ==========================================
+                R.id.side_logs -> {
+                    loadFragment(LogsFragment())
+                    topAppBar.title = "Security Audit Logs"
+                }
                 R.id.side_help -> {
-                    // 1. Check if we have permission to draw the black screen
-                    if (!Settings.canDrawOverlays(this@MainActivity)) {
-                        Toast.makeText(this@MainActivity, "Please grant Overlay Permission first", Toast.LENGTH_LONG).show()
-                        val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
-                        startActivity(intent)
-                    } else {
-                        // 2. Check if we have Device Admin powers
-                        val devicePolicyManager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-                        val adminComponent = ComponentName(this@MainActivity, SecurityAdminReceiver::class.java)
-
-                        if (!devicePolicyManager.isAdminActive(adminComponent)) {
-                            Toast.makeText(this@MainActivity, "Please Activate Device Admin", Toast.LENGTH_LONG).show()
-                            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
-                            intent.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-                            intent.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Command Center requires Admin access to lock the device.")
-                            startActivity(intent)
-                        } else {
-                            // 3. IF WE HAVE BOTH PERMISSIONS, TRIGGER THE LOCKDOWN!
-                            // TRIGGER THE HONEYPOT INSTEAD OF THE BLACK SCREEN
-                            Toast.makeText(this@MainActivity, "Initiating Honeypot Trap...", Toast.LENGTH_SHORT).show()
-                            startActivity(Intent(this@MainActivity, HoneypotActivity::class.java))
-                        }
-                    }
+                    // --- NOW LOADS THE ACTUAL HELP SCREEN ---
+                    loadFragment(HelpFragment())
+                    topAppBar.title = "Help & Support"
                 }
             }
-            drawerLayout.close() // Auto-close the sidebar after clicking an item
+            drawerLayout.close()
             true
         }
     }

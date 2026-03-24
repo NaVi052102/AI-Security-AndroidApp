@@ -2,8 +2,8 @@ package com.example.aisecurity.ai
 
 import android.content.Context
 import android.content.Intent
-import com.example.aisecurity.ui.HoneypotActivity // Make sure this import is correct for your folders!
 import com.example.aisecurity.ui.LiveLogger
+import com.example.aisecurity.ui.HoneypotActivity
 
 class SecurityEnforcer(private val context: Context) {
 
@@ -24,11 +24,16 @@ class SecurityEnforcer(private val context: Context) {
     fun disengageLockdown() {
         LiveLogger.log("✅ Device unlocked by owner.")
 
-        // Stop the Siren Service
+        // 1. Stop the Siren Service
         val intent = Intent(context, NuclearLockdownService::class.java)
         context.stopService(intent)
 
-        // Reset the AI's risk score
+        // 2. Broadcast the rescue signal to kill the Pinned Screen
+        val rescueIntent = Intent("com.example.aisecurity.ACTION_RESCUE")
+        rescueIntent.setPackage(context.packageName) // Security measure: only our app can hear this
+        context.sendBroadcast(rescueIntent)
+
+        // 3. Reset the AI's risk score
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         prefs.edit().putInt("current_risk", 0).apply()
     }

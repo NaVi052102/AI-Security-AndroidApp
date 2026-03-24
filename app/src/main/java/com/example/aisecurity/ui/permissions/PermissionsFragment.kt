@@ -1,89 +1,108 @@
 package com.example.aisecurity.ui.permissions
 
-import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.provider.Settings
+import android.text.TextUtils
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.TextView
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
-import com.google.android.material.card.MaterialCardView
 
 class PermissionsFragment : Fragment() {
 
     private lateinit var tvStatusAccessibility: TextView
     private lateinit var tvStatusUsage: TextView
 
-    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        return inflater.inflate(R.layout.fragment_permissions, container, false)
-    }
+    override fun onCreateView(
+        inflater: LayoutInflater, container: ViewGroup?,
+        savedInstanceState: Bundle?
+    ): View? {
+        val view = inflater.inflate(R.layout.fragment_permissions, container, false)
 
-    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-        super.onViewCreated(view, savedInstanceState)
-
-        val cardAccessibility = view.findViewById<MaterialCardView>(R.id.cardAccessibility)
-        val cardUsageStats = view.findViewById<MaterialCardView>(R.id.cardUsageStats)
         tvStatusAccessibility = view.findViewById(R.id.tvStatusAccessibility)
         tvStatusUsage = view.findViewById(R.id.tvStatusUsage)
 
-        // Teleport to Android Accessibility Settings when clicked
-        cardAccessibility.setOnClickListener {
+        val btnGrantAccessibility = view.findViewById<Button>(R.id.btnGrantAccessibility)
+        val btnGrantUsage = view.findViewById<Button>(R.id.btnGrantUsage)
+
+        btnGrantAccessibility.setOnClickListener {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
-        // Teleport to Android Usage Access Settings when clicked
-        cardUsageStats.setOnClickListener {
+        btnGrantUsage.setOnClickListener {
             startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
         }
+
+        return view
     }
 
-    // We check permissions in onResume so it updates immediately when the user comes back from Settings
     override fun onResume() {
         super.onResume()
-        checkPermissions()
+        checkPermissionsState()
     }
 
-    private fun checkPermissions() {
+    private fun checkPermissionsState() {
         // Check Accessibility
-        if (isAccessibilityEnabled()) {
-            tvStatusAccessibility.text = "✅ GRANTED"
-            tvStatusAccessibility.setTextColor(Color.parseColor("#4CAF50")) // Green
+        if (isAccessibilitySettingsOn(requireContext())) {
+            tvStatusAccessibility.text = "GRANTED"
+            tvStatusAccessibility.setTextColor(android.graphics.Color.parseColor("#34C759")) // Green
+            tvStatusAccessibility.setBackgroundColor(android.graphics.Color.parseColor("#1A34C759"))
         } else {
-            tvStatusAccessibility.text = "❌ MISSING - TAP TO FIX"
-            tvStatusAccessibility.setTextColor(Color.parseColor("#F44336")) // Red
+            tvStatusAccessibility.text = "MISSING"
+            tvStatusAccessibility.setTextColor(android.graphics.Color.parseColor("#FF3B30")) // Red
+            tvStatusAccessibility.setBackgroundColor(android.graphics.Color.parseColor("#1AFF3B30"))
         }
 
-        // Check Usage Access
-        if (isUsageAccessEnabled()) {
-            tvStatusUsage.text = "✅ GRANTED"
-            tvStatusUsage.setTextColor(Color.parseColor("#4CAF50"))
+        // Check Usage Stats
+        val appOps = requireContext().getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            android.app.AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            requireContext().packageName
+        )
+
+        if (mode == android.app.AppOpsManager.MODE_ALLOWED) {
+            tvStatusUsage.text = "GRANTED"
+            tvStatusUsage.setTextColor(android.graphics.Color.parseColor("#34C759"))
+            tvStatusUsage.setBackgroundColor(android.graphics.Color.parseColor("#1A34C759"))
         } else {
-            tvStatusUsage.text = "❌ MISSING - TAP TO FIX"
-            tvStatusUsage.setTextColor(Color.parseColor("#F44336"))
+            tvStatusUsage.text = "MISSING"
+            tvStatusUsage.setTextColor(android.graphics.Color.parseColor("#FF3B30"))
+            tvStatusUsage.setBackgroundColor(android.graphics.Color.parseColor("#1AFF3B30"))
         }
     }
 
-    private fun isAccessibilityEnabled(): Boolean {
+    private fun isAccessibilitySettingsOn(mContext: Context): Boolean {
         var accessibilityEnabled = 0
+        val service = mContext.packageName + "/" + "com.example.aisecurity.ai.TouchDynamicsService" // Make sure this matches your service path!
         try {
-            accessibilityEnabled = Settings.Secure.getInt(requireContext().contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED)
+            accessibilityEnabled = Settings.Secure.getInt(
+                mContext.applicationContext.contentResolver,
+                Settings.Secure.ACCESSIBILITY_ENABLED
+            )
         } catch (e: Settings.SettingNotFoundException) { }
 
+        val mStringColonSplitter = TextUtils.SimpleStringSplitter(':')
         if (accessibilityEnabled == 1) {
-            val services = Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-            return services?.contains(requireContext().packageName) == true
+            val settingValue = Settings.Secure.getString(
+                mContext.applicationContext.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+            )
+            if (settingValue != null) {
+                mStringColonSplitter.setString(settingValue)
+                while (mStringColonSplitter.hasNext()) {
+                    val accessibilityService = mStringColonSplitter.next()
+                    if (accessibilityService.equals(service, ignoreCase = true)) {
+                        return true
+                    }
+                }
+            }
         }
         return false
-    }
-
-    private fun isUsageAccessEnabled(): Boolean {
-        val appOps = requireContext().getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), requireContext().packageName)
-        return mode == AppOpsManager.MODE_ALLOWED
     }
 }
