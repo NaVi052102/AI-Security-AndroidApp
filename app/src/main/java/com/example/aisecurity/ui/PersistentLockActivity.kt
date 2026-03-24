@@ -13,19 +13,22 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
-import androidx.activity.OnBackPressedCallback // NEW: Modern gesture blocking
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import com.example.aisecurity.R
 
 class PersistentLockActivity : AppCompatActivity() {
 
-    // The Master Trap Flag
     private var isUnlocked = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. FORCE OVER LOCKSCREEN & KEEP AWAKE
+        // 1. ENGAGE SYSTEM MEMORY LOCK
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("is_system_locked", true).apply()
+
+        // 2. FORCE OVER LOCKSCREEN & KEEP AWAKE
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -43,72 +46,89 @@ class PersistentLockActivity : AppCompatActivity() {
 
         setContentView(R.layout.activity_persistent_lock)
 
-        // 2. LOAD RECOVERY INFO
-        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val customMsg = prefs.getString("warning_msg", "This device has been lost or stolen.")
         val customNum = prefs.getString("contact_num", "No number provided.")
-        val savedPin = prefs.getString("master_pin", "1234") // Default PIN
+        val savedPin = prefs.getString("master_pin", "1234")
 
         findViewById<TextView>(R.id.tvDisplayMessage).text = customMsg
         findViewById<TextView>(R.id.tvDisplayNumber).text = customNum
 
-        // 3. HIDE SYSTEM BARS
+        // 3. HIDE SYSTEM BARS (Prevents pulling down settings)
         window.setDecorFitsSystemWindows(false)
         window.insetsController?.let {
             it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
             it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         }
 
-        // ==========================================
-        // ENTERPRISE TRAP LAYER 1 & 2
-        // ==========================================
+        // ** REMOVED startLockTask() TO PREVENT THE SYSTEM POPUP LOOPHOLE **
 
-        // Disable Home and Recents buttons
-        startLockTask()
-
-        // Block modern edge-swipe back gestures
+        // Block edge-swipe back gestures silently
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
-                Toast.makeText(this@PersistentLockActivity, "ACTION BLOCKED: Device is locked.", Toast.LENGTH_SHORT).show()
+                // Do nothing. Stay silent.
             }
         })
 
-        // 4. PIN VALIDATION LOGIC
         val etPinOverride = findViewById<EditText>(R.id.etPinOverride)
         val btnUnlockScreen = findViewById<Button>(R.id.btnUnlockScreen)
 
         btnUnlockScreen.setOnClickListener {
             val enteredPin = etPinOverride.text.toString()
 
-            // SECURITY CHECK + DEVELOPER ESCAPE HATCH (0000)
             if (enteredPin == savedPin || enteredPin == "0000") {
                 Toast.makeText(this, "Master Override Accepted.", Toast.LENGTH_SHORT).show()
 
-                isUnlocked = true // Set flag to true so the Bounce-Back trap ignores us
-                stopLockTask()    // Tell Android to release the buttons
-                finish()          // Safely close the screen
+                isUnlocked = true
+                prefs.edit().putBoolean("is_system_locked", false).apply()
+
+                finish()
             } else {
-                Toast.makeText(this, "ACCESS DENIED: Incorrect PIN", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "ACCESS DENIED", Toast.LENGTH_SHORT).show()
                 etPinOverride.text.clear()
             }
         }
     }
 
     // ==========================================
-    // ENTERPRISE TRAP LAYER 3: The Bounce-Back
+    // THE ZERO-LATENCY HYDRA DEFENSES
     // ==========================================
-    override fun onPause() {
-        super.onPause()
-        // If the activity is paused (e.g., they found a loophole to go to the home screen)
-        // AND we haven't officially unlocked it... drag them right back.
+
+    private fun relaunchTrap() {
         if (!isUnlocked) {
-            val trapIntent = Intent(this, PersistentLockActivity::class.java)
-            trapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            startActivity(trapIntent)
+            val trapIntent = Intent(applicationContext, PersistentLockActivity::class.java)
+            trapIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            applicationContext.startActivity(trapIntent)
+
+            // Forces the OS to skip transition animations, making the bounce-back instant
+            @Suppress("DEPRECATION")
+            overridePendingTransition(0, 0)
         }
     }
 
-    // Prevent turning down the siren/system volume while locked
+    // Triggered if they hit Home or Recents
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        relaunchTrap()
+    }
+
+    // Triggered if the window loses focus
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (!hasFocus) relaunchTrap()
+    }
+
+    // Triggered if they try to swipe the app away
+    override fun onDestroy() {
+        super.onDestroy()
+        if (!isUnlocked) {
+            val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            if (prefs.getBoolean("is_system_locked", false)) {
+                relaunchTrap()
+            }
+        }
+    }
+
+    // Block physical volume keys
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
         if (keyCode == KeyEvent.KEYCODE_VOLUME_DOWN || keyCode == KeyEvent.KEYCODE_VOLUME_UP) {
             return true

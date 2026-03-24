@@ -2,7 +2,10 @@ package com.example.aisecurity.ui
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri // --- NEW IMPORT ---
 import android.os.Bundle
+import android.os.PowerManager // --- NEW IMPORT ---
+import android.provider.Settings // --- NEW IMPORT ---
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -14,6 +17,7 @@ import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
 import com.example.aisecurity.ai.SecurityEnforcer
 import com.google.android.material.switchmaterial.SwitchMaterial
+import androidx.core.content.edit // --- NEW IMPORT for SharedPreferences.edit ---
 
 class SettingsFragment : Fragment() {
 
@@ -27,7 +31,6 @@ class SettingsFragment : Fragment() {
         val etContactNumber = view.findViewById<EditText>(R.id.etContactNumber)
         val btnSave = view.findViewById<Button>(R.id.btnSaveMessage)
 
-        // Find our two new distinct buttons
         val btnTestNuclear = view.findViewById<Button>(R.id.btnTestNuclear)
         val btnTestPersistent = view.findViewById<Button>(R.id.btnTestPersistent)
 
@@ -40,7 +43,10 @@ class SettingsFragment : Fragment() {
         switchTheme.isChecked = isNightMode
 
         switchTheme.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit().putBoolean("dark_mode", isChecked).apply()
+            // Using modern KTX .edit { } block
+            prefs.edit {
+                putBoolean("dark_mode", isChecked)
+            }
 
             if (isChecked) {
                 AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
@@ -53,12 +59,21 @@ class SettingsFragment : Fragment() {
         etWarningMessage.setText(prefs.getString("warning_msg", "This device has been reported lost or stolen. It is currently locked and tracking its location."))
         etContactNumber.setText(prefs.getString("contact_num", ""))
 
+        // --- THE ENTERPRISE BATTERY WHITELIST ---
         btnSave.setOnClickListener {
-            prefs.edit()
-                .putString("warning_msg", etWarningMessage.text.toString())
-                .putString("contact_num", etContactNumber.text.toString())
-                .apply()
+            prefs.edit {
+                putString("warning_msg", etWarningMessage.text.toString())
+                putString("contact_num", etContactNumber.text.toString())
+            }
             Toast.makeText(requireContext(), "Recovery Info Saved!", Toast.LENGTH_SHORT).show()
+
+            val pm = requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(requireContext().packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:${requireContext().packageName}")
+                }
+                startActivity(intent)
+            }
         }
 
         // --- BUTTON 1: NUCLEAR LOCKDOWN ---
@@ -70,10 +85,15 @@ class SettingsFragment : Fragment() {
 
         // --- BUTTON 2: PERSISTENT LOCK TEST ---
         btnTestPersistent.setOnClickListener {
-            Toast.makeText(requireContext(), "Launching Safe Lockdown Test...", Toast.LENGTH_SHORT).show()
-            val intent = Intent(requireContext(), PersistentLockActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            startActivity(intent)
+            if (!Settings.canDrawOverlays(requireContext())) {
+                Toast.makeText(requireContext(), "Please grant Overlay Permission first", Toast.LENGTH_LONG).show()
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                startActivity(intent)
+            } else {
+                Toast.makeText(requireContext(), "Deploying Unkillable Overlay...", Toast.LENGTH_SHORT).show()
+                val intent = Intent(requireContext(), LockOverlayService::class.java)
+                requireContext().startService(intent)
+            }
         }
 
         return view
