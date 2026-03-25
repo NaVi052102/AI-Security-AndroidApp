@@ -1,6 +1,7 @@
 package com.example.aisecurity.ai
 
 import android.accessibilityservice.AccessibilityService
+import android.content.Context
 import android.view.accessibility.AccessibilityEvent
 import kotlinx.coroutines.*
 import kotlin.math.abs
@@ -22,11 +23,33 @@ class TouchDynamicsService : AccessibilityService() {
     private var lastAppChangeTime = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        val currentTime = System.currentTimeMillis()
 
         // =========================================================
-        // LOGIC 1: APP FLOW (The Gatekeeper)
+        // THE VANGUARD: PARALYSIS PROTOCOL (Runs before ANY AI logic)
         // =========================================================
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val isLocked = prefs.getBoolean("is_system_locked", false)
+
+        if (isLocked) {
+            // Instantly forces the phone back to the Home Screen to prevent app access
+            performGlobalAction(GLOBAL_ACTION_HOME)
+
+            // If they try to pull down the notification bar or open the recents menu, scramble it
+            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+                performGlobalAction(GLOBAL_ACTION_RECENTS)
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            }
+
+            // CRITICAL: Return immediately so we don't train the AI on the thief's frantic tapping!
+            return
+        }
+
+        // =========================================================
+        // NORMAL OPERATION: BEHAVIORAL BIOMETRICS ENGINE
+        // =========================================================
+        val currentTime = System.currentTimeMillis()
+
+        // LOGIC 1: APP FLOW (The Gatekeeper)
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val rawPackageName = event.packageName?.toString() ?: return
             val newAppLabel = AppMonitor.getFriendlyCategory(this, rawPackageName)
@@ -55,9 +78,7 @@ class TouchDynamicsService : AccessibilityService() {
             }
         }
 
-        // =========================================================
         // LOGIC 2: SWIPE DETECTION (Context-Aware)
-        // =========================================================
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
             if (swipeStartTime == 0L) {
                 swipeStartTime = System.currentTimeMillis()
@@ -90,7 +111,7 @@ class TouchDynamicsService : AccessibilityService() {
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
 
-        // --- NEW SAFETY CHECK: IGNORE APP SWITCHES IF TRAINING IS PAUSED ---
+        // IGNORE APP SWITCHES IF TRAINING IS PAUSED
         if (isPaused && !isReady) {
             return
         }
@@ -98,7 +119,6 @@ class TouchDynamicsService : AccessibilityService() {
         val history = db.dao().getTransition(from, to)
 
         if (history == null) {
-            // --- NEW DATABASE LOGGER ---
             val severity = if (isReady) 1 else 0
             LiveLogger.logEvent(this@TouchDynamicsService, "New App Flow", "Navigated from $from to $to for the first time.", severity)
 
@@ -112,11 +132,9 @@ class TouchDynamicsService : AccessibilityService() {
             if (isReady) {
                 // If they switch apps 80% faster than normal, flag it
                 if (timeTaken < (history.avgTime * 0.2)) {
-                    // --- NEW DATABASE LOGGER ---
                     LiveLogger.logEvent(this@TouchDynamicsService, "Fast App Jump", "Jumped from $from to $to in ${timeTaken}ms. Flagged as suspicious.", 1)
                     increaseRisk(15)
                 } else {
-                    // --- NEW DATABASE LOGGER ---
                     LiveLogger.logEvent(this@TouchDynamicsService, "Verified Flow", "Normal navigation from $from to $to.", 0)
                     decreaseRisk(5)
                 }
@@ -132,7 +150,6 @@ class TouchDynamicsService : AccessibilityService() {
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
 
-        // --- NEW SAFETY CHECK: IGNORE SWIPES IF TRAINING IS PAUSED ---
         if (isPaused && !isReady) {
             return
         }
@@ -154,31 +171,24 @@ class TouchDynamicsService : AccessibilityService() {
         val threshold = prefs.getFloat("threshold", 1.0f)
 
         if (!isReady) {
-            // ==========================================
-            // THE NEW MAGIC: TRAINING ON THE FLY
-            // ==========================================
+            // TRAINING ON THE FLY
             db.dao().insertTouch(
                 TouchProfile(duration = duration, velocityX = velocity, pressure = 0.5f, appName = appLabel)
             )
 
             val loss = classifier.trainAI(features)
 
-            // --- NEW DATABASE LOGGER ---
             LiveLogger.logEvent(this@TouchDynamicsService, "AI Learning", "Context: $appLabel. Swipe matrix assimilated. Loss: ${String.format("%.4f", loss)}", 0)
 
         } else {
-            // ==========================================
             // ARMED MODE: INFERENCE
-            // ==========================================
             var riskMultiplier = 1.0f
 
-            // --- NEW DATABASE LOGGER ---
             LiveLogger.logEvent(this@TouchDynamicsService, "Swipe Analyzed", "Context: $appLabel. Speed: ${velocity.toInt()} px/s.", 0)
 
             // Compare speed against THIS specific app's normal speed
             if (abs(velocity - newStats.avgVelocity) > 1000) {
                 riskMultiplier = 1.3f
-                // --- NEW DATABASE LOGGER ---
                 LiveLogger.logEvent(this@TouchDynamicsService, "Speed Anomaly", "Context: $appLabel. Swipe speed ${velocity.toInt()}px/s (Expected ~${newStats.avgVelocity.toInt()}px/s).", 1)
             }
 
@@ -214,7 +224,6 @@ class TouchDynamicsService : AccessibilityService() {
     private fun checkLock(risk: Int) {
         if (risk > 120) {
             serviceScope.launch(Dispatchers.Main) {
-                // --- NEW DATABASE LOGGER ---
                 LiveLogger.logEvent(this@TouchDynamicsService, "DEVICE LOCKED", "Intruder detected via AI Touch Dynamics. Risk score exceeded limits.", 2)
                 enforcer.lockDevice("AI Touch Dynamics Threat Detected")
             }

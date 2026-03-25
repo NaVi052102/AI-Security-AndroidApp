@@ -5,7 +5,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo // --- NEW IMPORT ---
+import android.content.pm.ServiceInfo
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -24,15 +24,15 @@ class LockOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
+    private var isOverlayVisible = false
 
-    override fun onBind(intent: Intent?): IBinder? {
-        return null
-    }
+    override fun onBind(intent: Intent?): IBinder? = null
 
-    override fun onCreate() {
-        super.onCreate()
+    // This is called EVERY time startService() or startForegroundService() is called
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
 
         // 1. THE FOREGROUND SHIELD (ANDROID 14 READY)
+        // We do this in onStartCommand to ensure the service stays alive
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelId = "lockdown_channel"
             val channel = NotificationChannel(
@@ -51,13 +51,19 @@ class LockOverlayService : Service() {
                 .setOngoing(true)
                 .build()
 
-            // The Android 14 API 34+ specific requirement!
             if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
             } else {
                 startForeground(1, notification)
             }
         }
+
+        // Return START_STICKY so the OS recreates the service if it gets killed
+        return START_STICKY
+    }
+
+    override fun onCreate() {
+        super.onCreate()
 
         // 2. THE OVERLAY LOGIC
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
@@ -71,6 +77,7 @@ class LockOverlayService : Service() {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
+            // --- THE FIX: Removed the corrupted bitwise inverse! ---
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
@@ -99,7 +106,10 @@ class LockOverlayService : Service() {
                 Toast.makeText(this, "Master Override Accepted.", Toast.LENGTH_SHORT).show()
                 prefs.edit().putBoolean("is_system_locked", false).apply()
 
-                windowManager.removeView(overlayView)
+                if (isOverlayVisible) {
+                    windowManager.removeView(overlayView)
+                    isOverlayVisible = false
+                }
                 stopForeground(true)
                 stopSelf()
             } else {
@@ -108,14 +118,20 @@ class LockOverlayService : Service() {
             }
         }
 
-        windowManager.addView(overlayView, layoutParams)
+        try {
+            windowManager.addView(overlayView, layoutParams)
+            isOverlayVisible = true
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         try {
-            if (::overlayView.isInitialized) {
+            if (isOverlayVisible) {
                 windowManager.removeView(overlayView)
+                isOverlayVisible = false
             }
         } catch (e: Exception) {
             e.printStackTrace()
