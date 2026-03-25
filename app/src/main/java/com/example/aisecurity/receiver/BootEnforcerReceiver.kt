@@ -1,15 +1,15 @@
 package com.example.aisecurity.receiver
 
-import android.app.admin.DevicePolicyManager // --- NEW IMPORT ---
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
-import android.content.ComponentName // --- NEW IMPORT ---
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
-import com.example.aisecurity.SecurityAdminReceiver // --- NEW IMPORT ---
+import com.example.aisecurity.SecurityAdminReceiver
 import com.example.aisecurity.ui.LockOverlayService
 
 class BootEnforcerReceiver : BroadcastReceiver() {
@@ -20,14 +20,14 @@ class BootEnforcerReceiver : BroadcastReceiver() {
 
         if (isLocked) {
             // ==========================================
-            // TACTIC 1: THE BLACKOUT STRIKE
-            // Instantly kill the screen to buy time for the overlay
+            // THE BLACKOUT STRIKE
+            // Instantly kill the screen to buy time for the overlay to load
             // ==========================================
             try {
                 val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
                 val adminComponent = ComponentName(context, SecurityAdminReceiver::class.java)
                 if (dpm.isAdminActive(adminComponent)) {
-                    dpm.lockNow() // Instantly puts the phone to sleep
+                    dpm.lockNow() // Forces the screen to go black instantly
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -36,6 +36,7 @@ class BootEnforcerReceiver : BroadcastReceiver() {
             if (Settings.canDrawOverlays(context)) {
                 val lockIntent = Intent(context, LockOverlayService::class.java)
 
+                // The 500ms fast-strike delay
                 Handler(Looper.getMainLooper()).postDelayed({
                     try {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

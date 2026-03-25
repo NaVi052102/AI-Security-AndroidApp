@@ -2,8 +2,11 @@ package com.example.aisecurity.ai
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Context
+import android.content.Intent // --- FIXED: Missing Intent import ---
 import android.view.accessibility.AccessibilityEvent
+import androidx.core.content.edit // --- FIXED: Modern SharedPreferences KTX ---
 import kotlinx.coroutines.*
+import java.util.Locale // --- FIXED: Missing Locale import ---
 import kotlin.math.abs
 
 class TouchDynamicsService : AccessibilityService() {
@@ -25,24 +28,28 @@ class TouchDynamicsService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
 
         // =========================================================
-        // THE VANGUARD: PARALYSIS PROTOCOL (Runs before ANY AI logic)
+        // THE VANGUARD: PARALYSIS PROTOCOL
         // =========================================================
         val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val isLocked = prefs.getBoolean("is_system_locked", false)
 
         if (isLocked) {
-            // Instantly forces the phone back to the Home Screen to prevent app access
-            performGlobalAction(GLOBAL_ACTION_HOME)
+            val pkg = event?.packageName?.toString()
 
-            // If they try to pull down the notification bar or open the recents menu, scramble it
-            if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-                performGlobalAction(GLOBAL_ACTION_RECENTS)
+            // 1. The Guillotine: If they touch the status bar/quick settings, slam it shut!
+            if (pkg == "com.android.systemui") {
+                performGlobalAction(GLOBAL_ACTION_BACK)
+            }
+            // 2. The App Blocker: If they try to open ANY app (like GCash) beneath our overlay,
+            // snap the phone back to the Home Screen instantly.
+            else if (pkg != null && pkg != "com.example.aisecurity") {
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
 
-            // CRITICAL: Return immediately so we don't train the AI on the thief's frantic tapping!
-            return
+            return // CRITICAL: Stop the AI from learning the thief's panicked taps
         }
+
+        // ... (Keep the rest of your Behavioral Biometrics code here) ...
 
         // =========================================================
         // NORMAL OPERATION: BEHAVIORAL BIOMETRICS ENGINE
@@ -62,13 +69,12 @@ class TouchDynamicsService : AccessibilityService() {
                 // Add a 1000ms THROTTLE to prevent spamming the database
                 if (lastAppChangeTime != 0L && timeTaken > 1000) {
 
-                    // BUG FIX: Lock the app names into immutable values (val) BEFORE launching
-                    // the coroutine. This prevents the "Photos -> Photos" race condition!
+                    // FIXED: Lock the changing variable into a static val,
+                    // and inline the newAppLabel as suggested by the IDE.
                     val safeFromApp = currentActiveAppLabel
-                    val safeToApp = newAppLabel
 
                     serviceScope.launch {
-                        learnTransition(safeFromApp, safeToApp, timeTaken)
+                        learnTransition(safeFromApp, newAppLabel, timeTaken)
                     }
                 }
 
@@ -93,7 +99,7 @@ class TouchDynamicsService : AccessibilityService() {
                 val estimatedPixels = (eventCount * 75).toFloat()
                 val velocity = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
 
-                // Pass the current context (e.g., "📱 System Home" or "YouTube") to the swipe logic
+                // Pass the current context to the swipe logic
                 processSwipe(totalDuration.toFloat(), velocity, currentActiveAppLabel)
 
                 // Reset for the next swipe
@@ -104,14 +110,12 @@ class TouchDynamicsService : AccessibilityService() {
     }
 
     private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
-        // GATEKEEPER 2: The ultimate failsafe. If they are exactly the same, abort immediately.
         if (from == to) return
 
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
 
-        // IGNORE APP SWITCHES IF TRAINING IS PAUSED
         if (isPaused && !isReady) {
             return
         }
@@ -120,7 +124,7 @@ class TouchDynamicsService : AccessibilityService() {
 
         if (history == null) {
             val severity = if (isReady) 1 else 0
-            LiveLogger.logEvent(this@TouchDynamicsService, "New App Flow", "Navigated from $from to $to for the first time.", severity)
+            LiveLogger.logEvent(this, "New App Flow", "Navigated from $from to $to for the first time.", severity)
 
             if (isReady) increaseRisk(10)
             db.dao().updateTransition(TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1))
@@ -130,12 +134,11 @@ class TouchDynamicsService : AccessibilityService() {
             db.dao().updateTransition(history.copy(avgTime = newAvg, frequency = history.frequency + 1))
 
             if (isReady) {
-                // If they switch apps 80% faster than normal, flag it
                 if (timeTaken < (history.avgTime * 0.2)) {
-                    LiveLogger.logEvent(this@TouchDynamicsService, "Fast App Jump", "Jumped from $from to $to in ${timeTaken}ms. Flagged as suspicious.", 1)
+                    LiveLogger.logEvent(this, "Fast App Jump", "Jumped from $from to $to in ${timeTaken}ms. Flagged as suspicious.", 1)
                     increaseRisk(15)
                 } else {
-                    LiveLogger.logEvent(this@TouchDynamicsService, "Verified Flow", "Normal navigation from $from to $to.", 0)
+                    LiveLogger.logEvent(this, "Verified Flow", "Normal navigation from $from to $to.", 0)
                     decreaseRisk(5)
                 }
             }
@@ -143,7 +146,6 @@ class TouchDynamicsService : AccessibilityService() {
     }
 
     private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
-        // Ignore accidental tiny taps
         if (duration < 50) return
 
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
@@ -154,7 +156,6 @@ class TouchDynamicsService : AccessibilityService() {
             return
         }
 
-        // Update Stats specifically for THIS app context
         val oldStats = db.dao().getAppStats(appLabel)
         val newStats = if (oldStats == null) {
             AppUsageProfile(appLabel, velocity, duration, 1)
@@ -166,30 +167,28 @@ class TouchDynamicsService : AccessibilityService() {
         }
         db.dao().updateAppStats(newStats)
 
-        // Setup the features array for the AI
+        // FIXED GRAMMAR: Set up the features array for the AI
         val features = floatArrayOf(duration, velocity, 0.5f, 0.5f, 0.5f)
         val threshold = prefs.getFloat("threshold", 1.0f)
 
         if (!isReady) {
-            // TRAINING ON THE FLY
             db.dao().insertTouch(
                 TouchProfile(duration = duration, velocityX = velocity, pressure = 0.5f, appName = appLabel)
             )
 
             val loss = classifier.trainAI(features)
 
-            LiveLogger.logEvent(this@TouchDynamicsService, "AI Learning", "Context: $appLabel. Swipe matrix assimilated. Loss: ${String.format("%.4f", loss)}", 0)
+            // FIXED LOCALE: Added Locale.US to String.format
+            LiveLogger.logEvent(this, "AI Learning", "Context: $appLabel. Swipe matrix assimilated. Loss: ${String.format(Locale.US, "%.4f", loss)}", 0)
 
         } else {
-            // ARMED MODE: INFERENCE
             var riskMultiplier = 1.0f
 
-            LiveLogger.logEvent(this@TouchDynamicsService, "Swipe Analyzed", "Context: $appLabel. Speed: ${velocity.toInt()} px/s.", 0)
+            LiveLogger.logEvent(this, "Swipe Analyzed", "Context: $appLabel. Speed: ${velocity.toInt()} px/s.", 0)
 
-            // Compare speed against THIS specific app's normal speed
             if (abs(velocity - newStats.avgVelocity) > 1000) {
                 riskMultiplier = 1.3f
-                LiveLogger.logEvent(this@TouchDynamicsService, "Speed Anomaly", "Context: $appLabel. Swipe speed ${velocity.toInt()}px/s (Expected ~${newStats.avgVelocity.toInt()}px/s).", 1)
+                LiveLogger.logEvent(this, "Speed Anomaly", "Context: $appLabel. Swipe speed ${velocity.toInt()}px/s (Expected ~${newStats.avgVelocity.toInt()}px/s).", 1)
             }
 
             val error = classifier.getError(features) * riskMultiplier
@@ -202,14 +201,16 @@ class TouchDynamicsService : AccessibilityService() {
     private fun increaseRisk(amount: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
-        prefs.edit().putInt("current_risk", current + amount).apply()
+        // FIXED: Used modern KTX edit block
+        prefs.edit { putInt("current_risk", current + amount) }
         checkLock(current + amount)
     }
 
     private fun decreaseRisk(amount: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
-        prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
+        // FIXED: Used modern KTX edit block
+        prefs.edit { putInt("current_risk", (current - amount).coerceAtLeast(0)) }
     }
 
     private fun updateRiskScore(newCalculatedRisk: Int) {
@@ -217,7 +218,8 @@ class TouchDynamicsService : AccessibilityService() {
         val oldRisk = prefs.getInt("current_risk", 0)
 
         val smoothedRisk = (oldRisk + newCalculatedRisk) / 2
-        prefs.edit().putInt("current_risk", smoothedRisk).apply()
+        // FIXED: Used modern KTX edit block
+        prefs.edit { putInt("current_risk", smoothedRisk) }
         checkLock(smoothedRisk)
     }
 
