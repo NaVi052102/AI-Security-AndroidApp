@@ -24,22 +24,15 @@ class LockOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var overlayView: View
+
     private var isOverlayVisible = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    // This is called EVERY time startService() or startForegroundService() is called
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-
-        // 1. THE FOREGROUND SHIELD (ANDROID 14 READY)
-        // We do this in onStartCommand to ensure the service stays alive
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channelId = "lockdown_channel"
-            val channel = NotificationChannel(
-                channelId,
-                "Security Override",
-                NotificationManager.IMPORTANCE_HIGH
-            )
+            val channel = NotificationChannel(channelId, "Security Override", NotificationManager.IMPORTANCE_HIGH)
             val manager = getSystemService(NotificationManager::class.java)
             manager.createNotificationChannel(channel)
 
@@ -57,17 +50,16 @@ class LockOverlayService : Service() {
                 startForeground(1, notification)
             }
         }
-
-        // Return START_STICKY so the OS recreates the service if it gets killed
         return START_STICKY
     }
 
     override fun onCreate() {
         super.onCreate()
 
-        // 2. THE OVERLAY LOGIC
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
         val inflater = getSystemService(LAYOUT_INFLATER_SERVICE) as LayoutInflater
+
+        // SETUP THE MAIN RED OVERLAY
         overlayView = inflater.inflate(R.layout.activity_persistent_lock, null)
 
         val layoutParams = WindowManager.LayoutParams(
@@ -77,13 +69,11 @@ class LockOverlayService : Service() {
                 WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             else
                 WindowManager.LayoutParams.TYPE_PHONE,
-            // --- THE FIX: Removed the corrupted bitwise inverse! ---
             WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
-
         layoutParams.gravity = Gravity.CENTER
 
         val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
@@ -110,6 +100,7 @@ class LockOverlayService : Service() {
                     windowManager.removeView(overlayView)
                     isOverlayVisible = false
                 }
+
                 stopForeground(true)
                 stopSelf()
             } else {
@@ -118,10 +109,6 @@ class LockOverlayService : Service() {
             }
         }
 
-        // ==========================================
-        // THE IMMERSIVE OVERLAY UPGRADE
-        // Forces the screen to hide the status bar and navigation buttons
-        // ==========================================
         overlayView.systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         or View.SYSTEM_UI_FLAG_FULLSCREEN
@@ -131,7 +118,6 @@ class LockOverlayService : Service() {
                         or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
                 )
 
-        // Ensure the layout params explicitly block the status bar
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             layoutParams.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
