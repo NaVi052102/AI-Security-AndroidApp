@@ -32,8 +32,8 @@ class BleDeviceAdapter(
     override fun onBindViewHolder(holder: DeviceViewHolder, position: Int) {
         val device = deviceList[position]
 
-        // Fallback to "Security Watch" in case Android forgets the name after reloading
-        holder.tvName.text = device.name ?: "Security Watch"
+        // Updated fallback name
+        holder.tvName.text = device.name ?: "Watch Pro"
         holder.tvMac.text = device.address
 
         if (device.address == connectedDeviceMac) {
@@ -60,7 +60,6 @@ class BleDeviceAdapter(
         }
     }
 
-    // --- NEW: Allows the Fragment to force a device to show as connected ---
     fun setConnectedDevice(mac: String) {
         connectedDeviceMac = mac
         notifyDataSetChanged()

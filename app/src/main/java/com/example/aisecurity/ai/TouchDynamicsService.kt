@@ -32,7 +32,9 @@ class TouchDynamicsService : AccessibilityService() {
     private val db by lazy { SecurityDatabase.get(this) }
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
-
+    // =========================================================
+    // TEAMMATE'S WORK: THE PURE STATE MACHINE (AI Variables)
+    // =========================================================
     private var swipeJob: Job? = null
     private var swipeStartTime = 0L
     private var eventCount = 0
@@ -70,7 +72,9 @@ class TouchDynamicsService : AccessibilityService() {
         "com.twitter.android" to "X (Twitter)"
     )
 
-
+    // =========================================================
+    // YOUR WORK: POLTERGEIST & GUARDIAN VARIABLES
+    // =========================================================
     private var windowManager: WindowManager? = null
     private var aegisShieldView: View? = null
     private var isAegisDeployed = false
@@ -143,6 +147,9 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
+    // =========================================================
+    // TEAMMATE'S WORK: HELPER FUNCTIONS
+    // =========================================================
     private fun getReadableAppName(context: Context, packageName: String): String {
         if (homeLaunchers.contains(packageName)) return "Home Screen"
         if (knownAppOverrides.containsKey(packageName)) return knownAppOverrides[packageName]!!
@@ -156,7 +163,9 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-
+    // =========================================================
+    // SERVICE LIFECYCLE
+    // =========================================================
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -175,10 +184,12 @@ class TouchDynamicsService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
 
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val isLocked = prefs.getBoolean("is_system_locked", false)
 
-
+        // =========================================================
+        // YOUR WORK: THE VANGUARD (Aegis Shield & App Blocker)
+        // =========================================================
         if (isLocked) {
             deployAegisShield()
 
@@ -207,7 +218,9 @@ class TouchDynamicsService : AccessibilityService() {
             removeAegisShield()
         }
 
-
+        // =========================================================
+        // TEAMMATE'S WORK: AI BEHAVIORAL ENGINE
+        // =========================================================
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val rawPackageName = event.packageName?.toString() ?: return
 
@@ -263,6 +276,9 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
+    // =========================================================
+    // YOUR WORK: POLTERGEIST & AEGIS FUNCTIONS
+    // =========================================================
     private fun launchTeleportingPoltergeist(target: String) {
         if (isPoltergeistActive) return
 
@@ -390,8 +406,11 @@ class TouchDynamicsService : AccessibilityService() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    // =========================================================
+    // TEAMMATE'S WORK: AI TRAINING & CLASSIFICATION
+    // =========================================================
     private suspend fun learnTransition(from: String, to: String) {
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
 
@@ -412,7 +431,7 @@ class TouchDynamicsService : AccessibilityService() {
     private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
         if (duration < 50) return
 
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
 
@@ -458,20 +477,20 @@ class TouchDynamicsService : AccessibilityService() {
     }
 
     private fun increaseRisk(amount: Int) {
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
         prefs.edit().putInt("current_risk", current + amount).apply()
         checkLock(current + amount)
     }
 
     private fun decreaseRisk(amount: Int) {
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
         prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
     }
 
     private fun updateRiskScore(newCalculatedRisk: Int) {
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val oldRisk = prefs.getInt("current_risk", 0)
         val smoothedRisk = (oldRisk + newCalculatedRisk) / 2
         prefs.edit().putInt("current_risk", smoothedRisk).apply()
