@@ -57,7 +57,6 @@ class BluetoothFragment : Fragment() {
         val bluetoothManager = requireContext().getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         bluetoothAdapter = bluetoothManager.adapter
 
-        // Access phone memory
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
         val switchBluetooth = view.findViewById<SwitchMaterial>(R.id.switchBluetooth)
@@ -65,18 +64,16 @@ class BluetoothFragment : Fragment() {
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
 
         deviceAdapter = BleDeviceAdapter { clickedDevice ->
-            // --- NEW: Save the connected watch to memory! ---
             prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
 
             stopRadarScan()
-            Toast.makeText(requireContext(), "Connecting to ${clickedDevice.name ?: "Watch"}...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(requireContext(), "Connecting to ${clickedDevice.name ?: "Watch Pro"}...", Toast.LENGTH_SHORT).show()
             WatchManager.connectToTarget(requireContext(), clickedDevice.address)
         }
 
         recyclerDevices.layoutManager = LinearLayoutManager(requireContext())
         recyclerDevices.adapter = deviceAdapter
 
-        // --- NEW: Restore the watch from memory when page loads! ---
         val savedMac = prefs.getString("saved_watch_mac", null)
         if (savedMac != null && bluetoothAdapter.isEnabled) {
             val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
@@ -138,7 +135,12 @@ class BluetoothFragment : Fragment() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val deviceName = result.device.name
-            if (deviceName != null && deviceName.contains("Security Watch", ignoreCase = true)) {
+
+            // THE MASTER KEY CHECK: Target by exact MAC Address or exact Name
+            val isTargetWatch = result.device.address == "FC:01:2C:FD:DD:76" ||
+                    (deviceName != null && deviceName.contains("Watch Pro", ignoreCase = true))
+
+            if (isTargetWatch) {
                 deviceAdapter.addDevice(result.device)
             }
         }
@@ -148,7 +150,6 @@ class BluetoothFragment : Fragment() {
     private fun startRadarScan() {
         deviceAdapter.clear()
 
-        // Make sure clearing the list doesn't delete the currently connected watch!
         val savedMac = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).getString("saved_watch_mac", null)
         if (savedMac != null) {
             val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
