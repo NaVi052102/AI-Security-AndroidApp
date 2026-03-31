@@ -7,6 +7,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -17,7 +18,6 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
-import androidx.core.content.edit
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.TrampolineActivity
 import kotlinx.coroutines.*
@@ -32,12 +32,44 @@ class TouchDynamicsService : AccessibilityService() {
     private val db by lazy { SecurityDatabase.get(this) }
     private val serviceScope = CoroutineScope(Dispatchers.IO)
 
+
     private var swipeJob: Job? = null
     private var swipeStartTime = 0L
     private var eventCount = 0
 
-    private var currentActiveAppLabel = "📱 System Home"
-    private var lastAppChangeTime = 0L
+    private var currentVisibleScreen = ""
+    private var currentRealApp = ""
+    private var lastAppSwitchTime = System.currentTimeMillis()
+    private var currentTransitionSpeed = 0.5f // Default normalized speed
+
+    private val systemNoiseList = listOf(
+        "com.android.systemui",
+        "com.google.android.inputmethod.latin",
+        "com.touchtype.swiftkey"
+    )
+
+    private val homeLaunchers = listOf(
+        "com.miui.home",
+        "com.mi.android.globallauncher",
+        "com.mi.ui.poco.home",
+        "com.sec.android.app.launcher",
+        "com.android.launcher",
+        "com.android.launcher3",
+        "com.google.android.apps.nexuslauncher",
+        "com.oneplus.setupwizard",
+        "com.coloros.systemui"
+    )
+
+    private val knownAppOverrides = mapOf(
+        "com.facebook.katana" to "Facebook",
+        "com.facebook.orca" to "Messenger",
+        "com.zhiliaoapp.musically" to "TikTok",
+        "com.instagram.android" to "Instagram",
+        "com.google.android.youtube" to "YouTube",
+        "com.whatsapp" to "WhatsApp",
+        "com.twitter.android" to "X (Twitter)"
+    )
+
 
     private var windowManager: WindowManager? = null
     private var aegisShieldView: View? = null
@@ -50,7 +82,6 @@ class TouchDynamicsService : AccessibilityService() {
 
     private val ghostReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // THE FIX: Total Try/Catch Armor
             try {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
@@ -62,9 +93,6 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    // ==========================================
-    // THE AIRPLANE MODE GUARDIAN
-    // ==========================================
     private val airplaneGuardianReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             try {
@@ -73,12 +101,11 @@ class TouchDynamicsService : AccessibilityService() {
 
                     if (context == null) return
 
-                    // THE FIX: Persistent Hard-Drive Cooldown (Survives crashes!)
                     val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
                     val currentTime = System.currentTimeMillis()
                     val lastTrigger = prefs.getLong("last_airplane_trigger", 0L)
 
-                    if (currentTime - lastTrigger < 5000) return // 5-second global cooldown!
+                    if (currentTime - lastTrigger < 5000) return
 
                     val isAirplaneModeOn = Settings.Global.getInt(
                         context.contentResolver,
@@ -86,14 +113,11 @@ class TouchDynamicsService : AccessibilityService() {
                     ) != 0
 
                     if (isAirplaneModeOn) {
-                        // Save the new timestamp to the hard drive
                         prefs.edit().putLong("last_airplane_trigger", currentTime).apply()
-
                         val currentRisk = prefs.getInt("current_risk", 0)
 
                         if (currentRisk > 80) {
                             LiveLogger.log("⚠️ AI BEHAVIORAL BLOCK: High Risk ($currentRisk). Action Denied!")
-
                             serviceScope.launch(Dispatchers.Main) {
                                 try {
                                     val lockIntent = Intent(context, com.example.aisecurity.ui.LockOverlayService::class.java)
@@ -105,7 +129,6 @@ class TouchDynamicsService : AccessibilityService() {
                             }
                         } else {
                             LiveLogger.log("🛡️ TSA CHECKPOINT: Verifying Owner Identity...")
-
                             try {
                                 val authIntent = Intent(context, com.example.aisecurity.ui.GuardianAuthActivity::class.java)
                                 authIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -119,6 +142,20 @@ class TouchDynamicsService : AccessibilityService() {
             }
         }
     }
+
+    private fun getReadableAppName(context: Context, packageName: String): String {
+        if (homeLaunchers.contains(packageName)) return "Home Screen"
+        if (knownAppOverrides.containsKey(packageName)) return knownAppOverrides[packageName]!!
+
+        val pm = context.packageManager
+        return try {
+            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (_: PackageManager.NameNotFoundException) {
+            packageName.split(".").last().replaceFirstChar { it.uppercase() }
+        }
+    }
+
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onServiceConnected() {
@@ -141,13 +178,13 @@ class TouchDynamicsService : AccessibilityService() {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isLocked = prefs.getBoolean("is_system_locked", false)
 
+
         if (isLocked) {
             deployAegisShield()
 
             val pkg = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
             val eventType = event?.eventType
 
-            // 1. THE TRAMPOLINE BOMB
             if (pkg.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 if (!isPoltergeistActive) {
                     val trampolineIntent = Intent(this, TrampolineActivity::class.java).apply {
@@ -158,46 +195,68 @@ class TouchDynamicsService : AccessibilityService() {
                     executeAntiGravitySwipe()
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
-            }
-            // 2. THE TELEPORTATION PROTOCOL (Settings Menu)
-            else if (pkg.contains("com.android.settings") || pkg.contains("coloros") || pkg.contains("oplus") || pkg.contains("miui")) {
+            } else if (pkg.contains("com.android.settings") || pkg.contains("coloros") || pkg.contains("oplus") || pkg.contains("miui")) {
                 if (!isPoltergeistActive) {
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
-            }
-            // 3. THE APP BLOCKER
-            else if (pkg.isNotEmpty() && !pkg.contains("com.example.aisecurity")) {
+            } else if (pkg.isNotEmpty() && !pkg.contains("com.example.aisecurity")) {
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
-            return
+            return // Skip AI training while locked!
         } else {
             removeAegisShield()
         }
 
-        val currentTime = System.currentTimeMillis()
+
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val rawPackageName = event.packageName?.toString() ?: return
-            val newAppLabel = AppMonitor.getFriendlyCategory(this, rawPackageName)
-            if (newAppLabel != currentActiveAppLabel) {
-                val timeTaken = currentTime - lastAppChangeTime
-                if (lastAppChangeTime != 0L && timeTaken > 1000) {
-                    val safeFromApp = currentActiveAppLabel
-                    serviceScope.launch { learnTransition(safeFromApp, newAppLabel, timeTaken) }
+
+            if (systemNoiseList.contains(rawPackageName)) return
+
+            val appName = getReadableAppName(this, rawPackageName)
+
+            if (appName != currentVisibleScreen) {
+                currentVisibleScreen = appName
+            }
+
+            if (appName != "Home Screen" && appName != currentRealApp) {
+                val previousApp = currentRealApp
+                currentRealApp = appName
+
+                if (previousApp.isNotEmpty()) {
+                    val now = System.currentTimeMillis()
+                    val timeSinceLastApp = now - lastAppSwitchTime
+
+                    currentTransitionSpeed = (timeSinceLastApp.toFloat() / 10000f).coerceIn(0f, 1f)
+                    lastAppSwitchTime = now
+
+                    LiveLogger.log("📱 FLOW: $previousApp -> $currentRealApp")
+
+                    serviceScope.launch {
+                        learnTransition(previousApp, currentRealApp)
+                    }
                 }
-                currentActiveAppLabel = newAppLabel
-                lastAppChangeTime = currentTime
             }
         }
+
         if (event?.eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-            if (swipeStartTime == 0L) { swipeStartTime = System.currentTimeMillis() }
+            if (swipeStartTime == 0L) {
+                swipeStartTime = System.currentTimeMillis()
+            }
             eventCount++
             swipeJob?.cancel()
+
             swipeJob = serviceScope.launch {
                 delay(400)
+
                 val totalDuration = System.currentTimeMillis() - swipeStartTime
                 val estimatedPixels = (eventCount * 75).toFloat()
                 val velocity = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
-                processSwipe(totalDuration.toFloat(), velocity, currentActiveAppLabel)
+
+                if (currentVisibleScreen.isNotEmpty()) {
+                    processSwipe(totalDuration.toFloat(), velocity, currentVisibleScreen)
+                }
+
                 swipeStartTime = 0L
                 eventCount = 0
             }
@@ -208,17 +267,10 @@ class TouchDynamicsService : AccessibilityService() {
         if (isPoltergeistActive) return
 
         isPoltergeistActive = true
-
-        val missions = if (target == "ALL") {
-            listOf("AIRPLANE", "LOCATION", "BLUETOOTH", "DATA")
-        } else {
-            listOf(target)
-        }
-
+        val missions = if (target == "ALL") listOf("AIRPLANE", "LOCATION", "BLUETOOTH", "DATA") else listOf(target)
         val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
 
         serviceScope.launch(Dispatchers.Main) {
-
             for (mission in missions) {
                 activeMission = mission
                 hasClickedSwitch = false
@@ -254,16 +306,9 @@ class TouchDynamicsService : AccessibilityService() {
                         }
                         attempts++
                     }
-
-                    if (hasClickedSwitch) {
-                        delay(600)
-                    }
-
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
+                    if (hasClickedSwitch) delay(600)
+                } catch (e: Exception) { e.printStackTrace() }
             }
-
             performGlobalAction(GLOBAL_ACTION_HOME)
             isPoltergeistActive = false
             activeMission = ""
@@ -273,18 +318,13 @@ class TouchDynamicsService : AccessibilityService() {
     @Suppress("DEPRECATION")
     private fun executeSurgicalClick(node: AccessibilityNodeInfo?, turnOn: Boolean): Boolean {
         if (node == null || hasClickedSwitch) return false
-
         val className = node.className?.toString() ?: ""
 
         if (className.contains("Switch") || className.contains("ToggleButton") || node.isCheckable) {
-
             val needsClick = if (turnOn) !node.isChecked else node.isChecked
-
             if (needsClick) {
                 hasClickedSwitch = true
-
                 val directClick = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-
                 if (!directClick || !node.isClickable) {
                     var clickTarget: AccessibilityNodeInfo? = node.parent
                     while (clickTarget != null && !clickTarget.isClickable) {
@@ -298,7 +338,6 @@ class TouchDynamicsService : AccessibilityService() {
                 return true
             }
         }
-
         for (i in 0 until node.childCount) {
             if (executeSurgicalClick(node.getChild(i), turnOn)) return true
         }
@@ -311,34 +350,26 @@ class TouchDynamicsService : AccessibilityService() {
             val middleX = displayMetrics.widthPixels / 2f
             val startY = displayMetrics.heightPixels / 2f
             val endY = 0f
-
             val path = Path()
             path.moveTo(middleX, startY)
             path.lineTo(middleX, endY)
-
             val strokeDescription = GestureDescription.StrokeDescription(path, 0, 50)
             val gestureBuilder = GestureDescription.Builder()
             gestureBuilder.addStroke(strokeDescription)
-
             dispatchGesture(gestureBuilder.build(), null, null)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun deployAegisShield() {
         if (isAegisDeployed || windowManager == null) return
-
         try {
             aegisShieldView = View(this).apply {
                 setBackgroundColor(Color.TRANSPARENT)
                 setOnTouchListener { _, _ -> true }
             }
-
             val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                200,
+                WindowManager.LayoutParams.MATCH_PARENT, 200,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                         WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -346,12 +377,9 @@ class TouchDynamicsService : AccessibilityService() {
                 PixelFormat.TRANSLUCENT
             )
             params.gravity = Gravity.TOP
-
             windowManager?.addView(aegisShieldView, params)
             isAegisDeployed = true
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun removeAegisShield() {
@@ -359,14 +387,10 @@ class TouchDynamicsService : AccessibilityService() {
         try {
             windowManager?.removeView(aegisShieldView)
             isAegisDeployed = false
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
-    private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
-        if (from == to) return
-
+    private suspend fun learnTransition(from: String, to: String) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", false)
@@ -376,23 +400,12 @@ class TouchDynamicsService : AccessibilityService() {
         val history = db.dao().getTransition(from, to)
 
         if (history == null) {
-            LiveLogger.log("New App Flow: Navigated from $from to $to.")
-
+            LiveLogger.log("🔄 Navigated from $from to $to")
             if (isReady) increaseRisk(10)
-            db.dao().updateTransition(TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1))
-
+            db.dao().updateTransition(TransitionProfile(fromApp = from, toApp = to, avgTime = 1000L, frequency = 1))
         } else {
-            val newAvg = ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
-            db.dao().updateTransition(history.copy(avgTime = newAvg, frequency = history.frequency + 1))
-
-            if (isReady) {
-                if (timeTaken < (history.avgTime * 0.2)) {
-                    LiveLogger.log("Fast App Jump: Jumped from $from to $to in ${timeTaken}ms.")
-                    increaseRisk(15)
-                } else {
-                    decreaseRisk(5)
-                }
-            }
+            db.dao().updateTransition(history.copy(frequency = history.frequency + 1))
+            if (isReady) decreaseRisk(5)
         }
     }
 
@@ -416,21 +429,30 @@ class TouchDynamicsService : AccessibilityService() {
         }
         db.dao().updateAppStats(newStats)
 
-        val features = floatArrayOf(duration, velocity, 0.5f, 0.5f, 0.5f)
+        val normVelocity = (velocity / 5000f).coerceIn(0f, 1f)
+        val normPressure = 0.5f
+        val normAppUsage = (newStats.interactionCount.toFloat() / 100f).coerceIn(0f, 1f)
+        val normTransition = currentTransitionSpeed
+
+        val features = floatArrayOf(normVelocity, normPressure, normAppUsage, normTransition)
         val threshold = prefs.getFloat("threshold", 1.0f)
 
         if (!isReady) {
-            db.dao().insertTouch(TouchProfile(duration = duration, velocityX = velocity, pressure = 0.5f, appName = appLabel))
-            val loss = classifier.trainAI(features)
-            LiveLogger.log("AI Learning: Context: $appLabel. Loss: ${String.format(Locale.US, "%.4f", loss)}")
+            db.dao().insertTouch(
+                TouchProfile(duration = duration, velocityX = velocity, pressure = 0.5f, appName = appLabel)
+            )
+            classifier.trainAI(features)
         } else {
             var riskMultiplier = 1.0f
+
             if (abs(velocity - newStats.avgVelocity) > 1000) {
                 riskMultiplier = 1.3f
-                LiveLogger.log("Speed Anomaly: Swipe speed ${velocity.toInt()}px/s.")
+                LiveLogger.log("⚠️ Speed Anomaly in $appLabel")
             }
+
             val error = classifier.getError(features) * riskMultiplier
             val swipeRisk = ((error / threshold) * 100).toInt()
+
             updateRiskScore(swipeRisk)
         }
     }
@@ -438,28 +460,28 @@ class TouchDynamicsService : AccessibilityService() {
     private fun increaseRisk(amount: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
-        prefs.edit { putInt("current_risk", current + amount) }
+        prefs.edit().putInt("current_risk", current + amount).apply()
         checkLock(current + amount)
     }
 
-    @Suppress("SameParameterValue") // Silences the 'always 5' warning!
     private fun decreaseRisk(amount: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
-        prefs.edit { putInt("current_risk", (current - amount).coerceAtLeast(0)) }
+        prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
     }
 
     private fun updateRiskScore(newCalculatedRisk: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val oldRisk = prefs.getInt("current_risk", 0)
         val smoothedRisk = (oldRisk + newCalculatedRisk) / 2
-        prefs.edit { putInt("current_risk", smoothedRisk) }
+        prefs.edit().putInt("current_risk", smoothedRisk).apply()
         checkLock(smoothedRisk)
     }
 
     private fun checkLock(risk: Int) {
         if (risk > 120) {
             serviceScope.launch(Dispatchers.Main) {
+                LiveLogger.log("🚨 DEVICE LOCKED: Threat Detected")
                 enforcer.lockDevice("AI Touch Dynamics Threat Detected")
             }
         }
@@ -473,9 +495,7 @@ class TouchDynamicsService : AccessibilityService() {
         try {
             unregisterReceiver(ghostReceiver)
             unregisterReceiver(airplaneGuardianReceiver)
-        } catch (_: IllegalArgumentException) {
-            // Safe ignore
-        }
+        } catch (_: IllegalArgumentException) {}
         serviceScope.cancel()
     }
 }
