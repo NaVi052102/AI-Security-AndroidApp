@@ -74,6 +74,34 @@ class LockOverlayService : Service() {
                     WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         )
+
+        try {
+            windowManager.addView(overlayView, layoutParams)
+            isOverlayVisible = true
+
+            // ==========================================
+            // SELF-HEALING NETWORK CHECK
+            // ==========================================
+            val isAirplaneModeOn = android.provider.Settings.Global.getInt(
+                contentResolver,
+                android.provider.Settings.Global.AIRPLANE_MODE_ON, 0
+            ) != 0
+
+            // If the red screen drops and notices the network is dead, it fixes it itself!
+            if (isAirplaneModeOn) {
+                android.os.Handler(android.os.Looper.getMainLooper()).postDelayed({
+                    val ghostIntent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+                    ghostIntent.setPackage(packageName)
+                    // Send the Ghost Train to recover EVERYTHING
+                    ghostIntent.putExtra("TARGET_SETTING", "ALL")
+                    sendBroadcast(ghostIntent)
+                }, 1500) // Wait 1.5 seconds for the red screen to finish drawing
+            }
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         layoutParams.gravity = Gravity.CENTER
 
         val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)

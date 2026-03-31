@@ -56,6 +56,19 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.TrampolineActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <activity
+            android:name=".ui.GuardianAuthActivity"
+            android:exported="false"
+            android:launchMode="singleTop"
+            android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar" />
+
         <service
             android:name=".ui.LockOverlayService"
             android:enabled="true"
@@ -96,8 +109,13 @@
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="Security Core Lockdown" />
         </service>
 
-        <receiver android:name=".ai.SmsReceiver" android:exported="true" android:permission="android.permission.BROADCAST_SMS">
-            <intent-filter android:priority="999"><action android:name="android.provider.Telephony.SMS_RECEIVED" /></intent-filter>
+        <receiver
+            android:name=".ai.SmsKillSwitchReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
         </receiver>
 
         <receiver android:name=".SecurityAdminReceiver" android:permission="android.permission.BIND_DEVICE_ADMIN" android:exported="true">
