@@ -1,26 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:gravity="center"
     android:padding="32dp"
-    android:background="#8B0000"> <TextView
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:text="⚠️"
-    android:textSize="80sp"
-    android:layout_marginBottom="16dp"/>
+    android:background="#8B0000"
+    tools:ignore="HardcodedText">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="⚠️"
+        android:textSize="80sp"
+        android:layout_marginBottom="16dp"/>
 
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="DEVICE LOCKED"
-        android:textSize="32sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFF"
+        android:layout_marginBottom="32dp"
+        android:fontFamily="@font/inter"
         android:gravity="center"
-        android:layout_marginBottom="32dp"/>
+        android:text="DEVICE LOCKED"
+        android:textColor="#FFFFFF"
+        android:textSize="32sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/tvDisplayMessage"
@@ -76,14 +81,15 @@
             android:layout_height="50dp"
             android:background="#33FFFFFF"
             android:gravity="center"
-            android:hint="ENTER PIN"
+            android:hint="ENTER TEST PIN"
             android:textColorHint="#99FFFFFF"
             android:textColor="#FFFFFF"
             android:inputType="numberPassword"
+            android:importantForAutofill="no"
             android:maxLength="6"
             android:textSize="18sp"
             android:letterSpacing="0.3"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="24dp"/>
 
         <Button
             android:id="@+id/btnUnlockScreen"
@@ -92,7 +98,20 @@
             android:backgroundTint="#000000"
             android:text="DISENGAGE LOCK"
             android:textColor="#FFFFFF"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tvInstructions"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#FFEB3B"
+            android:textStyle="bold"
+            android:textSize="14sp"
+            android:gravity="center"/>
+
     </LinearLayout>
 
 </LinearLayout>

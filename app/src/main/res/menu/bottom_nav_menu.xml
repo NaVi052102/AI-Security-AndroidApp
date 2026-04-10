@@ -2,22 +2,23 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
     <item
         android:id="@+id/nav_dashboard"
-        android:icon="@drawable/ic_custom_dashboard"
+        android:icon="@drawable/nav_icon_dashboard"
         android:title="Dashboard" />
+
     <item
         android:id="@+id/nav_biometrics"
-        android:icon="@drawable/ic_custom_biometrics"
+        android:icon="@drawable/nav_icon_biometrics"
         android:title="Biometrics" />
+
     <item
         android:id="@+id/nav_proximity"
-        android:icon="@drawable/ic_custom_proximity"
+        android:icon="@drawable/nav_icon_proximity"
         android:title="Proximity" />
+
     <item
         android:id="@+id/nav_map"
-        android:icon="@drawable/ic_custom_tracker"
+        android:icon="@drawable/nav_icon_map"
         android:title="Tracker" />
-    <item
-        android:id="@+id/nav_logs"
-        android:icon="@drawable/ic_custom_logs"
-        android:title="Logs" />
+
+
 </menu>

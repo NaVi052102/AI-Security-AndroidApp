@@ -3,6 +3,8 @@
         <item name="android:fontFamily">@font/inter</item>
         <item name="fontFamily">@font/inter</item>
 
+
+
         <item name="android:windowBackground">@color/ig_background</item>
         <item name="android:colorBackground">@color/ig_background</item>
         <item name="android:statusBarColor">@color/ig_background</item>

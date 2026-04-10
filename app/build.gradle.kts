@@ -57,6 +57,7 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
+    implementation("androidx.biometric:biometric:1.1.0")
 
     // --- AI & DATABASE ---
     // Fixed: Both versions MUST match exactly (2.15.0) to prevent crashes

@@ -3,16 +3,30 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0A0A0A"
-    android:orientation="vertical">
+    android:background="@color/ig_background"
+    android:orientation="vertical"
+    android:paddingTop="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24dp"
+        android:layout_marginBottom="24dp"
+        android:fontFamily="@font/inter"
+        android:text="Pair your authorized smartwatch to enable continuous biometric authentication and proximity locking."
+        android:textColor="@color/ig_text_secondary"
+        android:textSize="14sp"
+        android:lineSpacingExtra="4dp"/>
 
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="16dp"
-        app:cardBackgroundColor="#141414"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="24dp"
+        app:cardBackgroundColor="@color/ig_background"
         app:cardCornerRadius="16dp"
-        app:strokeColor="#2A2A2A"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/sidebar_divider_line"
         app:strokeWidth="1dp">
 
         <LinearLayout
@@ -31,14 +45,15 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Bluetooth Power"
-                    android:textColor="#FFFFFF"
-                    android:textSize="18sp"
+                    android:fontFamily="@font/inter"
+                    android:text="Bluetooth"
+                    android:textColor="@color/ig_text_primary"
+                    android:textSize="16sp"
                     android:textStyle="bold" />
 
             </LinearLayout>
 
-            <com.google.android.material.switchmaterial.SwitchMaterial
+            <androidx.appcompat.widget.SwitchCompat
                 android:id="@+id/switchBluetooth"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content" />
@@ -48,24 +63,29 @@
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnScan"
         android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:layout_marginHorizontal="16dp"
-        android:text="START RADAR SCAN"
-        android:textSize="16sp"
+        android:layout_height="64dp"
+        android:layout_marginHorizontal="20dp"
+        android:text="Scan for Smartwatch"
+        android:fontFamily="@font/inter"
+        android:textSize="15sp"
         android:textStyle="bold"
-        app:cornerRadius="12dp"
-        app:backgroundTint="#2196F3" />
+        android:letterSpacing="0.08"
+        android:stateListAnimator="@null"
+        app:elevation="4dp"
+        app:cornerRadius="16dp"
+        app:backgroundTint="@color/ig_button_primary" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="AVAILABLE DEVICES"
-        android:textColor="#888888"
+        android:fontFamily="@font/inter"
+        android:textColor="@color/ig_text_secondary"
         android:textSize="12sp"
         android:textStyle="bold"
         android:letterSpacing="0.1"
-        android:layout_marginStart="20dp"
-        android:layout_marginTop="24dp"
+        android:layout_marginStart="24dp"
+        android:layout_marginTop="32dp"
         android:layout_marginBottom="8dp"/>
 
     <androidx.recyclerview.widget.RecyclerView

@@ -1,7 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <color name="ig_background">#000000</color> <color name="ig_text_primary">#FFFFFF</color> <color name="ig_text_secondary">#A8A8A8</color>
+
+    <color name="glass_surface">#D9000000</color>
+    <color name="glass_divider">#1AFFFFFF</color>
+    <color name="nav_icon_tint">#F5F5F5</color>
+    <color name="transparent">#00000000</color>
+
+    <color name="sidebar_header_text">#A8A8A8</color> <color name="sidebar_divider_line">#26FFFFFF</color>
+
+    <color name="accent_primary">#4A3BCE</color>
+    <color name="accent_surface">#1A4A3BCE</color>
+
+    <color name="black">#FF000000</color>
+    <color name="ig_button_primary">#0095F6</color>
+    <color name="white">#FFFFFFFF</color>
     <color name="nav_background">#1A1D24</color>
     <color name="nav_item_selected">#C4D4E0</color>
     <color name="nav_item_unselected">#6B7B8A</color>
-
-    <color name="app_background">#0B132B</color> <color name="glass_fill">#1AFFFFFF</color>   <color name="glass_border">#33FFFFFF</color> <color name="text_main">#FFFFFF</color>      <color name="text_muted">#8A9BB0</color>     </resources>
+    <color name="glass_surface_light">#1AFFFFFF</color>
+    <color name="text_primary_light">#FFFFFF</color>
+    <color name="text_secondary_light">#A8A8A8</color>
+    <color name="app_background">#0A0A0A</color>
+    <color name="glass_fill">#1AFFFFFF</color>
+    <color name="glass_border">#33FFFFFF</color>
+    <color name="text_main">#F9FAFB</color>
+    <color name="text_muted">#9CA3AF</color>
+</resources>
