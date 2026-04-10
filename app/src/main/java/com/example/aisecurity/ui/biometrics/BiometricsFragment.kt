@@ -16,12 +16,15 @@ import com.example.aisecurity.ai.BehavioralAuthClassifier
 import com.example.aisecurity.ai.SecurityDatabase
 import com.example.aisecurity.ui.AppUsageAdapter
 import com.example.aisecurity.ui.LiveLogger
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
+import java.util.concurrent.TimeUnit
 
 class BiometricsFragment : Fragment() {
+
+    // 3 Days in Milliseconds
+    private val TRAINING_DURATION_MS = TimeUnit.DAYS.toMillis(3)
+    // Minimum swipes required before AI can activate (to prevent activation with no data)
+    private val MIN_REQUIRED_SWIPES = 200
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -36,160 +39,148 @@ class BiometricsFragment : Fragment() {
         val db = SecurityDatabase.get(requireContext())
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-        // --- UI ELEMENTS ---
+        // UI Elements
         val btnAction = view.findViewById<Button>(R.id.btnAction)
         val btnReset = view.findViewById<Button>(R.id.btnReset)
         val progressBar = view.findViewById<ProgressBar>(R.id.linearProgress)
         val tvScore = view.findViewById<TextView>(R.id.tvScore)
         val tvRiskScore = view.findViewById<TextView>(R.id.tvRiskScore)
         val tvStatusLabel = view.findViewById<TextView>(R.id.tvStatusLabel)
-
-        // --- NEW: APP FLOW ELEMENTS ---
         val tvPreviousApp = view.findViewById<TextView>(R.id.tvPreviousApp)
         val tvCurrentApp = view.findViewById<TextView>(R.id.tvCurrentApp)
 
-        // --- SETUP RECYCLER VIEW ---
         val recyclerView = view.findViewById<RecyclerView>(R.id.recyclerAppStats)
         val adapter = AppUsageAdapter()
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
 
-        // --- CONNECT THE NEW APP FLOW TRACKER ---
+        // App Flow Observer
         LiveLogger.logData.observe(viewLifecycleOwner) { logText ->
-            // Intercept the explicitly formatted FLOW string from the Service
             if (logText.contains("📱 FLOW:")) {
-                // Splits the string: "📱 FLOW: Home Screen -> AI Security"
                 val flowPart = logText.substringAfter("FLOW:").trim()
                 val apps = flowPart.split("->")
-
                 if (apps.size == 2) {
-                    val previous = apps[0].trim()
-                    val current = apps[1].trim()
-
-                    // Directly assign exactly what the Service tells us
-                    tvPreviousApp.text = previous
-                    tvCurrentApp.text = current
+                    tvPreviousApp.text = apps[0].trim()
+                    tvCurrentApp.text = apps[1].trim()
                 }
             }
         }
 
-        // ==========================================
-        // 1. STOP / CONTINUE TRAINING BUTTON
-        // ==========================================
+        // Action Button: Pause/Resume Training
         btnAction.setOnClickListener {
             val isReady = prefs.getBoolean("ai_ready", false)
             if (!isReady) {
                 val isCurrentlyPaused = prefs.getBoolean("training_paused", false)
                 prefs.edit().putBoolean("training_paused", !isCurrentlyPaused).apply()
-
-                if (!isCurrentlyPaused) {
-                    Toast.makeText(requireContext(), "Training Paused", Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(requireContext(), "Training Resumed", Toast.LENGTH_SHORT).show()
-                }
+                val msg = if (!isCurrentlyPaused) "Training Paused" else "Training Resumed"
+                Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show()
             }
         }
 
-        // 2. Setup RESET Button (TOTAL FACTORY RESET)
+        // Reset Button: Full Wipe
         btnReset.setOnClickListener {
             viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                 db.dao().wipeTotalData()
-
-                val editor = prefs.edit()
-                editor.clear()
-                editor.putBoolean("training_paused", false)
-                editor.apply()
-
+                prefs.edit().clear().apply()
                 LiveLogger.clear()
-
                 val classifier = BehavioralAuthClassifier(requireContext())
                 classifier.wipeMemory()
 
                 withContext(Dispatchers.Main) {
-                    progressBar.visibility = View.VISIBLE
-                    progressBar.progress = 0
-                    tvScore.text = "Training: 0/50 Swipes"
-                    tvRiskScore.text = "0%"
-                    tvRiskScore.setTextColor(Color.GRAY)
                     tvStatusLabel.text = "MEMORY WIPED"
                     tvStatusLabel.setTextColor(Color.GRAY)
-
-                    // Clean the UI up perfectly
-                    tvPreviousApp.text = "Home Screen"
-                    tvCurrentApp.text = "Monitoring..."
-
+                    tvRiskScore.text = "0%"
                     adapter.updateData(emptyList())
-
-                    btnAction.visibility = View.VISIBLE
-
                     Toast.makeText(requireContext(), "AI Fully Reset!", Toast.LENGTH_SHORT).show()
                 }
             }
         }
 
-        // 3. THE LIVE DASHBOARD LOOP
+        // MAIN DASHBOARD LOOP (Runs every 1 second)
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            while (true) {
+            while (isActive) {
                 val swipes = db.dao().getTrainingData().size
                 val appStats = db.dao().getAllAppStats()
                 val isReady = prefs.getBoolean("ai_ready", false)
                 val currentRisk = prefs.getInt("current_risk", 0)
                 val isPaused = prefs.getBoolean("training_paused", false)
 
+                // Track Training Time
+                var startTime = prefs.getLong("training_start_time", 0L)
+                if (startTime == 0L && swipes > 0) {
+                    startTime = System.currentTimeMillis()
+                    prefs.edit().putLong("training_start_time", startTime).apply()
+                }
+
+                val elapsed = System.currentTimeMillis() - startTime
+                val timeProgress = if (startTime == 0L) 0 else ((elapsed.toFloat() / TRAINING_DURATION_MS) * 100).toInt().coerceIn(0, 100)
+
                 withContext(Dispatchers.Main) {
                     adapter.updateData(appStats)
 
                     if (isReady) {
-                        progressBar.visibility = View.GONE
-                        btnAction.visibility = View.GONE
-                        tvScore.text = "Protection Active"
-                        tvRiskScore.text = "$currentRisk%"
-
-                        when {
-                            currentRisk < 50 -> {
-                                tvRiskScore.setTextColor(Color.parseColor("#4CAF50"))
-                                tvStatusLabel.text = "SYSTEM SECURE"
-                                tvStatusLabel.setTextColor(Color.parseColor("#4CAF50"))
-                            }
-                            currentRisk < 100 -> {
-                                tvRiskScore.setTextColor(Color.parseColor("#FF9800"))
-                                tvStatusLabel.text = "SUSPICIOUS ACTIVITY"
-                                tvStatusLabel.setTextColor(Color.parseColor("#FF9800"))
-                            }
-                            else -> {
-                                tvRiskScore.setTextColor(Color.parseColor("#F44336"))
-                                tvStatusLabel.text = "INTRUDER ALERT"
-                                tvStatusLabel.setTextColor(Color.parseColor("#F44336"))
-                            }
-                        }
+                        renderProtectionMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction, currentRisk)
                     } else {
-                        progressBar.visibility = View.VISIBLE
-                        progressBar.progress = swipes
-                        tvScore.text = "Training: $swipes/50 Swipes"
-                        tvRiskScore.text = "${(swipes * 2)}%"
-                        tvRiskScore.setTextColor(Color.DKGRAY)
+                        renderTrainingMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction,
+                            timeProgress, elapsed, isPaused, swipes)
 
-                        btnAction.visibility = View.VISIBLE
-
-                        if (isPaused) {
-                            btnAction.text = "CONTINUE TRAINING"
-                            btnAction.setBackgroundColor(Color.parseColor("#2A2A2A"))
-                            btnAction.setTextColor(Color.parseColor("#4CAF50"))
-                            tvStatusLabel.text = "TRAINING PAUSED"
-                            tvStatusLabel.setTextColor(Color.parseColor("#FF9800"))
-                        } else {
-                            btnAction.text = "STOP TRAINING"
-                            btnAction.setBackgroundColor(Color.parseColor("#2A2A2A"))
-                            btnAction.setTextColor(Color.parseColor("#FF9800"))
-                            tvStatusLabel.text = "GATHERING DATA..."
-                            tvStatusLabel.setTextColor(Color.GRAY)
+                        // AUTO-ACTIVATE CHECK
+                        if (elapsed >= TRAINING_DURATION_MS && swipes >= MIN_REQUIRED_SWIPES && !isPaused) {
+                            activateAI(db)
                         }
-
-                        if (swipes >= 50 && !isPaused) activateAI(db)
                     }
                 }
                 delay(1000)
             }
+        }
+    }
+
+    private fun renderProtectionMode(tvScore: TextView, tvRisk: TextView, tvStatus: TextView, pb: ProgressBar, btn: Button, risk: Int) {
+        pb.visibility = View.GONE
+        btn.visibility = View.GONE
+        tvScore.text = "Continuous Protection Active"
+        tvRisk.text = "$risk%"
+
+        when {
+            risk < 50 -> {
+                tvRisk.setTextColor(Color.parseColor("#4CAF50"))
+                tvStatus.text = "SYSTEM SECURE"
+                tvStatus.setTextColor(Color.parseColor("#4CAF50"))
+            }
+            risk < 100 -> {
+                tvRisk.setTextColor(Color.parseColor("#FF9800"))
+                tvStatus.text = "SUSPICIOUS ACTIVITY"
+                tvStatus.setTextColor(Color.parseColor("#FF9800"))
+            }
+            else -> {
+                tvRisk.setTextColor(Color.parseColor("#F44336"))
+                tvStatus.text = "INTRUDER ALERT"
+                tvStatus.setTextColor(Color.parseColor("#F44336"))
+            }
+        }
+    }
+
+    private fun renderTrainingMode(tvScore: TextView, tvRisk: TextView, tvStatus: TextView, pb: ProgressBar, btn: Button,
+                                   progress: Int, elapsed: Long, isPaused: Boolean, swipeCount: Int) {
+        pb.visibility = View.VISIBLE
+        pb.progress = progress
+
+        val remainingMs = (TRAINING_DURATION_MS - elapsed).coerceAtLeast(0)
+        val days = TimeUnit.MILLISECONDS.toDays(remainingMs)
+        val hours = TimeUnit.MILLISECONDS.toHours(remainingMs) % 24
+
+        tvScore.text = "Calibration: $days d $hours h remaining"
+        tvRisk.text = "$swipeCount Swipes"
+        tvRisk.setTextColor(Color.DKGRAY)
+
+        if (isPaused) {
+            btn.text = "CONTINUE TRAINING"
+            tvStatus.text = "TRAINING PAUSED"
+            tvStatus.setTextColor(Color.parseColor("#FF9800"))
+        } else {
+            btn.text = "STOP TRAINING"
+            tvStatus.text = "LEARNING BEHAVIOR..."
+            tvStatus.setTextColor(Color.GRAY)
         }
     }
 
@@ -198,16 +189,21 @@ class BiometricsFragment : Fragment() {
             val data = db.dao().getTrainingData()
             val classifier = BehavioralAuthClassifier(requireContext())
 
+            // NOTE: Array must match your TFLite features [Velocity, Pressure, Usage, Transition]
             val errors = data.map {
-                classifier.getError(floatArrayOf(it.duration, it.velocityX, 0.5f, 0.5f, 0.5f))
+                classifier.getError(floatArrayOf(it.velocityX, 0.5f, 0.1f, 0.1f))
             }
 
             val newThreshold = BehavioralAuthClassifier.calculateThreshold(errors)
 
-            val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit()
-            prefs.putFloat("threshold", newThreshold)
-            prefs.putBoolean("ai_ready", true)
-            prefs.apply()
+            requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit()
+                .putFloat("threshold", newThreshold)
+                .putBoolean("ai_ready", true)
+                .apply()
+
+            withContext(Dispatchers.Main) {
+                Toast.makeText(requireContext(), "AI Training Complete!", Toast.LENGTH_LONG).show()
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 
 class BleDeviceAdapter(
-    // FIXED: Now accepts TWO parameters so your teammate's disconnect logic works!
+    // 🚨 FIX: Added a Boolean to tell the Fragment if we are clicking to connect or disconnect
     private val onDeviceClicked: (BluetoothDevice, Boolean) -> Unit
 ) : RecyclerView.Adapter<BleDeviceAdapter.DeviceViewHolder>() {
 
@@ -21,8 +21,7 @@ class BleDeviceAdapter(
     class DeviceViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvName: TextView = view.findViewById(R.id.tvDeviceName)
         val tvMac: TextView = view.findViewById(R.id.tvDeviceMac)
-        // FIXED: Matched to the new XML ID
-        val tvConnectionStatus: TextView = view.findViewById(R.id.tvConnectionStatus)
+        val tvConnect: TextView? = view.findViewById(R.id.tvConnect)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): DeviceViewHolder {
@@ -37,20 +36,24 @@ class BleDeviceAdapter(
         holder.tvName.text = device.name ?: "Watch Pro"
         holder.tvMac.text = device.address
 
-        val isConnected = device.address == connectedDeviceMac
+        val isConnected = (device.address == connectedDeviceMac)
 
-        // FIXED: Now uses the clean visibility logic for the premium UI
+        // 🚨 Dynamic UI Update
         if (isConnected) {
-            holder.tvConnectionStatus.visibility = View.VISIBLE
-            holder.tvConnectionStatus.text = "CONNECTED"
-            holder.tvConnectionStatus.setTextColor(Color.parseColor("#4CAF50"))
+            holder.tvConnect?.text = "DISCONNECT" // Changed text to indicate new action
+            holder.tvConnect?.setTextColor(Color.parseColor("#F44336")) // Red for disconnect
         } else {
-            holder.tvConnectionStatus.visibility = View.GONE
+            holder.tvConnect?.text = "CONNECT"
+            holder.tvConnect?.setTextColor(Color.parseColor("#2196F3")) // Blue for connect
         }
 
         holder.itemView.setOnClickListener {
-            // FIXED: Passes both the device AND whether it's already connected back to the fragment
+            // Pass the current state back to the Fragment
             onDeviceClicked(device, isConnected)
+
+            // Optimistically update the UI state so it feels instant
+            connectedDeviceMac = if (isConnected) null else device.address
+            notifyDataSetChanged()
         }
     }
 
@@ -63,7 +66,6 @@ class BleDeviceAdapter(
         }
     }
 
-    // FIXED: Allowed 'mac' to be null so we can cleanly disconnect
     fun setConnectedDevice(mac: String?) {
         connectedDeviceMac = mac
         notifyDataSetChanged()

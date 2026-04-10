@@ -18,8 +18,13 @@ interface SecurityDao {
     // 1. SWIPE COMMANDS
     @Insert suspend fun insertTouch(profile: TouchProfile)
 
-    @Query("SELECT * FROM touch_profiles LIMIT 50")
+    // REMOVED LIMIT 50: Now it gets all data collected during the 3 days
+    @Query("SELECT * FROM touch_profiles")
     suspend fun getTrainingData(): List<TouchProfile>
+
+    // HELPER: Get total count for the "Minimum 200 swipes" check
+    @Query("SELECT COUNT(*) FROM touch_profiles")
+    suspend fun getTotalTouchCount(): Int
 
     @Query("DELETE FROM touch_profiles")
     suspend fun clearSwipes()
@@ -47,7 +52,7 @@ interface SecurityDao {
     @Query("DELETE FROM app_transitions")
     suspend fun clearTransitions()
 
-    // --- THE MASTER RESET SWITCH (Deletes Everything) ---
+    // --- THE MASTER RESET SWITCH ---
     @Transaction
     suspend fun wipeTotalData() {
         clearSwipes()

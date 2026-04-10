@@ -50,16 +50,21 @@ class TouchDynamicsService : AccessibilityService() {
     private var swipeStartTime = 0L
     private var eventCount = 0
 
-    private var currentVisibleScreen = ""
+    // 🚨 UPDATED: Single source of truth for Swipe Context
+    private var currentVisibleScreen = "Home Screen"
     private var currentRealApp = ""
     private var lastAppSwitchTime = System.currentTimeMillis()
     private var currentTransitionSpeed = 0.5f
+
     private var lastGuillotineTime = 0L
 
+    // 🚨 UPDATED: Added System Noise
     private val systemNoiseList = listOf(
         "com.android.systemui",
         "com.google.android.inputmethod.latin",
-        "com.touchtype.swiftkey"
+        "com.touchtype.swiftkey",
+        "com.google.android.gms",
+        "android"
     )
 
     private val homeLaunchers = listOf(
@@ -94,7 +99,6 @@ class TouchDynamicsService : AccessibilityService() {
     // =========================================================
     private val osBiometricSyncReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            // This broadcast ONLY fires when the true owner passes the native OS lock screen
             if (intent?.action == Intent.ACTION_USER_PRESENT) {
                 val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
                 val isLocked = prefs.getBoolean("is_system_locked", false)
@@ -108,7 +112,6 @@ class TouchDynamicsService : AccessibilityService() {
                         .putInt("current_risk", 0)
                         .apply()
 
-                    // Instantly vaporize the Red Lock Overlay
                     try {
                         val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
                         stopService(lockIntent)
@@ -144,7 +147,6 @@ class TouchDynamicsService : AccessibilityService() {
         super.onServiceConnected()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
-        // Register Poltergeist
         val filter = IntentFilter("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             registerReceiver(ghostReceiver, filter, RECEIVER_NOT_EXPORTED)
@@ -152,31 +154,41 @@ class TouchDynamicsService : AccessibilityService() {
             registerReceiver(ghostReceiver, filter)
         }
 
-        // Register Native OS Biometric Sync Listener
         val userPresentFilter = IntentFilter(Intent.ACTION_USER_PRESENT)
         registerReceiver(osBiometricSyncReceiver, userPresentFilter)
+    }
+
+    // 🚨 UPDATED: Simplified Readable App Name logic
+    private fun getReadableAppName(packageName: String): String {
+        if (homeLaunchers.contains(packageName) || packageName.contains("launcher")) return "Home Screen"
+        if (knownAppOverrides.containsKey(packageName)) return knownAppOverrides[packageName]!!
+        return try {
+            val pm = packageManager
+            val appInfo = pm.getApplicationInfo(packageName, 0)
+            pm.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            packageName.split(".").last().replaceFirstChar { it.uppercase() }
+        }
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
 
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-
-        // CEASEFIRE PROTOCOL: If the OS Biometric prompt is active, ignore everything!
         if (prefs.getBoolean("is_auth_in_progress", false)) return
 
         val isLocked = prefs.getBoolean("is_system_locked", false)
         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
 
-        val pkg = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val rawPackageName = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
         val className = event?.className?.toString()?.lowercase(Locale.ROOT) ?: ""
         val eventType = event?.eventType
 
         // =========================================================
-        // THE SCRIM-SNIPER GUILLOTINE (Active ONLY when Locked)
+        // THE SCRIM-SNIPER GUILLOTINE
         // =========================================================
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        if (isEnvironmentHostile && pkg == "com.android.systemui") {
+        if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
             if (className.contains("panel", true) ||
                 className.contains("notification", true) ||
                 className.contains("expand", true) ||
@@ -189,12 +201,12 @@ class TouchDynamicsService : AccessibilityService() {
         }
 
         // =========================================================
-        // EXISTING LOCKDOWN LOGIC (Trampoline fallback)
+        // LOCKDOWN LOGIC (Trampoline fallback)
         // =========================================================
         if (isLocked) {
             deployAegisShield()
 
-            if (pkg.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
+            if (rawPackageName.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 if (!isPoltergeistActive) {
                     val trampolineIntent = Intent(this, TrampolineActivity::class.java).apply {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
@@ -204,9 +216,9 @@ class TouchDynamicsService : AccessibilityService() {
                     executeAntiGravitySwipe()
                     performGlobalAction(GLOBAL_ACTION_HOME)
                 }
-            } else if (pkg.contains("com.android.settings") || pkg.contains("coloros") || pkg.contains("oplus") || pkg.contains("miui")) {
+            } else if (rawPackageName.contains("com.android.settings") || rawPackageName.contains("coloros") || rawPackageName.contains("oplus") || rawPackageName.contains("miui")) {
                 if (!isPoltergeistActive) performGlobalAction(GLOBAL_ACTION_HOME)
-            } else if (pkg.isNotEmpty() && !pkg.contains("com.example.aisecurity")) {
+            } else if (rawPackageName.isNotEmpty() && !rawPackageName.contains("com.example.aisecurity")) {
                 performGlobalAction(GLOBAL_ACTION_HOME)
             }
             return
@@ -215,32 +227,25 @@ class TouchDynamicsService : AccessibilityService() {
         }
 
         // =========================================================
-        // BEHAVIORAL BIOMETRICS TRACKING (Runs transparently)
+        // 🚨 UPDATED: BEHAVIORAL BIOMETRICS & CONTEXT HEALING
         // =========================================================
         if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            if (systemNoiseList.contains(pkg)) return
-            val appName = getReadableAppName(this, pkg)
-
-            if (appName != currentVisibleScreen) {
-                currentVisibleScreen = appName
-            }
-
-            if (appName != "Home Screen" && appName != currentRealApp) {
-                val previousApp = currentRealApp
-                currentRealApp = appName
-
-                if (previousApp.isNotEmpty()) {
-                    val now = System.currentTimeMillis()
-                    val timeSinceLastApp = now - lastAppSwitchTime
-
-                    currentTransitionSpeed = (timeSinceLastApp.toFloat() / 10000f).coerceIn(0f, 1f)
-                    lastAppSwitchTime = now
-                    serviceScope.launch { learnTransition(previousApp, currentRealApp) }
-                }
-            }
+            if (systemNoiseList.contains(rawPackageName)) return
+            updateContext(rawPackageName)
         }
 
         if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+
+            // --- CONTEXT HEALING ---
+            // If the scroll event comes from a real app, but our state machine missed the Window State Change
+            // and is stuck on "Home Screen", force update the context now!
+            if (!systemNoiseList.contains(rawPackageName) && !homeLaunchers.contains(rawPackageName) && !rawPackageName.contains("launcher")) {
+                val actualApp = getReadableAppName(rawPackageName)
+                if (actualApp != currentVisibleScreen) {
+                    updateContext(rawPackageName)
+                }
+            }
+
             if (swipeStartTime == 0L) swipeStartTime = System.currentTimeMillis()
             eventCount++
             swipeJob?.cancel()
@@ -256,6 +261,28 @@ class TouchDynamicsService : AccessibilityService() {
                 }
                 swipeStartTime = 0L
                 eventCount = 0
+            }
+        }
+    }
+
+    // 🚨 NEW: Centralized Context Updater
+    private fun updateContext(packageName: String) {
+        val appName = getReadableAppName(packageName)
+
+        // 1. Update the sticky context for swipes
+        currentVisibleScreen = appName
+
+        // 2. Update the flow tracking for AI features
+        if (appName != "Home Screen" && appName != "System" && appName != currentRealApp) {
+            val previousApp = currentRealApp
+            currentRealApp = appName
+            val now = System.currentTimeMillis()
+
+            currentTransitionSpeed = ((now - lastAppSwitchTime).toFloat() / 10000f).coerceIn(0f, 1f)
+            lastAppSwitchTime = now
+
+            if (previousApp.isNotEmpty()) {
+                serviceScope.launch { learnTransition(previousApp, currentRealApp) }
             }
         }
     }
@@ -300,19 +327,6 @@ class TouchDynamicsService : AccessibilityService() {
                 .build()
             dispatchGesture(gesture, null, null)
         } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun getReadableAppName(context: Context, packageName: String): String {
-        if (homeLaunchers.contains(packageName)) return "Home Screen"
-        if (knownAppOverrides.containsKey(packageName)) return knownAppOverrides[packageName]!!
-
-        val pm = context.packageManager
-        return try {
-            val appInfo = pm.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
-            pm.getApplicationLabel(appInfo).toString()
-        } catch (_: PackageManager.NameNotFoundException) {
-            packageName.split(".").last().replaceFirstChar { it.uppercase() }
-        }
     }
 
     // =========================================================
@@ -530,7 +544,7 @@ class TouchDynamicsService : AccessibilityService() {
     }
 
     // =========================================================
-    //  AI TRAINING & CLASSIFICATION
+    //  AI TRAINING & CLASSIFICATION (Original checks preserved!)
     // =========================================================
     private suspend fun learnTransition(from: String, to: String) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)

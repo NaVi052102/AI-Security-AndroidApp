@@ -10,6 +10,7 @@ import android.location.Geocoder
 import android.location.LocationManager
 import android.os.Build
 import android.util.Log
+import android.view.KeyEvent
 import androidx.lifecycle.MutableLiveData
 import kotlinx.coroutines.*
 import java.util.*
@@ -19,34 +20,26 @@ import kotlin.math.round
 @SuppressLint("MissingPermission")
 object WatchManager {
 
-    // --- GLOBALLY ACCESSIBLE LIVE DATA ---
     val liveDistance = MutableLiveData<Double>(0.0)
     val liveStatus = MutableLiveData<String>("Disconnected")
     val isConnected = MutableLiveData<Boolean>(false)
     val watchPayload = MutableLiveData<String>("")
 
-    // --- TARGET HARDWARE SECRETS ---
     private const val WATCH_NAME = "Watch Pro"
-    private const val WATCH_MAC = "FC:01:2C:FD:DD:76" // THE MASTER KEY
+    private const val WATCH_MAC = "FC:01:2C:FD:DD:76"
 
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-123456789abc")
     private val TX_CHAR_UUID = UUID.fromString("abcdef12-1234-1234-1234-123456789abc")
     private val RX_CHAR_UUID = UUID.fromString("abcdef13-1234-1234-1234-123456789abc")
     private val CCCD_UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
-    // --- ENGINES ---
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private var rssiPollingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentContext: Context? = null
 
-    // --- THE STABILIZER ---
     private val distanceFilter = KalmanFilter(processNoise = 0.008, measurementNoise = 0.5)
-
-    // =====================================================================
-    // CONNECTION LOGIC
-    // =====================================================================
 
     fun connectToTarget(context: Context, macAddress: String) {
         currentContext = context.applicationContext
@@ -57,6 +50,10 @@ object WatchManager {
             liveStatus.postValue("Error: Bluetooth is OFF")
             return
         }
+
+        bluetoothGatt?.disconnect()
+        bluetoothGatt?.close()
+        bluetoothGatt = null
 
         stopScan()
         liveStatus.postValue("Linking to Watch Pro...")
@@ -105,10 +102,6 @@ object WatchManager {
         }
     }
 
-    // =====================================================================
-    // GATT COMMUNICATION (The Data Bridge)
-    // =====================================================================
-
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
             if (newState == BluetoothProfile.STATE_CONNECTED) {
@@ -147,17 +140,29 @@ object WatchManager {
                 distanceFilter.reset()
                 startRssiPolling()
 
-                // --- FETCH REAL INTERNET WEATHER BASED ON GPS ---
                 scope.launch {
                     delay(500)
                     fetchLiveWeatherAndSend()
+
+                    // 🚨 NEW: INSTANTLY FETCH CURRENT MUSIC UPON CONNECTION
+                    delay(500)
+                    WatchMediaService.syncCurrentMedia()
                 }
             }
         }
 
         override fun onCharacteristicChanged(gatt: BluetoothGatt, char: BluetoothGattCharacteristic) {
             if (char.uuid == TX_CHAR_UUID) {
-                watchPayload.postValue(char.getStringValue(0))
+                val payload = char.getStringValue(0)
+                watchPayload.postValue(payload)
+
+                currentContext?.let { ctx ->
+                    when (payload) {
+                        "<CMD:PLAY>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
+                        "<CMD:PREV>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
+                        "<CMD:NEXT>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_NEXT)
+                    }
+                }
             }
         }
 
@@ -183,14 +188,10 @@ object WatchManager {
         }
     }
 
-    // =====================================================================
-    // LIVE INTERNET WEATHER FETCHER (WITH GPS & CITY NAME FIX)
-    // =====================================================================
     @SuppressLint("MissingPermission")
     private fun fetchLiveWeatherAndSend() {
         val context = currentContext ?: return
 
-        // 1. Grab phone coordinates
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
         val location = locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
             ?: locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
@@ -198,13 +199,11 @@ object WatchManager {
         val lat = location?.latitude ?: 10.3157
         val lon = location?.longitude ?: 123.8854
 
-        // 2. REVERSE GEOCODE: Force Android to find the real "High Class" City name
         var cityName = "Unknown"
         try {
             val geocoder = Geocoder(context, Locale.getDefault())
             val addresses = geocoder.getFromLocation(lat, lon, 1)
             if (addresses != null && addresses.isNotEmpty()) {
-                // Locality returns the City Name (e.g. Mandaue City)
                 cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: "Unknown City"
             }
         } catch (e: Exception) {
@@ -232,14 +231,10 @@ object WatchManager {
                 val clouds = json.getJSONObject("clouds")
                 val cloudCover = clouds.getInt("all")
 
-                // 3. Fallback to API city name ONLY if Geocoder returned nothing
                 if (cityName == "Unknown") {
                     cityName = json.getString("name")
                 }
 
-                Log.d("BLE_WATCH", "Weather for $cityName: $temp°C, $desc")
-
-                // 4. Send the cleaned data to the watch
                 sendWeatherToWatch(temp, desc, humidity, windSpeed, cloudCover, cityName)
 
             } catch (e: Exception) {
@@ -253,35 +248,24 @@ object WatchManager {
             val gatt = bluetoothGatt ?: return@launch
             val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
 
-            // Format: <W:temp,desc,hum,wind,rain,city>
             val commandString = "<W:$temp,$desc,$humidity,$wind,$rainChance,$city>"
             val payload = commandString.toByteArray()
 
-            val success = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE) == BluetoothStatusCodes.SUCCESS
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
             } else {
                 rxChar.value = payload
                 rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 @Suppress("DEPRECATION")
                 gatt.writeCharacteristic(rxChar)
             }
-
-            if (success) {
-                Log.d("BLE_WATCH", "Sent Weather to Watch: $commandString")
-            }
         }
     }
 
     private fun sendRadarCommandToWatch(distance: Double) {
         scope.launch(Dispatchers.Main) {
-            val gatt = bluetoothGatt
-            if (gatt == null) return@launch
-
-            val service = gatt.getService(SERVICE_UUID)
-            if (service == null) return@launch
-
-            val rxChar = service.getCharacteristic(RX_CHAR_UUID)
-            if (rxChar == null) return@launch
+            val gatt = bluetoothGatt ?: return@launch
+            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
 
             val commandString = "<RADAR:${(distance * 100).toInt()}>"
             val payload = commandString.toByteArray()
@@ -297,6 +281,51 @@ object WatchManager {
         }
     }
 
+    fun sendMusicToWatch(title: String, artist: String, album: String, isPlaying: Boolean) {
+        scope.launch(Dispatchers.Main) {
+            val gatt = bluetoothGatt ?: return@launch
+            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
+
+            val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(20)
+            val safeArtist = artist.replace("<", "").replace(">", "").replace("|", "").take(20)
+            val safeAlbum = album.replace("<", "").replace(">", "").replace("|", "").take(20)
+            val stateInt = if (isPlaying) 1 else 0
+
+            val commandString = "<MUSIC:$safeTitle|$safeArtist|$safeAlbum|$stateInt>"
+            val payload = commandString.toByteArray(Charsets.UTF_8)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            } else {
+                rxChar.value = payload
+                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(rxChar)
+            }
+        }
+    }
+    // 🚨 RESTORED: Notification Sender
+    fun sendNotificationToWatch(title: String, text: String) {
+        scope.launch(Dispatchers.Main) {
+            val gatt = bluetoothGatt ?: return@launch
+            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
+
+            val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(25)
+            val safeText = text.replace("<", "").replace(">", "").replace("|", "").take(120)
+
+            val commandString = "<NOTIF:$safeTitle|$safeText>"
+            val payload = commandString.toByteArray(Charsets.UTF_8)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            } else {
+                rxChar.value = payload
+                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(rxChar)
+            }
+        }
+    }
     fun disconnect() {
         stopScan()
         rssiPollingJob?.cancel()

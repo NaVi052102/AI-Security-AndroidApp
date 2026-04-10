@@ -9,6 +9,7 @@ import android.bluetooth.le.ScanResult
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -19,6 +20,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.widget.SwitchCompat // 🚨 Kept this to protect your XML!
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -27,7 +29,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 import com.example.aisecurity.ble.WatchManager
 import com.google.android.material.button.MaterialButton
-import androidx.appcompat.widget.SwitchCompat
 
 class BluetoothFragment : Fragment() {
 
@@ -52,6 +53,19 @@ class BluetoothFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        // 🚨 THE MIUI DEFIBRILLATOR: Force-wakes the Notification Listener
+        val componentName = android.content.ComponentName(requireContext(), com.example.aisecurity.ble.WatchMediaService::class.java)
+        requireContext().packageManager.setComponentEnabledSetting(
+            componentName,
+            android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            android.content.pm.PackageManager.DONT_KILL_APP
+        )
+        requireContext().packageManager.setComponentEnabledSetting(
+            componentName,
+            android.content.pm.PackageManager.COMPONENT_ENABLED_STATE_ENABLED,
+            android.content.pm.PackageManager.DONT_KILL_APP
+        )
+
         // 🚨 Check for Notification Access Permission
         val isNotificationAccessGranted = NotificationManagerCompat.getEnabledListenerPackages(requireContext()).contains(requireContext().packageName)
         if (!isNotificationAccessGranted) {
@@ -64,6 +78,7 @@ class BluetoothFragment : Fragment() {
 
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
+        // Using SwitchCompat to match your XML design safely
         val switchBluetooth = view.findViewById<SwitchCompat>(R.id.switchBluetooth)
         val btnScan = view.findViewById<MaterialButton>(R.id.btnScan)
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
@@ -112,9 +127,11 @@ class BluetoothFragment : Fragment() {
             if (isScanning) {
                 stopRadarScan()
                 btnScan.text = "START RADAR SCAN"
+                btnScan.setBackgroundColor(Color.parseColor("#2196F3")) // Revert to Blue
             } else {
                 checkPermissionsAndScan()
                 btnScan.text = "STOP SCANNING"
+                btnScan.setBackgroundColor(Color.parseColor("#F44336")) // Change to Red
             }
         }
     }
@@ -164,6 +181,7 @@ class BluetoothFragment : Fragment() {
                 stopRadarScan()
                 view?.findViewById<MaterialButton>(R.id.btnScan)?.let {
                     it.text = "START RADAR SCAN"
+                    it.setBackgroundColor(Color.parseColor("#2196F3")) // Revert to Blue on timeout
                 }
             }
         }, 10000)

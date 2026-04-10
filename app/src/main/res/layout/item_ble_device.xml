@@ -53,15 +53,16 @@
             </LinearLayout>
 
             <TextView
-                android:id="@+id/tvConnectionStatus"
+                android:id="@+id/tvConnect"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:fontFamily="@font/inter"
-                android:text="CONNECTED"
-                android:textColor="#4CAF50"
+                android:text="CONNECT"
+                android:textColor="#2196F3"
                 android:textSize="12sp"
                 android:textStyle="bold"
-                android:letterSpacing="0.05"
-                android:visibility="gone" /> </LinearLayout>
+                android:letterSpacing="0.05" />
+
+        </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 </LinearLayout>
