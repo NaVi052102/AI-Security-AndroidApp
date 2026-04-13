@@ -136,9 +136,20 @@ class TouchDynamicsService : AccessibilityService() {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
 
-                    if (target != "AIRPLANE" && target != "LOCK_AND_RECOVER_AIRPLANE") {
+                    // 🚨 NEW: The Xiaomi/Vivo Instant Screen Lock Bypass
+                    if (target == "FORCE_SLEEP") {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                            // Run on a slight 300ms delay to ensure the Warning Activity has already launched
+                            serviceScope.launch(Dispatchers.Main) {
+                                delay(300)
+                                performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                            }
+                        }
+                    }
+                    else if (target != "AIRPLANE" && target != "LOCK_AND_RECOVER_AIRPLANE") {
                         launchTeleportingPoltergeist(target)
-                    } else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
+                    }
+                    else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
                         try {
                             val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
                             this@TouchDynamicsService.startService(lockIntent)

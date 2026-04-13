@@ -1,7 +1,10 @@
 package com.example.aisecurity.ai
 
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import com.example.aisecurity.SecurityAdminReceiver
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.HoneypotActivity
 
@@ -19,6 +22,29 @@ class SecurityEnforcer(private val context: Context) {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         context.startActivity(activityIntent)
+
+        // =========================================
+        // 3. THE PRIMARY SCREEN KILLER (Device Admin)
+        // =========================================
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val adminComponent = ComponentName(context, SecurityAdminReceiver::class.java)
+
+            if (dpm.isAdminActive(adminComponent)) {
+                dpm.lockNow() // Forces the hardware screen to go black instantly!
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // =========================================
+        // 4. THE XIAOMI/VIVO BYPASS (Accessibility)
+        // =========================================
+        // If the Chinese OEM ignores the lockNow command, we trigger the unblockable Accessibility Lock
+        val lockIntent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+        lockIntent.putExtra("TARGET_SETTING", "FORCE_SLEEP")
+        lockIntent.setPackage(context.packageName)
+        context.sendBroadcast(lockIntent)
     }
 
     fun disengageLockdown() {

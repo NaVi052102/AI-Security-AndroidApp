@@ -1,8 +1,8 @@
-package com.example.aisecurity.ui
+package com.example.aisecurity.ui.settings
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -12,13 +12,16 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.EditText
 import android.widget.Toast
+import androidx.core.content.edit
+import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
+import com.example.aisecurity.ui.LockOverlayService
 import com.example.aisecurity.ai.SecurityEnforcer
-import androidx.core.content.edit
 
 class SettingsFragment : Fragment() {
 
+    @SuppressLint("BatteryLife") // Bypasses the strict Android IDE warning
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
@@ -48,7 +51,7 @@ class SettingsFragment : Fragment() {
             val pm = requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(requireContext().packageName)) {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:${requireContext().packageName}")
+                    data = "package:${requireContext().packageName}".toUri() // Fixed URI warning
                 }
                 startActivity(intent)
             }
@@ -58,12 +61,22 @@ class SettingsFragment : Fragment() {
             SecurityEnforcer(requireContext()).lockDevice("Manual Developer Test")
         }
 
+        // --- FIXED TEST BUTTON ---
         btnTestPersistent.setOnClickListener {
             if (!Settings.canDrawOverlays(requireContext())) {
-                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                Toast.makeText(requireContext(), "Please grant 'Display over other apps' permission", Toast.LENGTH_LONG).show()
+                val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply {
+                    data = "package:${requireContext().packageName}".toUri()
+                }
                 startActivity(intent)
             } else {
-                // Trigger your overlay service here
+                // IGNITE THE LOCKDOWN OVERLAY!
+                val lockIntent = Intent(requireContext(), LockOverlayService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    requireContext().startForegroundService(lockIntent)
+                } else {
+                    requireContext().startService(lockIntent)
+                }
             }
         }
 

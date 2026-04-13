@@ -24,7 +24,7 @@ import com.example.aisecurity.R
 class LockOverlayService : Service() {
 
     private lateinit var windowManager: WindowManager
-    private lateinit var overlayView: View
+    private var overlayView: View? = null
     private lateinit var layoutParams: WindowManager.LayoutParams
 
     private var isOverlayVisible = false
@@ -41,15 +41,20 @@ class LockOverlayService : Service() {
         val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("Security Protocol Active")
             .setContentText("Device lockdown is engaged.")
-            .setSmallIcon(android.R.drawable.ic_secure)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert) // Changed to standard alert icon
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setOngoing(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= 34) {
+        if (Build.VERSION.SDK_INT >= 34) { // Android 14+ requires explicit type
             startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(1, notification)
+        }
+
+        // Only draw the overlay if it isn't already on the screen
+        if (!isOverlayVisible) {
+            drawLockScreen()
         }
 
         return START_STICKY
@@ -57,9 +62,7 @@ class LockOverlayService : Service() {
 
     @SuppressLint("InflateParams", "ApplySharedPref")
     @Suppress("CommitPrefEdits")
-    override fun onCreate() {
-        super.onCreate()
-
+    private fun drawLockScreen() {
         windowManager = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val inflater = getSystemService(Context.LAYOUT_INFLATER_SERVICE) as LayoutInflater
 
@@ -88,18 +91,18 @@ class LockOverlayService : Service() {
 
         prefs.edit().putBoolean("is_system_locked", true).apply()
 
-        overlayView.findViewById<TextView>(R.id.tvDisplayMessage).text = customMsg
-        overlayView.findViewById<TextView>(R.id.tvDisplayNumber).text = customNum
+        overlayView?.findViewById<TextView>(R.id.tvDisplayMessage)?.text = customMsg
+        overlayView?.findViewById<TextView>(R.id.tvDisplayNumber)?.text = customNum
 
         // ==========================================
         // THE TEST OVERRIDE & INSTRUCTIONS
         // ==========================================
-        val btnUnlockScreen = overlayView.findViewById<Button>(R.id.btnUnlockScreen)
-        val etPinOverride = overlayView.findViewById<EditText>(R.id.etPinOverride)
-        val tvInstructions = overlayView.findViewById<TextView>(R.id.tvInstructions)
+        val btnUnlockScreen = overlayView?.findViewById<Button>(R.id.btnUnlockScreen)
+        val etPinOverride = overlayView?.findViewById<EditText>(R.id.etPinOverride)
+        val tvInstructions = overlayView?.findViewById<TextView>(R.id.tvInstructions)
 
-        btnUnlockScreen.setOnClickListener {
-            val enteredPin = etPinOverride.text.toString()
+        btnUnlockScreen?.setOnClickListener {
+            val enteredPin = etPinOverride?.text.toString()
 
             if (enteredPin == "0000") {
                 // THE 0000 TEST OVERRIDE: Unlock instantly
@@ -111,13 +114,12 @@ class LockOverlayService : Service() {
 
                 stopSelf() // Destroys the Red Screen Service
             } else {
-                // DYNAMIC INSTRUCTION DISPLAY: Bypass Android's Toast Blocker
-                tvInstructions.text = "To unlock natively:\nTurn off screen & use Fingerprint/Face."
-                etPinOverride.text.clear() // Clear wrong attempts
+                tvInstructions?.text = "To unlock natively:\nTurn off screen & use Fingerprint/Face."
+                etPinOverride?.text?.clear()
             }
         }
 
-        overlayView.systemUiVisibility = (
+        overlayView?.systemUiVisibility = (
                 View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
                         or View.SYSTEM_UI_FLAG_FULLSCREEN
                         or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
@@ -150,7 +152,7 @@ class LockOverlayService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         try {
-            if (isOverlayVisible) {
+            if (isOverlayVisible && overlayView != null) {
                 windowManager.removeView(overlayView)
                 isOverlayVisible = false
             }

@@ -30,7 +30,7 @@ import com.example.aisecurity.ui.logs.LogsFragment
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
-import com.example.aisecurity.ui.SettingsFragment
+import com.example.aisecurity.ui.settings.SettingsFragment
 import com.example.aisecurity.ui.help.HelpFragment
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
