@@ -11,7 +11,6 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 
 class BleDeviceAdapter(
-    // 🚨 FIX: Added a Boolean to tell the Fragment if we are clicking to connect or disconnect
     private val onDeviceClicked: (BluetoothDevice, Boolean) -> Unit
 ) : RecyclerView.Adapter<BleDeviceAdapter.DeviceViewHolder>() {
 
@@ -38,22 +37,17 @@ class BleDeviceAdapter(
 
         val isConnected = (device.address == connectedDeviceMac)
 
-        // 🚨 Dynamic UI Update
         if (isConnected) {
-            holder.tvConnect?.text = "DISCONNECT" // Changed text to indicate new action
-            holder.tvConnect?.setTextColor(Color.parseColor("#F44336")) // Red for disconnect
+            holder.tvConnect?.text = "DISCONNECT"
+            holder.tvConnect?.setTextColor(Color.parseColor("#F44336"))
         } else {
             holder.tvConnect?.text = "CONNECT"
-            holder.tvConnect?.setTextColor(Color.parseColor("#2196F3")) // Blue for connect
+            holder.tvConnect?.setTextColor(Color.parseColor("#2196F3"))
         }
 
         holder.itemView.setOnClickListener {
-            // Pass the current state back to the Fragment
+            // 🚨 FIX: Just pass the click to the Fragment. Do NOT instantly change colors here!
             onDeviceClicked(device, isConnected)
-
-            // Optimistically update the UI state so it feels instant
-            connectedDeviceMac = if (isConnected) null else device.address
-            notifyDataSetChanged()
         }
     }
 

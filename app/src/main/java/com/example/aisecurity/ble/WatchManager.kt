@@ -6,14 +6,20 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.Intent
 import android.location.Geocoder
 import android.location.LocationManager
 import android.os.Build
 import android.util.Log
 import android.view.KeyEvent
 import androidx.lifecycle.MutableLiveData
+import com.example.aisecurity.ai.BehavioralAuthClassifier
+import com.example.aisecurity.ai.SecurityDatabase
+import com.example.aisecurity.ui.LiveLogger
+import com.example.aisecurity.ui.LockOverlayService
 import kotlinx.coroutines.*
 import java.util.*
+import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 import kotlin.math.round
 
@@ -35,19 +41,26 @@ object WatchManager {
 
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
+
     private var rssiPollingJob: Job? = null
+    private var bioSyncJob: Job? = null
+
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentContext: Context? = null
 
     private val distanceFilter = KalmanFilter(processNoise = 0.008, measurementNoise = 0.5)
+
+    private var lastLockTime = 0L
+    private const val LOCK_COOLDOWN_MS = 5000L
 
     fun connectToTarget(context: Context, macAddress: String) {
         currentContext = context.applicationContext
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
         val adapter = bluetoothManager.adapter
 
-        if (adapter == null) {
+        if (adapter == null || !adapter.isEnabled) {
             liveStatus.postValue("Error: Bluetooth is OFF")
+            isConnected.postValue(false)
             return
         }
 
@@ -104,10 +117,12 @@ object WatchManager {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            if (newState == BluetoothProfile.STATE_CONNECTED) {
+            // 🚨 FIX: If Android detects ANY error or disconnect, instantly sever the UI connection!
+            if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 liveStatus.postValue("Connected! Requesting Bandwidth...")
                 gatt.requestMtu(512)
-            } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
+            } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
+                Log.e("BLE", "Connection dropped or failed. Status: $status")
                 disconnect()
             }
         }
@@ -138,13 +153,13 @@ object WatchManager {
                 liveStatus.postValue("Secure Link Established ✅")
 
                 distanceFilter.reset()
+
                 startRssiPolling()
+                startBiometricsSync()
 
                 scope.launch {
                     delay(500)
                     fetchLiveWeatherAndSend()
-
-                    // 🚨 NEW: INSTANTLY FETCH CURRENT MUSIC UPON CONNECTION
                     delay(500)
                     WatchMediaService.syncCurrentMedia()
                 }
@@ -161,6 +176,10 @@ object WatchManager {
                         "<CMD:PLAY>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                         "<CMD:PREV>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
                         "<CMD:NEXT>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_NEXT)
+
+                        "<CMD:BIO_ACTION>" -> handleBioAction(ctx)
+                        "<CMD:BIO_USE_AI>" -> handleBioUseAi(ctx)
+                        "<CMD:BIO_RESET>" -> handleBioReset(ctx)
                     }
                 }
             }
@@ -171,19 +190,243 @@ object WatchManager {
                 val rawDistance = calculateDistance(rssi)
                 val stableDistance = distanceFilter.update(rawDistance)
                 val cleanDistance = round(stableDistance * 100) / 100.0
+
                 liveDistance.postValue(cleanDistance)
                 sendRadarCommandToWatch(cleanDistance)
+
+                currentContext?.let { checkDistanceAndLock(it, cleanDistance.toFloat()) }
+            } else {
+                // 🚨 FIX: If the ping fails (e.g. watch turned off mid-poll), kill the connection instantly!
+                disconnect()
             }
         }
     }
 
+    private fun handleBioAction(context: Context) {
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val isReady = prefs.getBoolean("ai_ready", false)
+        val isPaused = prefs.getBoolean("training_paused", true)
+        val editor = prefs.edit()
+
+        if (isReady) {
+            editor.putBoolean("ai_ready", false)
+            editor.putBoolean("training_paused", false)
+            editor.putLong("session_start_time", System.currentTimeMillis())
+        } else {
+            if (isPaused) {
+                editor.putBoolean("training_paused", false)
+                editor.putLong("session_start_time", System.currentTimeMillis())
+            } else {
+                val sessionStart = prefs.getLong("session_start_time", 0L)
+                var accumulated = prefs.getLong("accumulated_time", 0L)
+                if (sessionStart > 0) {
+                    accumulated += (System.currentTimeMillis() - sessionStart)
+                }
+                editor.putLong("accumulated_time", accumulated)
+                editor.putLong("session_start_time", 0L)
+                editor.putBoolean("training_paused", true)
+            }
+        }
+        editor.apply()
+    }
+
+    private fun handleBioUseAi(context: Context) {
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+
+        val accumulatedTime = prefs.getLong("accumulated_time", 0L)
+        val sessionStart = prefs.getLong("session_start_time", 0L)
+        var totalTime = accumulatedTime
+
+        if (!prefs.getBoolean("training_paused", true) && sessionStart > 0 && !prefs.getBoolean("ai_ready", false)) {
+            totalTime += (System.currentTimeMillis() - sessionStart)
+        }
+
+        prefs.edit()
+            .putLong("accumulated_time", totalTime)
+            .putLong("session_start_time", 0L)
+            .putBoolean("training_paused", true)
+            .putBoolean("ai_ready", true)
+            .apply()
+
+        CoroutineScope(Dispatchers.IO).launch {
+            val db = SecurityDatabase.get(context)
+            val data = db.dao().getTrainingData()
+            val classifier = BehavioralAuthClassifier(context)
+            val errors = data.map { classifier.getError(floatArrayOf(it.velocityX, 0.5f, 0.1f, 0.1f)) }
+            val newThreshold = BehavioralAuthClassifier.calculateThreshold(errors)
+            prefs.edit().putFloat("threshold", newThreshold).apply()
+        }
+    }
+
+    private fun handleBioReset(context: Context) {
+        CoroutineScope(Dispatchers.IO).launch {
+            val db = SecurityDatabase.get(context)
+            val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+
+            db.dao().wipeTotalData()
+
+            prefs.edit()
+                .putBoolean("ai_ready", false)
+                .putBoolean("training_paused", true)
+                .putInt("current_risk", 0)
+                .putLong("accumulated_time", 0L)
+                .putLong("session_start_time", 0L)
+                .remove("threshold")
+                .apply()
+
+            LiveLogger.clear()
+            val classifier = BehavioralAuthClassifier(context)
+            classifier.wipeMemory()
+        }
+    }
+
+    // 🚨 FIX: Heartbeat Ping Logic
     private fun startRssiPolling() {
         rssiPollingJob?.cancel()
         rssiPollingJob = scope.launch {
             delay(1000)
+            var failedPings = 0
             while (isActive && bluetoothGatt != null) {
-                bluetoothGatt?.readRemoteRssi()
-                delay(200)
+                // Request RSSI. If the Android stack rejects the request, the watch is gone.
+                val pingSent = bluetoothGatt?.readRemoteRssi() == true
+
+                if (!pingSent) {
+                    failedPings++
+                    if (failedPings >= 2) {
+                        Log.e("BLE", "Watch missed 2 heartbeats. Declaring connection dead.")
+                        disconnect()
+                        break
+                    }
+                } else {
+                    failedPings = 0 // Reset on success
+                }
+                delay(1000) // 1 second heartbeat
+            }
+        }
+    }
+
+    private fun startBiometricsSync() {
+        val context = currentContext ?: return
+        bioSyncJob?.cancel()
+
+        bioSyncJob = scope.launch(Dispatchers.IO) {
+            val db = SecurityDatabase.get(context)
+            val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            var loopCount = 0
+
+            delay(1000)
+
+            while (isActive && bluetoothGatt != null) {
+                try {
+                    val isReady = prefs.getBoolean("ai_ready", false)
+                    val isPaused = prefs.getBoolean("training_paused", true)
+                    val risk = prefs.getInt("current_risk", 0)
+                    val swipes = db.dao().getTotalTouchCount()
+
+                    var accumulatedTime = prefs.getLong("accumulated_time", 0L)
+                    val sessionStart = prefs.getLong("session_start_time", 0L)
+
+                    if (!isPaused && sessionStart > 0 && !isReady) {
+                        accumulatedTime += (System.currentTimeMillis() - sessionStart)
+                    }
+
+                    val requiredMs = TimeUnit.DAYS.toMillis(1)
+
+                    val status = if (isReady) {
+                        if (risk < 50) "SECURE" else if (risk < 100) "WARNING" else "INTRUDER"
+                    } else {
+                        if (isPaused) "PAUSED" else "TRAINING"
+                    }
+
+                    val bioScore = if (isReady) risk else swipes
+
+                    val progress = if (isReady) {
+                        ((risk / 120f) * 183f).toInt().coerceIn(0, 183)
+                    } else {
+                        ((accumulatedTime.toFloat() / requiredMs) * 183f).toInt().coerceIn(0, 183)
+                    }
+
+                    val timeStr = if (isReady) {
+                        "Active Protection"
+                    } else {
+                        val remainingMs = (requiredMs - accumulatedTime).coerceAtLeast(0)
+                        val d = TimeUnit.MILLISECONDS.toDays(remainingMs)
+                        val h = TimeUnit.MILLISECONDS.toHours(remainingMs) % 24
+                        "$d d $h h remaining"
+                    }
+
+                    sendData("<BIO:$bioScore|$status|$progress|$timeStr>")
+
+                    if (loopCount % 3 == 0) {
+                        delay(200)
+                        sendData("<BIOAPP:CLEAR>")
+                        delay(200)
+
+                        val allApps = db.dao().getAllAppStats()
+                        val topApps = allApps.sortedByDescending { it.interactionCount }.take(5)
+
+                        for (app in topApps) {
+                            val speed = app.avgVelocity.toInt()
+                            val count = app.interactionCount
+                            sendData("<BIOAPP:${app.packageName}|$speed px/s   $count>")
+                            delay(200)
+                        }
+                        sendData("<BIOAPP:END>")
+                    }
+                    loopCount++
+                } catch (e: Exception) {
+                    Log.e("WATCH_SYNC", "Biometrics Sync Error: ${e.message}")
+                }
+                delay(1000)
+            }
+        }
+    }
+
+    private fun checkDistanceAndLock(context: Context, currentDistanceMeters: Float) {
+        val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+
+        val isProximityArmed = prefs.getBoolean("is_proximity_armed", true)
+        if (!isProximityArmed) return
+
+        val thresholdMeters = prefs.getFloat("radar_threshold_meters", 10.0f)
+        val isAlreadyLocked = prefs.getBoolean("is_system_locked", false)
+
+        if (currentDistanceMeters > thresholdMeters && !isAlreadyLocked) {
+            val now = System.currentTimeMillis()
+            if (now - lastLockTime < LOCK_COOLDOWN_MS) return
+            lastLockTime = now
+
+            LiveLogger.log("🚨 PROXIMITY BREACH: Distance ($currentDistanceMeters m) exceeded threshold ($thresholdMeters m)!")
+
+            prefs.edit().putBoolean("is_system_locked", true).apply()
+
+            try {
+                val lockIntent = Intent(context, LockOverlayService::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(lockIntent)
+                } else {
+                    context.startService(lockIntent)
+                }
+            } catch (e: Exception) {
+                LiveLogger.log("❌ Failed to launch LockOverlayService: ${e.message}")
+            }
+        }
+    }
+
+    fun sendData(payload: String) {
+        scope.launch(Dispatchers.Main) {
+            val gatt = bluetoothGatt ?: return@launch
+            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
+
+            val dataBytes = payload.toByteArray(Charsets.UTF_8)
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(rxChar, dataBytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            } else {
+                rxChar.value = dataBytes
+                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                @Suppress("DEPRECATION")
+                gatt.writeCharacteristic(rxChar)
             }
         }
     }
@@ -244,93 +487,39 @@ object WatchManager {
     }
 
     private fun sendWeatherToWatch(temp: Int, desc: String, humidity: Int, wind: Int, rainChance: Int, city: String) {
-        scope.launch(Dispatchers.Main) {
-            val gatt = bluetoothGatt ?: return@launch
-            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
-
-            val commandString = "<W:$temp,$desc,$humidity,$wind,$rainChance,$city>"
-            val payload = commandString.toByteArray()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-            } else {
-                rxChar.value = payload
-                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(rxChar)
-            }
-        }
+        sendData("<W:$temp,$desc,$humidity,$wind,$rainChance,$city>")
     }
 
     private fun sendRadarCommandToWatch(distance: Double) {
-        scope.launch(Dispatchers.Main) {
-            val gatt = bluetoothGatt ?: return@launch
-            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
-
-            val commandString = "<RADAR:${(distance * 100).toInt()}>"
-            val payload = commandString.toByteArray()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-            } else {
-                rxChar.value = payload
-                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(rxChar)
-            }
-        }
+        sendData("<RADAR:${(distance * 100).toInt()}>")
     }
 
     fun sendMusicToWatch(title: String, artist: String, album: String, isPlaying: Boolean) {
-        scope.launch(Dispatchers.Main) {
-            val gatt = bluetoothGatt ?: return@launch
-            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
+        val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(20)
+        val safeArtist = artist.replace("<", "").replace(">", "").replace("|", "").take(20)
+        val safeAlbum = album.replace("<", "").replace(">", "").replace("|", "").take(20)
+        val stateInt = if (isPlaying) 1 else 0
 
-            val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(20)
-            val safeArtist = artist.replace("<", "").replace(">", "").replace("|", "").take(20)
-            val safeAlbum = album.replace("<", "").replace(">", "").replace("|", "").take(20)
-            val stateInt = if (isPlaying) 1 else 0
-
-            val commandString = "<MUSIC:$safeTitle|$safeArtist|$safeAlbum|$stateInt>"
-            val payload = commandString.toByteArray(Charsets.UTF_8)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-            } else {
-                rxChar.value = payload
-                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(rxChar)
-            }
-        }
+        sendData("<MUSIC:$safeTitle|$safeArtist|$safeAlbum|$stateInt>")
     }
-    // 🚨 RESTORED: Notification Sender
+
     fun sendNotificationToWatch(title: String, text: String) {
-        scope.launch(Dispatchers.Main) {
-            val gatt = bluetoothGatt ?: return@launch
-            val rxChar = gatt.getService(SERVICE_UUID)?.getCharacteristic(RX_CHAR_UUID) ?: return@launch
+        val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(25)
+        val safeText = text.replace("<", "").replace(">", "").replace("|", "").take(120)
 
-            val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(25)
-            val safeText = text.replace("<", "").replace(">", "").replace("|", "").take(120)
-
-            val commandString = "<NOTIF:$safeTitle|$safeText>"
-            val payload = commandString.toByteArray(Charsets.UTF_8)
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(rxChar, payload, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-            } else {
-                rxChar.value = payload
-                rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                @Suppress("DEPRECATION")
-                gatt.writeCharacteristic(rxChar)
-            }
-        }
+        sendData("<NOTIF:$safeTitle|$safeText>")
     }
+
     fun disconnect() {
         stopScan()
         rssiPollingJob?.cancel()
-        bluetoothGatt?.disconnect()
-        bluetoothGatt?.close()
+        bioSyncJob?.cancel()
+        try {
+            bluetoothGatt?.disconnect()
+            bluetoothGatt?.close()
+        } catch (e: Exception) {
+            Log.e("BLE", "Error closing GATT: ${e.message}")
+        }
         bluetoothGatt = null
         isConnected.postValue(false)
         liveStatus.postValue("Watch Disconnected")

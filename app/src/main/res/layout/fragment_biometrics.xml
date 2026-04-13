@@ -50,7 +50,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
                 android:progress="0"
-                android:max="50"
+                android:max="100"
                 android:progressTint="#4CAF50" />
 
             <TextView
@@ -58,7 +58,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
-                android:text="Training: 0/50 Swipes"
+                android:text="Training: 0/200 Swipes"
                 android:textColor="#666666"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -74,10 +74,22 @@
             android:id="@+id/btnAction"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="8dp"
+            android:layout_weight="1.2"
+            android:layout_marginEnd="4dp"
             android:backgroundTint="#2196F3"
-            android:text="Permissions"
+            android:textSize="11sp"
+            android:text="START"
+            android:textColor="#FFFFFF" />
+
+        <Button
+            android:id="@+id/btnUseAi"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginHorizontal="4dp"
+            android:backgroundTint="#4CAF50"
+            android:textSize="11sp"
+            android:text="USE AI"
             android:textColor="#FFFFFF" />
 
         <Button
@@ -85,9 +97,10 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="4dp"
             android:backgroundTint="#333333"
-            android:text="Reset AI"
+            android:textSize="11sp"
+            android:text="RESET"
             android:textColor="#FF5252" />
     </LinearLayout>
 

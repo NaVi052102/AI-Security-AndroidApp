@@ -7,6 +7,7 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.location.Geocoder
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
@@ -18,19 +19,22 @@ import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.Button // --- Updated Import ---
+import android.widget.Button
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -41,31 +45,34 @@ import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.gms.maps.model.PolylineOptions
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
+
+    // Firebase Engine
+    private lateinit var auth: FirebaseAuth
+    private lateinit var db: FirebaseFirestore
 
     private lateinit var map: MapView
     private lateinit var googleMapContainer: View
     private lateinit var tvLocationStatus: TextView
     private lateinit var tvNetworkStatus: TextView
-    private lateinit var btnSettings: Button // --- Updated Type ---
+    private lateinit var btnSettings: Button
 
-    private lateinit var targetPoint: GeoPoint
-    private lateinit var gTargetLatLng: LatLng
-
-    private val routingLine = Polyline()
     private lateinit var myLocationMarker: Marker
-
     private var gMap: GoogleMap? = null
     private var gMapMarker: com.google.android.gms.maps.model.Marker? = null
-    private var gMapPolyline: com.google.android.gms.maps.model.Polyline? = null
 
     private lateinit var gpsProvider: GpsMyLocationProvider
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
     private lateinit var connectivityManager: ConnectivityManager
     private lateinit var networkCallback: ConnectivityManager.NetworkCallback
+
+    private var isFirstLocationUpdate = true
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -79,6 +86,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        auth = FirebaseAuth.getInstance()
+        db = FirebaseFirestore.getInstance()
+
         map = view.findViewById(R.id.mapView)
         googleMapContainer = view.findViewById(R.id.googleMapContainer)
         tvLocationStatus = view.findViewById(R.id.tvLocationStatus)
@@ -88,18 +98,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
-                // Ensure TrustedContactsFragment actually exists in your project!
                 .add(R.id.fragment_container, com.example.aisecurity.ui.settings.TrustedContactsFragment())
                 .addToBackStack("TrustedContacts")
                 .commit()
         }
-
-        val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
-        val targetLat = prefs.getFloat("target_lat", 10.3157f).toDouble()
-        val targetLng = prefs.getFloat("target_lng", 123.8854f).toDouble()
-
-        targetPoint = GeoPoint(targetLat, targetLng)
-        gTargetLatLng = LatLng(targetLat, targetLng)
 
         setupOfflineMap()
 
@@ -114,6 +116,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
 
         gpsProvider = GpsMyLocationProvider(requireContext())
+
+        // --- HARDWARE OVERRIDE: FORCE MAXIMUM SPEED ---
+        // 0 time delay, 0 meter distance delay. This pushes the GPS chip to its absolute limit.
+        gpsProvider.locationUpdateMinTime = 0
+        gpsProvider.locationUpdateMinDistance = 0f
+
         sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     }
@@ -121,10 +129,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun switchToOnlineMap() {
         if (googleMapContainer.visibility == View.VISIBLE) return
 
-        // --- UPDATED GLASS PILL STYLING ---
         tvNetworkStatus.text = "● ONLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#34C759")) // Green text
-        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1A34C759")) // 10% Green bg
+        tvNetworkStatus.setTextColor(Color.parseColor("#34C759"))
+        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1A34C759"))
 
         map.visibility = View.GONE
         googleMapContainer.visibility = View.VISIBLE
@@ -135,10 +142,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun switchToOfflineMap() {
         if (map.visibility == View.VISIBLE) return
 
-        // --- UPDATED GLASS PILL STYLING ---
         tvNetworkStatus.text = "● OFFLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#FF9500")) // Orange text
-        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1AFF9500")) // 10% Orange bg
+        tvNetworkStatus.setTextColor(Color.parseColor("#FF9500"))
+        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1AFF9500"))
 
         googleMapContainer.visibility = View.GONE
         map.visibility = View.VISIBLE
@@ -148,28 +154,18 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (gMap != null) return
         gMap = googleMap
 
-        // --- DYNAMIC GOOGLE MAPS THEME ---
         if (isDarkMode()) {
             try {
                 gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark))
             } catch (e: Exception) { e.printStackTrace() }
         } else {
-            // Clears the dark style, returning it to the default bright Google Maps
             gMap?.setMapStyle(null)
         }
-
-        gMap?.addMarker(MarkerOptions().position(gTargetLatLng).title("Stolen Phone"))
-        gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(gTargetLatLng, 15f))
-
-        gMapPolyline = gMap?.addPolyline(PolylineOptions()
-            .color(Color.parseColor("#007AFF")) // Changed to our new Tech Blue
-            .width(12f)
-            .geodesic(false))
 
         val customArrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_nav_arrow)?.toBitmap(120, 120)
         if (customArrow != null) {
             gMapMarker = gMap?.addMarker(MarkerOptions()
-                .position(gTargetLatLng)
+                .position(LatLng(0.0, 0.0))
                 .icon(BitmapDescriptorFactory.fromBitmap(customArrow))
                 .anchor(0.5f, 0.5f)
                 .flat(true)
@@ -178,11 +174,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     private fun setupOfflineMap() {
-        // --- DYNAMIC OFFLINE MAP THEME ---
         val tileUrl = if (isDarkMode()) {
             "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/"
         } else {
-            "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/" // The bright map version!
+            "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/"
         }
 
         val dynamicTileSource = object : OnlineTileSourceBase(
@@ -194,20 +189,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             }
         }
         map.setTileSource(dynamicTileSource)
-
         map.setMultiTouchControls(true)
-        map.controller.setZoom(15.0)
-        map.controller.setCenter(targetPoint)
-
-        val targetMarker = Marker(map)
-        targetMarker.position = targetPoint
-        targetMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-        targetMarker.title = "Stolen Phone"
-        map.overlays.add(targetMarker)
-
-        routingLine.outlinePaint.color = Color.parseColor("#007AFF") // Changed to our new Tech Blue
-        routingLine.outlinePaint.strokeWidth = 12f
-        map.overlays.add(routingLine)
+        map.controller.setZoom(17.0)
 
         myLocationMarker = Marker(map)
         val customArrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_nav_arrow)?.toBitmap(120, 120)
@@ -230,25 +213,62 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         if (isInternetAvailable(requireContext())) switchToOnlineMap() else switchToOfflineMap()
 
+        // ========================================================
+        // REAL-TIME GPS TRACKING, GEOCODING & FIREBASE UPLOAD
+        // ========================================================
         gpsProvider.startLocationProvider { location, _ ->
             if (location != null && isAdded) {
-                val myPoint = GeoPoint(location.latitude, location.longitude)
-                val gMyLatLng = LatLng(location.latitude, location.longitude)
 
-                activity?.runOnUiThread {
-                    myLocationMarker.position = myPoint
-                    routingLine.setPoints(listOf(myPoint, targetPoint))
-                    map.invalidate()
+                val currentLat = location.latitude
+                val currentLng = location.longitude
 
-                    gMapMarker?.position = gMyLatLng
-                    gMapMarker?.isVisible = true
-                    gMapPolyline?.points = listOf(gMyLatLng, gTargetLatLng)
+                val myPoint = GeoPoint(currentLat, currentLng)
+                val gMyLatLng = LatLng(currentLat, currentLng)
 
-                    val distanceInMeters = myPoint.distanceToAsDouble(targetPoint)
-                    if (distanceInMeters > 1000) {
-                        tvLocationStatus.text = "Distance to phone: ${String.format("%.1f", distanceInMeters / 1000)} km"
-                    } else {
-                        tvLocationStatus.text = "Distance to phone: ${String.format("%.0f", distanceInMeters)} meters"
+                // Run the Heavy Geocoder in a Background Thread so the map doesn't freeze
+                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    var placeName = "Tracking Location..."
+                    try {
+                        val geocoder = Geocoder(requireContext(), Locale.getDefault())
+                        val addresses = geocoder.getFromLocation(currentLat, currentLng, 1)
+                        if (!addresses.isNullOrEmpty()) {
+                            // Grabs the full street address (e.g., "123 Osmeña Blvd, Cebu City")
+                            placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+
+                    // 1. UPDATE FIREBASE REAL-TIME
+                    val userId = auth.currentUser?.uid
+                    if (userId != null) {
+                        val locationData = hashMapOf(
+                            "currentLat" to currentLat,
+                            "currentLng" to currentLng,
+                            "placeName" to placeName,
+                            "lastUpdated" to com.google.firebase.Timestamp.now()
+                        )
+
+                        db.collection("Users").document(userId)
+                            .set(locationData, SetOptions.merge())
+                    }
+
+                    // 2. UPDATE UI (Must be back on the Main Thread)
+                    withContext(Dispatchers.Main) {
+                        myLocationMarker.position = myPoint
+                        map.invalidate()
+
+                        gMapMarker?.position = gMyLatLng
+                        gMapMarker?.isVisible = true
+
+                        if (isFirstLocationUpdate) {
+                            map.controller.setCenter(myPoint)
+                            gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(gMyLatLng, 18f))
+                            isFirstLocationUpdate = false
+                        }
+
+                        // Display the actual street name on the screen
+                        tvLocationStatus.text = placeName
                     }
                 }
             }
@@ -299,5 +319,4 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val currentNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
     }
-
 }

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ig_background"
+    android:orientation="vertical"
+    android:gravity="center"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/tvRegisterHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="Create Account"
+        android:fontFamily="@font/inter"
+        android:textColor="@color/ig_text_primary"
+        android:textSize="28sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:layout_marginBottom="32dp"/>
+
+    <LinearLayout
+        android:id="@+id/layoutRegistrationForm"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            app:cardBackgroundColor="@color/ig_background"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/sidebar_divider_line"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="20dp"
+                android:paddingVertical="12dp">
+
+                <EditText
+                    android:id="@+id/etRegName"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:layout_marginBottom="16dp"
+                    android:background="@null"
+                    android:hint="Full Name"
+                    android:textColorHint="@color/ig_text_secondary"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="16sp"
+                    android:inputType="textPersonName" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/sidebar_divider_line" />
+
+                <EditText
+                    android:id="@+id/etRegEmail"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="16dp"
+                    android:background="@null"
+                    android:hint="Email Address"
+                    android:textColorHint="@color/ig_text_secondary"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="16sp"
+                    android:inputType="textEmailAddress" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/sidebar_divider_line" />
+
+                <EditText
+                    android:id="@+id/etRegPhone"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginVertical="16dp"
+                    android:background="@null"
+                    android:hint="Phone (e.g. 0917...)"
+                    android:textColorHint="@color/ig_text_secondary"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="16sp"
+                    android:inputType="phone" />
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/sidebar_divider_line" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:hintEnabled="false"
+                    app:boxBackgroundMode="none"
+                    app:endIconMode="password_toggle"
+                    app:endIconTint="@color/ig_text_secondary">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etRegPassword"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@null"
+                        android:hint="Password"
+                        android:textColorHint="@color/ig_text_secondary"
+                        android:textColor="@color/ig_text_primary"
+                        android:fontFamily="@font/inter"
+                        android:textSize="16sp"
+                        android:inputType="textPassword"
+                        android:paddingVertical="16dp"
+                        android:paddingStart="0dp"/>
+                </com.google.android.material.textfield.TextInputLayout>
+                <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/sidebar_divider_line" />
+
+                <com.google.android.material.textfield.TextInputLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:hintEnabled="false"
+                    app:boxBackgroundMode="none"
+                    app:endIconMode="password_toggle"
+                    app:endIconTint="@color/ig_text_secondary">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etRegConfirmPassword"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:background="@null"
+                        android:hint="Confirm Password"
+                        android:textColorHint="@color/ig_text_secondary"
+                        android:textColor="@color/ig_text_primary"
+                        android:fontFamily="@font/inter"
+                        android:textSize="16sp"
+                        android:inputType="textPassword"
+                        android:paddingVertical="16dp"
+                        android:paddingStart="0dp"/>
+                </com.google.android.material.textfield.TextInputLayout>
+
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRegister"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="Sign Up"
+            android:fontFamily="@font/inter"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            app:elevation="4dp"
+            app:cornerRadius="16dp"
+            app:backgroundTint="@color/ig_button_primary" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginTop="32dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Already have an account? "
+                android:fontFamily="@font/inter"
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="14sp"/>
+
+            <TextView
+                android:id="@+id/tvGoToLogin"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Log In"
+                android:fontFamily="@font/inter"
+                android:textColor="@color/ig_button_primary"
+                android:textStyle="bold"
+                android:textSize="14sp"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutEmailVerification"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:src="@android:drawable/ic_dialog_email"
+            app:tint="@color/ig_text_primary"
+            android:layout_gravity="center"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="We sent a secure link to your email.\n\nPlease open your email app, click the link to verify your identity, then return here."
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:layout_marginBottom="32dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCheckEmailVerified"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="I Have Clicked The Link"
+            android:fontFamily="@font/inter"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            app:elevation="4dp"
+            app:cornerRadius="16dp"
+            app:backgroundTint="@color/ig_button_primary" />
+
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/layoutOtpVerification"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Email verified successfully!\n\nNow, please enter the 6-digit SMS code we just sent to your phone to finish setup."
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp"
+            android:layout_marginBottom="24dp"/>
+
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            app:cardBackgroundColor="@color/ig_background"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="0dp"
+            app:strokeColor="@color/sidebar_divider_line"
+            app:strokeWidth="1dp">
+
+            <EditText
+                android:id="@+id/etOtpCode"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="@null"
+                android:hint="Enter 6-digit OTP"
+                android:textColorHint="@color/ig_text_secondary"
+                android:textColor="@color/ig_text_primary"
+                android:fontFamily="@font/inter"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:inputType="number"
+                android:maxLength="6"
+                android:padding="20dp" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnVerifyOtp"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="Verify Security Code"
+            android:fontFamily="@font/inter"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            app:elevation="4dp"
+            app:cornerRadius="16dp"
+            app:backgroundTint="#4CAF50" />
+
+    </LinearLayout>
+
+</LinearLayout>

@@ -6,8 +6,10 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -15,12 +17,13 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.widget.SwitchCompat // 🚨 Kept this to protect your XML!
+import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
@@ -36,8 +39,45 @@ class BluetoothFragment : Fragment() {
     private lateinit var deviceAdapter: BleDeviceAdapter
     private var isScanning = false
 
+    // 🚨 FIX: This lock prevents the switch from crashing in an infinite loop
+    private var isUpdatingSwitch = false
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
+                val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+
+                if (state == BluetoothAdapter.STATE_OFF) {
+                    updateToggleState()
+                    deviceAdapter.clear()
+
+                    if (isScanning) {
+                        isScanning = false
+                        view?.findViewById<MaterialButton>(R.id.btnScan)?.apply {
+                            text = "START RADAR SCAN"
+                            setBackgroundColor(Color.parseColor("#2196F3"))
+                        }
+                    }
+                } else if (state == BluetoothAdapter.STATE_ON) {
+                    updateToggleState()
+                }
+            }
+        }
+    }
+
     private val enableBluetoothLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         updateToggleState()
+    }
+
+    // 🚨 FIX: New Permission Launcher dedicated specifically to the Toggle Switch!
+    private val requestTogglePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+        if (permissions[Manifest.permission.BLUETOOTH_CONNECT] == true) {
+            try {
+                enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            } catch (e: Exception) { Log.e("BLE", "Error enabling Bluetooth", e) }
+        } else {
+            Toast.makeText(requireContext(), "Permission needed to enable Bluetooth.", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -53,7 +93,6 @@ class BluetoothFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // 🚨 THE MIUI DEFIBRILLATOR: Force-wakes the Notification Listener
         val componentName = android.content.ComponentName(requireContext(), com.example.aisecurity.ble.WatchMediaService::class.java)
         requireContext().packageManager.setComponentEnabledSetting(
             componentName,
@@ -66,7 +105,6 @@ class BluetoothFragment : Fragment() {
             android.content.pm.PackageManager.DONT_KILL_APP
         )
 
-        // 🚨 Check for Notification Access Permission
         val isNotificationAccessGranted = NotificationManagerCompat.getEnabledListenerPackages(requireContext()).contains(requireContext().packageName)
         if (!isNotificationAccessGranted) {
             Toast.makeText(requireContext(), "Please ALLOW Notification Access for Music Sync!", Toast.LENGTH_LONG).show()
@@ -78,13 +116,16 @@ class BluetoothFragment : Fragment() {
 
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-        // Using SwitchCompat to match your XML design safely
         val switchBluetooth = view.findViewById<SwitchCompat>(R.id.switchBluetooth)
         val btnScan = view.findViewById<MaterialButton>(R.id.btnScan)
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
 
-        // TEAMMATE LOGIC: Handle Connect and Disconnect
         deviceAdapter = BleDeviceAdapter { clickedDevice, isAlreadyConnected ->
+            if (!bluetoothAdapter.isEnabled) {
+                Toast.makeText(requireContext(), "Please turn on Bluetooth first!", Toast.LENGTH_SHORT).show()
+                return@BleDeviceAdapter
+            }
+
             if (isAlreadyConnected) {
                 WatchManager.disconnect()
                 deviceAdapter.setConnectedDevice(null)
@@ -92,7 +133,13 @@ class BluetoothFragment : Fragment() {
             } else {
                 prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
                 stopRadarScan()
-                Toast.makeText(requireContext(), "Connecting to ${clickedDevice.name ?: "Watch Pro"}...", Toast.LENGTH_SHORT).show()
+                deviceAdapter.setConnectedDevice(clickedDevice.address)
+
+                try {
+                    Toast.makeText(requireContext(), "Connecting to ${clickedDevice.name ?: "Watch Pro"}...", Toast.LENGTH_SHORT).show()
+                } catch (e: SecurityException) {
+                    Toast.makeText(requireContext(), "Connecting to Watch Pro...", Toast.LENGTH_SHORT).show()
+                }
                 WatchManager.connectToTarget(requireContext(), clickedDevice.address)
             }
         }
@@ -100,22 +147,51 @@ class BluetoothFragment : Fragment() {
         recyclerDevices.layoutManager = LinearLayoutManager(requireContext())
         recyclerDevices.adapter = deviceAdapter
 
+        WatchManager.isConnected.observe(viewLifecycleOwner) { isConnected ->
+            if (!isConnected) {
+                deviceAdapter.setConnectedDevice(null)
+            }
+        }
+
         val savedMac = prefs.getString("saved_watch_mac", null)
-        if (savedMac != null && bluetoothAdapter.isEnabled) {
-            val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
-            deviceAdapter.addDevice(savedDevice)
-            if (WatchManager.isConnected.value == true) deviceAdapter.setConnectedDevice(savedMac)
+        if (savedMac != null && bluetoothAdapter.isEnabled && WatchManager.isConnected.value == true) {
+            try {
+                val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
+                deviceAdapter.addDevice(savedDevice)
+                deviceAdapter.setConnectedDevice(savedMac)
+            } catch (e: SecurityException) {
+                Log.e("BLE", "Missing permission for getRemoteDevice")
+            }
         }
 
         updateToggleState()
 
-        switchBluetooth.setOnCheckedChangeListener { _, isChecked ->
+        switchBluetooth.setOnCheckedChangeListener { buttonView, isChecked ->
+            if (isUpdatingSwitch) return@setOnCheckedChangeListener // Prevents UI looping
+
             if (isChecked && !bluetoothAdapter.isEnabled) {
-                enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                // 🚨 THE CRASH FIX: Ask for permission securely before enabling Bluetooth!
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                    isUpdatingSwitch = true
+                    buttonView.isChecked = false // Bounce back visually until permission is granted
+                    isUpdatingSwitch = false
+                    requestTogglePermissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT))
+                } else {
+                    try {
+                        enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+                    } catch (e: Exception) {
+                        Log.e("BLE", "Failed to launch Bluetooth enable intent", e)
+                    }
+                }
             } else if (!isChecked && bluetoothAdapter.isEnabled) {
                 Toast.makeText(requireContext(), "Android requires you to disable this manually.", Toast.LENGTH_LONG).show()
-                startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
-                switchBluetooth.isChecked = true
+                try {
+                    startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
+                } catch (e: Exception) { e.printStackTrace() }
+
+                isUpdatingSwitch = true
+                buttonView.isChecked = true // Keep it checked because they must disable via settings
+                isUpdatingSwitch = false
             }
         }
 
@@ -127,11 +203,11 @@ class BluetoothFragment : Fragment() {
             if (isScanning) {
                 stopRadarScan()
                 btnScan.text = "START RADAR SCAN"
-                btnScan.setBackgroundColor(Color.parseColor("#2196F3")) // Revert to Blue
+                btnScan.setBackgroundColor(Color.parseColor("#2196F3"))
             } else {
                 checkPermissionsAndScan()
                 btnScan.text = "STOP SCANNING"
-                btnScan.setBackgroundColor(Color.parseColor("#F44336")) // Change to Red
+                btnScan.setBackgroundColor(Color.parseColor("#F44336"))
             }
         }
     }
@@ -139,10 +215,25 @@ class BluetoothFragment : Fragment() {
     override fun onResume() {
         super.onResume()
         if (::bluetoothAdapter.isInitialized) updateToggleState()
+        try {
+            requireActivity().registerReceiver(bluetoothStateReceiver, IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED))
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        try {
+            requireActivity().unregisterReceiver(bluetoothStateReceiver)
+        } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun updateToggleState() {
-        view?.findViewById<SwitchCompat>(R.id.switchBluetooth)?.isChecked = bluetoothAdapter.isEnabled
+        val switchBluetooth = view?.findViewById<SwitchCompat>(R.id.switchBluetooth)
+        switchBluetooth?.let {
+            isUpdatingSwitch = true
+            it.isChecked = bluetoothAdapter.isEnabled
+            isUpdatingSwitch = false
+        }
     }
 
     private fun checkPermissionsAndScan() {
@@ -157,31 +248,30 @@ class BluetoothFragment : Fragment() {
     private val scanCallback = object : ScanCallback() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
-            val deviceName = result.device.name
-            val isTargetWatch = result.device.address == "FC:01:2C:FD:DD:76" || (deviceName != null && deviceName.contains("Watch Pro", true))
-            if (isTargetWatch) deviceAdapter.addDevice(result.device)
+            try {
+                val deviceName = result.device.name
+                val isTargetWatch = result.device.address == "FC:01:2C:FD:DD:76" || (deviceName != null && deviceName.contains("Watch Pro", true))
+                if (isTargetWatch) deviceAdapter.addDevice(result.device)
+            } catch (e: SecurityException) {
+                Log.e("BLE", "Permission missing during scan", e)
+            }
         }
     }
 
     @SuppressLint("MissingPermission")
     private fun startRadarScan() {
         deviceAdapter.clear()
-        val savedMac = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).getString("saved_watch_mac", null)
-        if (savedMac != null) {
-            val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
-            deviceAdapter.addDevice(savedDevice)
-            if (WatchManager.isConnected.value == true) deviceAdapter.setConnectedDevice(savedMac)
-        }
-
         isScanning = true
-        bluetoothAdapter.bluetoothLeScanner?.startScan(scanCallback)
+        try {
+            bluetoothAdapter.bluetoothLeScanner?.startScan(scanCallback)
+        } catch (e: Exception) { e.printStackTrace() }
 
         Handler(Looper.getMainLooper()).postDelayed({
             if (isScanning) {
                 stopRadarScan()
                 view?.findViewById<MaterialButton>(R.id.btnScan)?.let {
                     it.text = "START RADAR SCAN"
-                    it.setBackgroundColor(Color.parseColor("#2196F3")) // Revert to Blue on timeout
+                    it.setBackgroundColor(Color.parseColor("#2196F3"))
                 }
             }
         }, 10000)
@@ -190,6 +280,8 @@ class BluetoothFragment : Fragment() {
     @SuppressLint("MissingPermission")
     private fun stopRadarScan() {
         isScanning = false
-        bluetoothAdapter.bluetoothLeScanner?.stopScan(scanCallback)
+        try {
+            bluetoothAdapter.bluetoothLeScanner?.stopScan(scanCallback)
+        } catch (e: Exception) { e.printStackTrace() }
     }
 }

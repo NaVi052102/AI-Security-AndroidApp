@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "249738243488",
+    "project_id": "bioguard-efb32",
+    "storage_bucket": "bioguard-efb32.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:249738243488:android:1b51bdae5fe89b9d8088c5",
+        "android_client_info": {
+          "package_name": "com.example.aisecurity"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAc-34J69Uy849BzRH76HQMA1HlWJkmMms"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
