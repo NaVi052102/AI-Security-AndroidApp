@@ -2,6 +2,7 @@ package com.example.aisecurity.ui.biometrics
 
 import android.content.Context
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -18,6 +19,7 @@ import com.example.aisecurity.ui.AppUsageAdapter
 import com.example.aisecurity.ui.LiveLogger
 import kotlinx.coroutines.*
 import java.util.concurrent.TimeUnit
+import androidx.core.content.ContextCompat
 
 class BiometricsFragment : Fragment() {
 
@@ -52,6 +54,10 @@ class BiometricsFragment : Fragment() {
         val adapter = AppUsageAdapter()
         recyclerView.adapter = adapter
         recyclerView.layoutManager = LinearLayoutManager(requireContext())
+
+        // Initial styling for the Reset button (Always Ghost Danger)
+        val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        applyGlassButton(btnReset, "GHOST_DANGER", isNightMode)
 
         if (!prefs.contains("training_paused")) {
             prefs.edit().putBoolean("training_paused", true).apply()
@@ -132,17 +138,19 @@ class BiometricsFragment : Fragment() {
                 classifier.wipeMemory()
 
                 withContext(Dispatchers.Main) {
-                    tvStatusLabel.text = "MEMORY WIPED"
-                    tvStatusLabel.setTextColor(Color.GRAY)
-                    tvRiskScore.text = "0%"
-                    adapter.updateData(emptyList())
-                    Toast.makeText(requireContext(), "AI Fully Reset!", Toast.LENGTH_SHORT).show()
+                    if (isAdded) {
+                        tvStatusLabel.text = "MEMORY WIPED"
+                        tvStatusLabel.setTextColor(Color.GRAY)
+                        tvRiskScore.text = "0%"
+                        adapter.updateData(emptyList())
+                        Toast.makeText(requireContext(), "AI Fully Reset!", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
 
         // ==========================================
-        // 🚨 FIX: IMMORTAL UI UPDATER LOOP
+        // UI UPDATER LOOP
         // ==========================================
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
@@ -164,24 +172,25 @@ class BiometricsFragment : Fragment() {
                     val canUseAi = accumulatedTime >= REQUIRED_TRAINING_MS && swipes >= MIN_REQUIRED_SWIPES
 
                     withContext(Dispatchers.Main) {
-                        adapter.updateData(appStats)
+                        if (isAdded) {
+                            adapter.updateData(appStats)
 
-                        btnUseAi.isEnabled = canUseAi
-                        if (canUseAi) {
-                            btnUseAi.setBackgroundColor(Color.parseColor("#4CAF50"))
-                        } else {
-                            btnUseAi.setBackgroundColor(Color.parseColor("#444444"))
-                        }
+                            btnUseAi.isEnabled = canUseAi
+                            if (canUseAi) {
+                                applyGlassButton(btnUseAi, "SUCCESS", isNightMode)
+                            } else {
+                                applyGlassButton(btnUseAi, "DISABLED", isNightMode)
+                            }
 
-                        if (isReady) {
-                            renderProtectionMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction, btnUseAi, currentRisk)
-                        } else {
-                            renderTrainingMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction, btnUseAi,
-                                timeProgress, accumulatedTime, isPaused, swipes)
+                            if (isReady) {
+                                renderProtectionMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction, btnUseAi, currentRisk, isNightMode)
+                            } else {
+                                renderTrainingMode(tvScore, tvRiskScore, tvStatusLabel, progressBar, btnAction, btnUseAi,
+                                    timeProgress, accumulatedTime, isPaused, swipes, isNightMode)
+                            }
                         }
                     }
                 } catch (e: Exception) {
-                    // 🚨 SAFETY NET: If the DB wipe collides with this loop, ignore the error and keep going!
                     e.printStackTrace()
                 }
                 delay(1000)
@@ -189,37 +198,41 @@ class BiometricsFragment : Fragment() {
         }
     }
 
-    private fun renderProtectionMode(tvScore: TextView, tvRisk: TextView, tvStatus: TextView, pb: ProgressBar, btnAction: Button, btnUseAi: Button, risk: Int) {
+    // ==========================================
+    // SEMANTIC UI RENDERING LOGIC
+    // ==========================================
+
+    private fun renderProtectionMode(tvScore: TextView, tvRisk: TextView, tvStatus: TextView, pb: ProgressBar, btnAction: Button, btnUseAi: Button, risk: Int, isNightMode: Boolean) {
         pb.visibility = View.GONE
         btnUseAi.visibility = View.GONE
 
         btnAction.text = "BACK TO TRAINING"
-        btnAction.setBackgroundColor(Color.parseColor("#FF9800"))
+        applyGlassButton(btnAction, "WARNING", isNightMode)
 
         tvScore.text = "Continuous Protection Active"
         tvRisk.text = "$risk%"
 
         when {
             risk < 50 -> {
-                tvRisk.setTextColor(Color.parseColor("#4CAF50"))
+                tvRisk.setTextColor(Color.parseColor("#10B981"))
                 tvStatus.text = "SYSTEM SECURE"
-                tvStatus.setTextColor(Color.parseColor("#4CAF50"))
+                tvStatus.setTextColor(Color.parseColor("#10B981"))
             }
             risk < 100 -> {
-                tvRisk.setTextColor(Color.parseColor("#FF9800"))
+                tvRisk.setTextColor(Color.parseColor("#F59E0B"))
                 tvStatus.text = "SUSPICIOUS ACTIVITY"
-                tvStatus.setTextColor(Color.parseColor("#FF9800"))
+                tvStatus.setTextColor(Color.parseColor("#F59E0B"))
             }
             else -> {
-                tvRisk.setTextColor(Color.parseColor("#F44336"))
+                tvRisk.setTextColor(Color.parseColor("#EF4444"))
                 tvStatus.text = "INTRUDER ALERT"
-                tvStatus.setTextColor(Color.parseColor("#F44336"))
+                tvStatus.setTextColor(Color.parseColor("#EF4444"))
             }
         }
     }
 
     private fun renderTrainingMode(tvScore: TextView, tvRisk: TextView, tvStatus: TextView, pb: ProgressBar, btnAction: Button, btnUseAi: Button,
-                                   progress: Int, accumulated: Long, isPaused: Boolean, swipeCount: Int) {
+                                   progress: Int, accumulated: Long, isPaused: Boolean, swipeCount: Int, isNightMode: Boolean) {
         pb.visibility = View.VISIBLE
         btnUseAi.visibility = View.VISIBLE
         pb.progress = progress
@@ -230,19 +243,97 @@ class BiometricsFragment : Fragment() {
 
         tvScore.text = "Calibration: $days d $hours h remaining"
         tvRisk.text = "$swipeCount Swipes"
-        tvRisk.setTextColor(Color.DKGRAY)
+        tvRisk.setTextColor(ContextCompat.getColor(requireContext(), R.color.ig_text_primary))
 
         if (isPaused) {
-            btnAction.setBackgroundColor(Color.parseColor("#2196F3"))
+            applyGlassButton(btnAction, "PRIMARY", isNightMode)
             btnAction.text = if (accumulated == 0L) "START TRAINING" else "CONTINUE"
             tvStatus.text = "TRAINING PAUSED"
-            tvStatus.setTextColor(Color.parseColor("#FF9800"))
+            tvStatus.setTextColor(Color.parseColor("#F59E0B")) // Warning Orange
         } else {
-            btnAction.setBackgroundColor(Color.parseColor("#E74C3C"))
+            applyGlassButton(btnAction, "DANGER", isNightMode)
             btnAction.text = "STOP TRAINING"
             tvStatus.text = "LEARNING BEHAVIOR..."
-            tvStatus.setTextColor(Color.GRAY)
+            tvStatus.setTextColor(Color.parseColor("#3B82F6")) // Learning Blue
         }
+    }
+
+    private fun applyGlassButton(button: Button, type: String, isNightMode: Boolean) {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 1000f
+            orientation = GradientDrawable.Orientation.TOP_BOTTOM
+        }
+
+        when (type) {
+            "PRIMARY" -> { // Vibrant Blue Action
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#1E3A8A"), Color.parseColor("#172554"))
+                    bg.setStroke(3, Color.parseColor("#3B82F6"))
+                    button.setTextColor(Color.WHITE)
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#EFF6FF"), Color.parseColor("#DBEAFE"))
+                    bg.setStroke(3, Color.parseColor("#3B82F6"))
+                    button.setTextColor(Color.parseColor("#1E3A8A"))
+                }
+            }
+            "SUCCESS" -> { // Emerald Green
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#064E3B"), Color.parseColor("#022C22"))
+                    bg.setStroke(3, Color.parseColor("#10B981"))
+                    button.setTextColor(Color.WHITE)
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#ECFDF5"), Color.parseColor("#D1FAE5"))
+                    bg.setStroke(3, Color.parseColor("#10B981"))
+                    button.setTextColor(Color.parseColor("#064E3B"))
+                }
+            }
+            "WARNING" -> { // Amber Orange
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#78350F"), Color.parseColor("#451A03"))
+                    bg.setStroke(3, Color.parseColor("#F59E0B"))
+                    button.setTextColor(Color.WHITE)
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#FFFBEB"), Color.parseColor("#FEF3C7"))
+                    bg.setStroke(3, Color.parseColor("#F59E0B"))
+                    button.setTextColor(Color.parseColor("#78350F"))
+                }
+            }
+            "DANGER" -> { // Crimson Red
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004"))
+                    bg.setStroke(3, Color.parseColor("#EF4444"))
+                    button.setTextColor(Color.WHITE)
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2"))
+                    bg.setStroke(3, Color.parseColor("#EF4444"))
+                    button.setTextColor(Color.parseColor("#7F1D1D"))
+                }
+            }
+            "GHOST_DANGER" -> { // Red Outline Ghost
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
+                    bg.setStroke(2, Color.parseColor("#EF4444"))
+                    button.setTextColor(Color.parseColor("#EF4444"))
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#F8FAFC"), Color.parseColor("#E2E8F0"))
+                    bg.setStroke(2, Color.parseColor("#EF4444"))
+                    button.setTextColor(Color.parseColor("#EF4444"))
+                }
+            }
+            "DISABLED" -> { // Gray Disabled
+                if (isNightMode) {
+                    bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#0F172A"))
+                    bg.setStroke(2, Color.parseColor("#334155"))
+                    button.setTextColor(Color.parseColor("#475569"))
+                } else {
+                    bg.colors = intArrayOf(Color.parseColor("#F1F5F9"), Color.parseColor("#E2E8F0"))
+                    bg.setStroke(2, Color.parseColor("#CBD5E1"))
+                    button.setTextColor(Color.parseColor("#94A3B8"))
+                }
+            }
+        }
+        button.background = bg
     }
 
     private fun activateAI(db: SecurityDatabase) {
@@ -262,7 +353,9 @@ class BiometricsFragment : Fragment() {
                 .apply()
 
             withContext(Dispatchers.Main) {
-                Toast.makeText(requireContext(), "AI Protection Activated!", Toast.LENGTH_LONG).show()
+                if (isAdded) {
+                    Toast.makeText(requireContext(), "AI Protection Activated!", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }

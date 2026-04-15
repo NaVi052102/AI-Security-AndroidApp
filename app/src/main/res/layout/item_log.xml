@@ -1,70 +1,62 @@
 <?xml version="1.0" encoding="utf-8"?>
-<com.google.android.material.card.MaterialCardView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="@drawable/glass_card"
+    android:orientation="horizontal"
+    android:padding="16dp"
     android:layout_marginBottom="12dp"
-    app:cardBackgroundColor="#141414"
-    app:cardCornerRadius="12dp"
-    app:strokeColor="#2A2A2A"
-    app:strokeWidth="1dp">
+    android:gravity="center_vertical">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:paddingEnd="12dp"> <View
-        android:id="@+id/viewColorBar"
+    <View
+        android:id="@+id/indicatorLine"
         android:layout_width="4dp"
         android:layout_height="match_parent"
-        android:layout_marginVertical="12dp"
-        android:layout_marginStart="12dp"
-        android:layout_marginEnd="12dp"
-        android:background="#4CAF50" />
+        android:background="#10B981"
+        android:layout_marginEnd="16dp" />
 
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical"
-            android:paddingVertical="16dp">
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
 
-            <TextView
-                android:id="@+id/tvLogTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Mar 14, 2026 - 11:13:21"
-                android:textColor="#6B7B8A"
-                android:textSize="10sp"
-                android:letterSpacing="0.05"
-                android:layout_marginBottom="4dp"/>
-
-            <TextView
-                android:id="@+id/tvLogTitle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="AI Learning"
-                android:textColor="#FFFFFF"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:layout_marginBottom="4dp"/>
-
-            <TextView
-                android:id="@+id/tvLogContext"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Context: AI Security. Swipe matrix assimilated."
-                android:textColor="#888888"
-                android:textSize="12sp" />
-        </LinearLayout>
-
-        <CheckBox
-            android:id="@+id/cbSelectLog"
+        <TextView
+            android:id="@+id/tvLogTimestamp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:buttonTint="#2196F3" />
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="11sp"
+            android:letterSpacing="0.05"
+            android:text="Mar 26, 2026 - 23:23:57"/>
 
+        <TextView
+            android:id="@+id/tvLogTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_primary"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginTop="4dp"
+            android:text="AI Learning"/>
+
+        <TextView
+            android:id="@+id/tvLogDetails"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="13sp"
+            android:layout_marginTop="4dp"
+            android:text="Context: System Home. Loss: 1.0000"/>
     </LinearLayout>
-</com.google.android.material.card.MaterialCardView>
+
+    <CheckBox
+        android:id="@+id/cbLogSelect"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:buttonTint="@color/ig_button_primary" />
+
+</LinearLayout>

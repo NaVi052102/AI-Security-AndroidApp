@@ -21,7 +21,7 @@ class WatchMediaService : NotificationListenerService() {
         super.onListenerConnected()
         instance = this
         Log.d("BLE_MUSIC_DEBUG", "🟢 ULTIMATE SERVICE IS ALIVE AND LISTENING!")
-        showToast("✅ Watch Sync Connected!")
+
     }
 
     override fun onListenerDisconnected() {

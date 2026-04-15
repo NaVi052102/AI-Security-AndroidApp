@@ -1,136 +1,392 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/app_background"
-    android:orientation="vertical"
-    android:padding="20dp">
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Core Permissions"
-        android:textColor="@color/text_main"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="8dp"/>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="These permissions are required for the AI engine to function securely in the background."
-        android:textColor="@color/text_muted"
-        android:textSize="14sp"
-        android:layout_marginBottom="24dp"/>
+    android:background="@color/ig_background"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/glass_card"
         android:orientation="vertical"
-        android:padding="20dp"
-        android:layout_marginBottom="20dp">
+        android:padding="20dp">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="These permissions authorize the AI engine to secure your device and track it when stolen."
+            android:textColor="@color/ig_text_secondary"
+            android:fontFamily="@font/inter"
+            android:lineSpacingExtra="4dp"
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp"/>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Touch Dynamics AI"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusAccessibility"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="Touch Dynamics AI"
-                android:textColor="@color/text_main"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="8dp"
+                android:text="Required to learn how you hold and swipe your phone to distinguish you from a thief."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
 
-            <TextView
-                android:id="@+id/tvStatusAccessibility"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="#2A1B1B"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="4dp"
-                android:text="MISSING"
-                android:textColor="#FF3B30"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantAccessibility"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Required to monitor swipe speeds and screen touches in the background."
-            android:textColor="@color/text_muted"
-            android:textSize="14sp" />
-
-        <Button
-            android:id="@+id/btnGrantAccessibility"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="?attr/colorPrimary"
-            android:text="GRANT ACCESS"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@drawable/glass_card"
-        android:orientation="vertical"
-        android:padding="20dp"
-        android:layout_marginBottom="20dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="App Context AI"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusUsage"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
 
             <TextView
-                android:layout_width="0dp"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="App Context AI"
-                android:textColor="@color/text_main"
-                android:textSize="18sp"
-                android:textStyle="bold" />
+                android:layout_marginTop="8dp"
+                android:text="Allows the AI to know if a banking or social app is open to raise security levels."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
 
-            <TextView
-                android:id="@+id/tvStatusUsage"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:background="#2A1B1B"
-                android:paddingHorizontal="12dp"
-                android:paddingVertical="4dp"
-                android:text="MISSING"
-                android:textColor="#FF3B30"
-                android:textSize="12sp"
-                android:textStyle="bold" />
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantUsage"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
         </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Required to detect which app the user is currently using (e.g., Facebook vs Bank)."
-            android:textColor="@color/text_muted"
-            android:textSize="14sp" />
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
 
-        <Button
-            android:id="@+id/btnGrantUsage"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="System Lockdown Control"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusAdmin"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Grants the app the power to instantly turn off the screen and lock the device if an intruder is detected."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantAdmin"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
+        </LinearLayout>
+
+        <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:layout_marginTop="16dp"
-            android:backgroundTint="?attr/colorPrimary"
-            android:text="GRANT ACCESS"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold" />
-    </LinearLayout>
+            android:layout_height="wrap_content"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
 
-</LinearLayout>
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Anti-Theft Screen Shield"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusOverlay"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Required to display the unbreakable red warning screen over all other apps during a lockdown."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantOverlay"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Stealth GPS Tracking"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusLocation"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Allows the app to silently transmit the phone's location to your cloud account even when the app is closed."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantLocation"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp"
+            android:layout_marginBottom="40dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Continuous Protection"
+                    android:textColor="@color/ig_text_primary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvStatusBattery"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:paddingHorizontal="14dp"
+                    android:paddingVertical="6dp"
+                    android:text="INACTIVE"
+                    android:fontFamily="@font/inter"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.05"
+                    android:textStyle="bold" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Prevents the phone's OS from killing the security engine in the background to save battery."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp" />
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnGrantBattery"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="12dp"
+                android:text="AUTHORIZE"
+                android:fontFamily="@font/inter"
+                android:textSize="14sp"
+                android:textColor="#FFFFFF"
+                android:textStyle="bold"
+                android:letterSpacing="0.08"
+                android:stateListAnimator="@null"
+                android:background="@null" />
+        </LinearLayout>
+
+    </LinearLayout>
+</ScrollView>

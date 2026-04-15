@@ -12,7 +12,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:fontFamily="@font/inter"
-        android:text="ADD CONTACT"
+        android:text="EDIT PROFILE"
         android:textColor="@color/ig_text_primary"
         android:textSize="18sp"
         android:textStyle="bold"
@@ -53,72 +53,51 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:layout_marginBottom="16dp">
 
         <EditText
-            android:id="@+id/etContactName"
+            android:id="@+id/etFirstName"
             android:layout_width="0dp"
             android:layout_height="52dp"
             android:layout_weight="1"
             android:background="#1A888888"
-            android:hint="Full Name"
+            android:hint="First Name"
             android:textColorHint="@color/ig_text_secondary"
             android:textColor="@color/ig_text_primary"
             android:paddingHorizontal="16dp"
             android:fontFamily="@font/inter"
             android:textSize="15sp"
-            android:inputType="textPersonName" />
-
-        <TextView
-            android:id="@+id/btnImportContact"
-            android:layout_width="wrap_content"
-            android:layout_height="52dp"
-            android:layout_marginStart="8dp"
-            android:background="#1A3B82F6"
-            android:gravity="center"
-            android:paddingHorizontal="16dp"
-            android:text="IMPORT\nCONTACT"
-            android:textColor="#3B82F6"
-            android:fontFamily="@font/inter"
-            android:textSize="10sp"
-            android:textStyle="bold" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="32dp">
-
-        <TextView
-            android:id="@+id/tvCountryCode"
-            android:layout_width="wrap_content"
-            android:layout_height="52dp"
-            android:layout_marginEnd="8dp"
-            android:background="#1A888888"
-            android:gravity="center"
-            android:paddingHorizontal="16dp"
-            android:text="+63 ▼"
-            android:fontFamily="@font/inter"
-            android:textColor="@color/ig_text_primary"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            android:inputType="textPersonName"
+            android:layout_marginEnd="8dp"/>
 
         <EditText
-            android:id="@+id/etContactNumber"
-            android:layout_width="0dp"
+            android:id="@+id/etMiddleInitial"
+            android:layout_width="60dp"
             android:layout_height="52dp"
-            android:layout_weight="1"
             android:background="#1A888888"
-            android:hint="Phone Number"
+            android:hint="M.I."
+            android:gravity="center"
             android:textColorHint="@color/ig_text_secondary"
             android:textColor="@color/ig_text_primary"
-            android:paddingHorizontal="16dp"
             android:fontFamily="@font/inter"
             android:textSize="15sp"
-            android:inputType="phone" />
+            android:inputType="textCapCharacters"
+            android:maxLength="1"/>
     </LinearLayout>
+
+    <EditText
+        android:id="@+id/etLastName"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:background="#1A888888"
+        android:hint="Last Name"
+        android:textColorHint="@color/ig_text_secondary"
+        android:textColor="@color/ig_text_primary"
+        android:paddingHorizontal="16dp"
+        android:fontFamily="@font/inter"
+        android:textSize="15sp"
+        android:inputType="textPersonName"
+        android:layout_marginBottom="32dp" />
 
     <LinearLayout
         android:layout_width="match_parent"

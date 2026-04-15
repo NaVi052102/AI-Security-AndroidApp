@@ -3,46 +3,65 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="@color/ig_background"
     android:orientation="vertical"
-    android:padding="16dp">
+    android:paddingTop="24dp">
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginHorizontal="24dp"
+        android:layout_marginBottom="24dp"
+        android:fontFamily="@font/inter"
+        android:text="Review recent AI learning events, system overrides, and detected security threats."
+        android:textColor="@color/ig_text_secondary"
+        android:textSize="14sp"
+        android:lineSpacingExtra="4dp"/>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:layout_marginHorizontal="20dp"
         android:layout_marginBottom="16dp"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:weightSum="2">
 
-        <Button
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnDeleteSelected"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:layout_weight="1"
-            android:layout_marginEnd="8dp"
-            android:backgroundTint="#1E1E1E"
-            android:text="Delete Selected"
-            android:textColor="#2196F3"
-            app:strokeColor="#2A2A2A"
-            app:strokeWidth="1dp"/>
+            android:layout_marginEnd="6dp"
+            android:text="DELETE"
+            android:fontFamily="@font/inter"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
 
-        <Button
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnClearAll"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:backgroundTint="#1E1E1E"
-            android:text="Clear All"
-            android:textColor="#FF5252"
-            app:strokeColor="#2A2A2A"
-            app:strokeWidth="1dp"/>
+            android:layout_marginStart="6dp"
+            android:text="CLEAR ALL"
+            android:fontFamily="@font/inter"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerLogs"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
-        android:paddingBottom="20dp" />
+        android:paddingBottom="20dp"
+        android:paddingHorizontal="20dp" />
 
 </LinearLayout>

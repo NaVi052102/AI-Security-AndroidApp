@@ -3,6 +3,7 @@ package com.example.aisecurity.ui.map
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.GradientDrawable
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -20,6 +21,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.Button
+import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
@@ -52,7 +54,6 @@ import java.util.Locale
 
 class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
-    // Firebase Engine
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
 
@@ -95,6 +96,39 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         tvNetworkStatus = view.findViewById(R.id.tvNetworkStatus)
         btnSettings = view.findViewById(R.id.btnSettings)
 
+        // Setup dynamic map container opacity
+        val bottomControlCard = view.findViewById<LinearLayout>(R.id.bottomControlCard)
+        val tvSecureTrackingTitle = view.findViewById<TextView>(R.id.tvSecureTrackingTitle)
+
+        val isNightMode = isDarkMode()
+
+        // ==========================================
+        // DYNAMIC MAP OPACITY FIX
+        // ==========================================
+        if (!isNightMode) {
+            // LIGHT MODE: High-Opacity Frosted White with Deep Black/Slate Text
+            val cardBg = GradientDrawable().apply {
+                cornerRadius = 60f
+                setColor(Color.parseColor("#F5FFFFFF")) // 96% Opaque White to block out the map
+                setStroke(2, Color.parseColor("#CBD5E1")) // Subtle silver border
+            }
+            bottomControlCard.background = cardBg
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#0F172A")) // Solid Dark Slate
+            tvLocationStatus.setTextColor(Color.parseColor("#334155")) // Deep readable gray
+        } else {
+            // DARK MODE: Elegant Semi-Opaque Navy
+            val cardBg = GradientDrawable().apply {
+                cornerRadius = 60f
+                setColor(Color.parseColor("#E60F172A")) // 90% Opaque Deep Navy
+                setStroke(2, Color.parseColor("#334155")) // Slate border
+            }
+            bottomControlCard.background = cardBg
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#F8FAFC")) // Brilliant White
+            tvLocationStatus.setTextColor(Color.parseColor("#94A3B8")) // Muted Silver
+        }
+
+        applyGlassButton(btnSettings, isNightMode)
+
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
@@ -116,9 +150,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
 
         gpsProvider = GpsMyLocationProvider(requireContext())
-
-        // --- HARDWARE OVERRIDE: FORCE MAXIMUM SPEED ---
-        // 0 time delay, 0 meter distance delay. This pushes the GPS chip to its absolute limit.
         gpsProvider.locationUpdateMinTime = 0
         gpsProvider.locationUpdateMinDistance = 0f
 
@@ -126,12 +157,40 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     }
 
+    // ==========================================
+    // THE GLASSMORPHISM ENGINE
+    // ==========================================
+    private fun applyGlassButton(button: Button, isNightMode: Boolean) {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 1000f
+            orientation = GradientDrawable.Orientation.TOP_BOTTOM
+        }
+
+        if (isNightMode) {
+            // THE FIX: Elegant Glossy Gold Button matching Biometrics/Permissions
+            bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
+            bg.setStroke(4, Color.parseColor("#D4AF37")) // Gold Texture Rim
+            button.setTextColor(Color.parseColor("#FFFFFF"))
+        } else {
+            // Light Mode: Sleek Pearlescent/White Button with Vibrant Blue Rim
+            bg.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
+            bg.setStroke(4, Color.parseColor("#2563EB")) // Crisp Blue Rim
+            button.setTextColor(Color.parseColor("#1E293B")) // Deep Navy text
+        }
+
+        button.background = bg
+    }
+
     private fun switchToOnlineMap() {
         if (googleMapContainer.visibility == View.VISIBLE) return
 
-        tvNetworkStatus.text = "● ONLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#34C759"))
-        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1A34C759"))
+        tvNetworkStatus.text = "ONLINE"
+        tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
+        val badgeBg = GradientDrawable()
+        badgeBg.cornerRadius = 50f
+        badgeBg.setColor(Color.parseColor("#1A10B981"))
+        tvNetworkStatus.background = badgeBg
 
         map.visibility = View.GONE
         googleMapContainer.visibility = View.VISIBLE
@@ -142,9 +201,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun switchToOfflineMap() {
         if (map.visibility == View.VISIBLE) return
 
-        tvNetworkStatus.text = "● OFFLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#FF9500"))
-        tvNetworkStatus.setBackgroundColor(Color.parseColor("#1AFF9500"))
+        tvNetworkStatus.text = "OFFLINE"
+        tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+        val badgeBg = GradientDrawable()
+        badgeBg.cornerRadius = 50f
+        badgeBg.setColor(Color.parseColor("#1AF59E0B"))
+        tvNetworkStatus.background = badgeBg
 
         googleMapContainer.visibility = View.GONE
         map.visibility = View.VISIBLE
@@ -213,9 +275,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         if (isInternetAvailable(requireContext())) switchToOnlineMap() else switchToOfflineMap()
 
-        // ========================================================
-        // REAL-TIME GPS TRACKING, GEOCODING & FIREBASE UPLOAD
-        // ========================================================
         gpsProvider.startLocationProvider { location, _ ->
             if (location != null && isAdded) {
 
@@ -225,21 +284,18 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 val myPoint = GeoPoint(currentLat, currentLng)
                 val gMyLatLng = LatLng(currentLat, currentLng)
 
-                // Run the Heavy Geocoder in a Background Thread so the map doesn't freeze
                 viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                     var placeName = "Tracking Location..."
                     try {
                         val geocoder = Geocoder(requireContext(), Locale.getDefault())
                         val addresses = geocoder.getFromLocation(currentLat, currentLng, 1)
                         if (!addresses.isNullOrEmpty()) {
-                            // Grabs the full street address (e.g., "123 Osmeña Blvd, Cebu City")
                             placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
                         }
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
 
-                    // 1. UPDATE FIREBASE REAL-TIME
                     val userId = auth.currentUser?.uid
                     if (userId != null) {
                         val locationData = hashMapOf(
@@ -253,7 +309,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                             .set(locationData, SetOptions.merge())
                     }
 
-                    // 2. UPDATE UI (Must be back on the Main Thread)
                     withContext(Dispatchers.Main) {
                         myLocationMarker.position = myPoint
                         map.invalidate()
@@ -267,7 +322,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                             isFirstLocationUpdate = false
                         }
 
-                        // Display the actual street name on the screen
                         tvLocationStatus.text = placeName
                     }
                 }

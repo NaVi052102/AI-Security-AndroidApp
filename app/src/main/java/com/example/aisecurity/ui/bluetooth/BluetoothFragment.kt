@@ -12,6 +12,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -21,6 +22,7 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.Button
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.SwitchCompat
@@ -31,15 +33,12 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 import com.example.aisecurity.ble.WatchManager
-import com.google.android.material.button.MaterialButton
 
 class BluetoothFragment : Fragment() {
 
     private lateinit var bluetoothAdapter: BluetoothAdapter
     private lateinit var deviceAdapter: BleDeviceAdapter
     private var isScanning = false
-
-    // 🚨 FIX: This lock prevents the switch from crashing in an infinite loop
     private var isUpdatingSwitch = false
 
     private val bluetoothStateReceiver = object : BroadcastReceiver() {
@@ -53,10 +52,7 @@ class BluetoothFragment : Fragment() {
 
                     if (isScanning) {
                         isScanning = false
-                        view?.findViewById<MaterialButton>(R.id.btnScan)?.apply {
-                            text = "START RADAR SCAN"
-                            setBackgroundColor(Color.parseColor("#2196F3"))
-                        }
+                        view?.findViewById<Button>(R.id.btnScan)?.let { updateScanButtonUI(it, false) }
                     }
                 } else if (state == BluetoothAdapter.STATE_ON) {
                     updateToggleState()
@@ -69,7 +65,6 @@ class BluetoothFragment : Fragment() {
         updateToggleState()
     }
 
-    // 🚨 FIX: New Permission Launcher dedicated specifically to the Toggle Switch!
     private val requestTogglePermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions[Manifest.permission.BLUETOOTH_CONNECT] == true) {
             try {
@@ -117,8 +112,11 @@ class BluetoothFragment : Fragment() {
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
         val switchBluetooth = view.findViewById<SwitchCompat>(R.id.switchBluetooth)
-        val btnScan = view.findViewById<MaterialButton>(R.id.btnScan)
+        val btnScan = view.findViewById<Button>(R.id.btnScan)
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
+
+        // Initialize Button Design
+        updateScanButtonUI(btnScan, isScanning)
 
         deviceAdapter = BleDeviceAdapter { clickedDevice, isAlreadyConnected ->
             if (!bluetoothAdapter.isEnabled) {
@@ -133,6 +131,7 @@ class BluetoothFragment : Fragment() {
             } else {
                 prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
                 stopRadarScan()
+                updateScanButtonUI(btnScan, false) // Ensure button reverts on connect
                 deviceAdapter.setConnectedDevice(clickedDevice.address)
 
                 try {
@@ -167,13 +166,12 @@ class BluetoothFragment : Fragment() {
         updateToggleState()
 
         switchBluetooth.setOnCheckedChangeListener { buttonView, isChecked ->
-            if (isUpdatingSwitch) return@setOnCheckedChangeListener // Prevents UI looping
+            if (isUpdatingSwitch) return@setOnCheckedChangeListener
 
             if (isChecked && !bluetoothAdapter.isEnabled) {
-                // 🚨 THE CRASH FIX: Ask for permission securely before enabling Bluetooth!
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
                     isUpdatingSwitch = true
-                    buttonView.isChecked = false // Bounce back visually until permission is granted
+                    buttonView.isChecked = false
                     isUpdatingSwitch = false
                     requestTogglePermissionLauncher.launch(arrayOf(Manifest.permission.BLUETOOTH_CONNECT))
                 } else {
@@ -190,7 +188,7 @@ class BluetoothFragment : Fragment() {
                 } catch (e: Exception) { e.printStackTrace() }
 
                 isUpdatingSwitch = true
-                buttonView.isChecked = true // Keep it checked because they must disable via settings
+                buttonView.isChecked = true
                 isUpdatingSwitch = false
             }
         }
@@ -202,14 +200,52 @@ class BluetoothFragment : Fragment() {
             }
             if (isScanning) {
                 stopRadarScan()
-                btnScan.text = "START RADAR SCAN"
-                btnScan.setBackgroundColor(Color.parseColor("#2196F3"))
+                updateScanButtonUI(btnScan, false)
             } else {
                 checkPermissionsAndScan()
-                btnScan.text = "STOP SCANNING"
-                btnScan.setBackgroundColor(Color.parseColor("#F44336"))
+                updateScanButtonUI(btnScan, true)
             }
         }
+    }
+
+    // ==========================================
+    // THE GLASSMORPHISM BLUETOOTH ENGINE
+    // ==========================================
+    private fun updateScanButtonUI(button: Button, isScanning: Boolean) {
+        val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+
+        val btnBackground = GradientDrawable()
+        btnBackground.shape = GradientDrawable.RECTANGLE
+        btnBackground.cornerRadius = 1000f // Perfect Pill Shape
+        btnBackground.orientation = GradientDrawable.Orientation.TOP_BOTTOM
+
+        if (isScanning) {
+            // --- THE "STOP SCANNING" STATE (Destructive/Active) ---
+            if (isNightMode) {
+                btnBackground.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004")) // Deep Crimson Glass
+                btnBackground.setStroke(4, Color.parseColor("#EF4444")) // Vibrant Red Rim
+                button.setTextColor(Color.parseColor("#FFFFFF"))
+            } else {
+                btnBackground.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2")) // Frosted Red Glass
+                btnBackground.setStroke(4, Color.parseColor("#EF4444")) // Crisp Red Rim
+                button.setTextColor(Color.parseColor("#7F1D1D")) // Deep Crimson Text
+            }
+            button.text = "STOP SCANNING"
+        } else {
+            // --- THE "READY TO SCAN" STATE (Primary Action) ---
+            if (isNightMode) {
+                btnBackground.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A")) // Deep Glossy Navy
+                btnBackground.setStroke(4, Color.parseColor("#D4AF37")) // Elegant Gold Rim
+                button.setTextColor(Color.parseColor("#FFFFFF"))
+            } else {
+                btnBackground.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9")) // Pearlescent White
+                btnBackground.setStroke(4, Color.parseColor("#2563EB")) // Crisp Blue Rim
+                button.setTextColor(Color.parseColor("#1E293B")) // Navy Text
+            }
+            button.text = "SCAN FOR DEVICES"
+        }
+
+        button.background = btnBackground
     }
 
     override fun onResume() {
@@ -269,10 +305,7 @@ class BluetoothFragment : Fragment() {
         Handler(Looper.getMainLooper()).postDelayed({
             if (isScanning) {
                 stopRadarScan()
-                view?.findViewById<MaterialButton>(R.id.btnScan)?.let {
-                    it.text = "START RADAR SCAN"
-                    it.setBackgroundColor(Color.parseColor("#2196F3"))
-                }
+                view?.findViewById<Button>(R.id.btnScan)?.let { updateScanButtonUI(it, false) }
             }
         }, 10000)
     }

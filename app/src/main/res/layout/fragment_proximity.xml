@@ -1,34 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:background="@color/ig_background"
+    android:fillViewport="true">
 
-    <androidx.cardview.widget.CardView
-        android:id="@+id/cardDistance"
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        app:cardBackgroundColor="#1E1E1E"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="4dp">
+        android:orientation="vertical"
+        android:paddingTop="24dp">
 
-        <LinearLayout
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="24dp"
+            android:fontFamily="@font/inter"
+            android:text="Monitor the real-time physical distance between you and your secured device."
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="14sp"
+            android:lineSpacingExtra="4dp"/>
+
+        <LinearLayout
+            android:id="@+id/cardDistance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/glass_card"
             android:gravity="center"
             android:orientation="vertical"
-            android:padding="32dp">
+            android:padding="40dp">
 
             <TextView
                 android:id="@+id/tvDistance"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="0.0 m"
-                android:textColor="#4CAF50"
+                android:fontFamily="@font/inter"
+                android:text="-- m"
+                android:textColor="#10B981"
                 android:textSize="64sp"
                 android:textStyle="bold" />
 
@@ -36,32 +48,29 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
+                android:fontFamily="@font/inter"
                 android:letterSpacing="0.1"
                 android:text="LIVE DISTANCE"
-                android:textColor="#AAAAAA"
-                android:textSize="12sp" />
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold"/>
         </LinearLayout>
-    </androidx.cardview.widget.CardView>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="16dp"
-        android:baselineAligned="false"
-        android:orientation="horizontal">
-
-        <androidx.cardview.widget.CardView
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            app:cardBackgroundColor="#1E1E1E"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="4dp">
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:weightSum="2">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/glass_card"
                 android:gravity="center"
                 android:orientation="vertical"
                 android:padding="20dp">
@@ -69,9 +78,10 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:fontFamily="@font/inter"
                     android:text="HEART RATE"
-                    android:textColor="#FF5252"
-                    android:textSize="10sp"
+                    android:textColor="#EF4444"
+                    android:textSize="11sp"
                     android:textStyle="bold"
                     android:letterSpacing="0.1"/>
 
@@ -80,25 +90,19 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:fontFamily="@font/inter"
                     android:text="-- bpm"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/ig_text_primary"
                     android:textSize="20sp"
                     android:textStyle="bold" />
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
-
-        <androidx.cardview.widget.CardView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            app:cardBackgroundColor="#1E1E1E"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="4dp">
 
             <LinearLayout
-                android:layout_width="match_parent"
+                android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/glass_card"
                 android:gravity="center"
                 android:orientation="vertical"
                 android:padding="20dp">
@@ -106,9 +110,10 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="WATCH STATUS"
-                    android:textColor="#2196F3"
-                    android:textSize="10sp"
+                    android:fontFamily="@font/inter"
+                    android:text="WRIST STATUS"
+                    android:textColor="#3B82F6"
+                    android:textSize="11sp"
                     android:textStyle="bold"
                     android:letterSpacing="0.1"/>
 
@@ -117,26 +122,20 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
+                    android:fontFamily="@font/inter"
                     android:text="UNKNOWN"
-                    android:textColor="#FFFFFF"
+                    android:textColor="@color/ig_text_primary"
                     android:textSize="16sp"
                     android:textStyle="bold" />
             </LinearLayout>
-        </androidx.cardview.widget.CardView>
-    </LinearLayout>
-
-    <com.google.android.material.card.MaterialCardView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        app:cardBackgroundColor="#141414"
-        app:cardCornerRadius="12dp"
-        app:strokeColor="#2A2A2A"
-        app:strokeWidth="1dp">
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/glass_card"
             android:orientation="vertical"
             android:padding="20dp">
 
@@ -144,9 +143,10 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="12dp"
+                android:fontFamily="@font/inter"
                 android:letterSpacing="0.15"
                 android:text="TOUCH SENSOR STATUS"
-                android:textColor="#6B7B8A"
+                android:textColor="@color/ig_text_secondary"
                 android:textSize="12sp"
                 android:textStyle="bold" />
 
@@ -159,8 +159,9 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:fontFamily="@font/inter"
                     android:text="Current State:"
-                    android:textColor="#888888"
+                    android:textColor="@color/ig_text_secondary"
                     android:textSize="14sp" />
 
                 <TextView
@@ -168,27 +169,29 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:text="No Input Detected"
-                    android:textColor="#FFFFFF"
-                    android:textSize="16sp"
+                    android:fontFamily="@font/inter"
+                    android:text="Awaiting Hardware..."
+                    android:textColor="@color/ig_text_primary"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
 
-    <Space
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1" />
+        <Space
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
 
-    <TextView
-        android:id="@+id/tvScanStatus"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:gravity="center"
-        android:text="Connected"
-        android:textColor="#4CAF50"
-        android:textSize="14sp" />
+        <TextView
+            android:id="@+id/tvScanStatus"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="24dp"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:text="Searching for connection..."
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="14sp" />
 
-</LinearLayout>
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>

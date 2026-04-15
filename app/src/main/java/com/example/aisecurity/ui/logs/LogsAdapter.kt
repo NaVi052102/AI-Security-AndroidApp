@@ -25,12 +25,12 @@ class LogsAdapter(private var logsList: List<SecurityEvent>) :
     val selectedIds = mutableSetOf<Int>()
 
     class LogViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-        // --- FIXED: These IDs now perfectly match your item_log.xml ---
-        val indicator: View = view.findViewById(R.id.viewColorBar)
-        val tvTime: TextView = view.findViewById(R.id.tvLogTime)
+        // 🚨 FIXED: These IDs now perfectly match your new premium item_log.xml!
+        val indicator: View = view.findViewById(R.id.indicatorLine)
+        val tvTime: TextView = view.findViewById(R.id.tvLogTimestamp)
         val tvTitle: TextView = view.findViewById(R.id.tvLogTitle)
-        val tvContext: TextView = view.findViewById(R.id.tvLogContext)
-        val cbSelect: CheckBox = view.findViewById(R.id.cbSelectLog)
+        val tvContext: TextView = view.findViewById(R.id.tvLogDetails)
+        val cbSelect: CheckBox = view.findViewById(R.id.cbLogSelect)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LogViewHolder {
@@ -46,10 +46,11 @@ class LogsAdapter(private var logsList: List<SecurityEvent>) :
         holder.tvTitle.text = log.title
         holder.tvContext.text = log.details
 
+        // Map severity to colors
         when (log.severity) {
-            0 -> holder.indicator.setBackgroundColor(Color.parseColor("#4CAF50"))
-            1 -> holder.indicator.setBackgroundColor(Color.parseColor("#FF9800"))
-            2 -> holder.indicator.setBackgroundColor(Color.parseColor("#F44336"))
+            0 -> holder.indicator.setBackgroundColor(Color.parseColor("#10B981")) // Emerald Green
+            1 -> holder.indicator.setBackgroundColor(Color.parseColor("#F59E0B")) // Warning Orange
+            2 -> holder.indicator.setBackgroundColor(Color.parseColor("#EF4444")) // Threat Red
         }
 
         // --- CHECKBOX LOGIC ---

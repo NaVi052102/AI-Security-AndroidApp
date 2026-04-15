@@ -1,98 +1,360 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/app_background"
-    android:orientation="vertical"
-    android:padding="24dp">
-
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="8dp"
-        android:text="Recovery Protocol"
-        android:textColor="@color/text_main"
-        android:textSize="26sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginBottom="24dp"
-        android:text="This message will be permanently pinned to the screen if the phone enters lockdown mode."
-        android:textColor="@color/text_muted"
-        android:textSize="14sp" />
+    android:background="@color/ig_background"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="@drawable/glass_card"
         android:orientation="vertical"
-        android:padding="20dp"
-        android:layout_marginBottom="32dp">
+        android:paddingTop="24dp">
 
-        <EditText
-            android:id="@+id/etWarningMessage"
+        <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:background="@color/glass_fill"
-            android:gravity="top"
-            android:hint="E.g. This phone has been lost..."
-            android:textColorHint="@color/text_muted"
-            android:textColor="@color/text_main"
-            android:inputType="textMultiLine"
-            android:lines="3"
-            android:padding="16dp" />
-
-        <EditText
-            android:id="@+id/etContactNumber"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="24dp"
             android:layout_marginBottom="24dp"
-            android:background="@color/glass_fill"
-            android:hint="Backup Phone Number"
-            android:textColorHint="@color/text_muted"
-            android:textColor="@color/text_main"
-            android:inputType="phone"
-            android:padding="16dp" />
+            android:fontFamily="@font/inter"
+            android:text="Configure core AI behavior, automated lockdown responses, and stealth tracking mechanisms."
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="14sp"
+            android:lineSpacingExtra="4dp"/>
 
-        <Button
-            android:id="@+id/btnSaveMessage"
+        <TextView
             android:layout_width="match_parent"
-            android:layout_height="55dp"
-            android:backgroundTint="#007AFF"
-            android:text="SAVE SYSTEM CONFIG"
+            android:layout_height="wrap_content"
+            android:text="BEHAVIORAL AI ENGINE"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Security Sensitivity"
+                android:textColor="@color/ig_text_primary"
+                android:fontFamily="@font/inter"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvAiDesc"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="Moderate false-alarm threshold. Best for normal daily use."
+                android:textColor="@color/ig_text_secondary"
+                android:fontFamily="@font/inter"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/seekAiSensitivity"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:max="2"
+                android:progress="1"
+                android:progressTint="#3B82F6"
+                android:thumbTint="#3B82F6"/>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="8dp"
+                android:paddingHorizontal="12dp">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Off"
+                    android:gravity="start"
+                    android:textColor="@color/ig_text_secondary"
+                    android:textSize="12sp"/>
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Lenient"
+                    android:gravity="center"
+                    android:textColor="@color/ig_text_secondary"
+                    android:textSize="12sp"/>
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Strict"
+                    android:gravity="end"
+                    android:textColor="@color/ig_text_secondary"
+                    android:textSize="12sp"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="ACTIVE DEFENSE PROTOCOLS"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sound Alarm Siren"
+                        android:textColor="@color/ig_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Plays max-volume siren during lockdown."
+                        android:textColor="@color/ig_text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchSiren"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="16dp"
+                android:background="#1A888888" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Transmit GPS via SMS"
+                        android:textColor="@color/ig_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvManageContactsLink"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Sends location. Tap here to manage Trusted Contacts."
+                        android:textColor="#3B82F6"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:background="?attr/selectableItemBackgroundBorderless"/>
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchGps"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="16dp"
+                android:background="#1A888888" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Active Defense Mechanism"
+                        android:textColor="@color/ig_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Select how the phone neutralizes the intruder."
+                        android:textColor="@color/ig_text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchDefense"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+
+            <RadioGroup
+                android:id="@+id/rgDefenseType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:visibility="visible">
+
+                <RadioButton
+                    android:id="@+id/rbOverlay"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Red Screen Overlay (Persistent Block)"
+                    android:textColor="@color/ig_text_secondary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="13sp"
+                    android:buttonTint="#3B82F6"/>
+
+                <RadioButton
+                    android:id="@+id/rbScreenOff"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Aggressive Screen-Off (Device Enforcer)"
+                    android:textColor="@color/ig_text_secondary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="13sp"
+                    android:layout_marginTop="8dp"
+                    android:buttonTint="#3B82F6"/>
+            </RadioGroup>
+
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="STEALTH TRACKING"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="32dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Hide App Icon"
+                        android:textColor="@color/ig_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="To open app when hidden, dial *#8888#"
+                        android:textColor="#F59E0B"
+                        android:textStyle="bold"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchStealth"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="false"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnDemoOverlay"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="12dp"
+            android:text="TEST RED SCREEN OVERLAY"
+            android:fontFamily="@font/inter"
+            android:textSize="13sp"
             android:textColor="#FFFFFF"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnDemoEnforcer"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="40dp"
+            android:text="TEST SCREEN-OFF ENFORCER"
+            android:fontFamily="@font/inter"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
     </LinearLayout>
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginBottom="32dp"
-        android:background="@color/glass_border" />
-
-    <Button
-        android:id="@+id/btnTestNuclear"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:backgroundTint="#8B0000"
-        android:text="TEST NUCLEAR LOCKDOWN"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold"
-        android:layout_marginBottom="12dp" />
-
-    <Button
-        android:id="@+id/btnTestPersistent"
-        android:layout_width="match_parent"
-        android:layout_height="60dp"
-        android:backgroundTint="#D97706"
-        android:text="TEST SAFE PERSISTENT LOCK"
-        android:textColor="#FFFFFF"
-        android:textSize="14sp"
-        android:textStyle="bold" />
-
-</LinearLayout>
+</androidx.core.widget.NestedScrollView>

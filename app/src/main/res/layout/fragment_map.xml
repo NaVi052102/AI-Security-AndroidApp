@@ -4,7 +4,7 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/app_background">
+    android:background="@color/ig_background">
 
     <FrameLayout
         android:id="@+id/map_container"
@@ -29,13 +29,14 @@
     </FrameLayout>
 
     <LinearLayout
+        android:id="@+id/bottomControlCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="20dp"
-        android:background="@drawable/glass_card"
+        android:layout_marginHorizontal="20dp"
+        android:layout_marginBottom="32dp"
         android:orientation="vertical"
         android:padding="20dp"
-        app:layout_constraintTop_toTopOf="parent"
+        app:layout_constraintBottom_toBottomOf="parent"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -46,12 +47,13 @@
             android:gravity="center_vertical">
 
             <TextView
+                android:id="@+id/tvSecureTrackingTitle"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
+                android:fontFamily="@font/inter"
                 android:letterSpacing="0.1"
                 android:text="SECURE TRACKING"
-                android:textColor="@color/text_main"
                 android:textSize="14sp"
                 android:textStyle="bold" />
 
@@ -59,12 +61,12 @@
                 android:id="@+id/tvNetworkStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="#1A34C759"
-                android:paddingHorizontal="10dp"
-                android:paddingVertical="4dp"
+                android:paddingHorizontal="14dp"
+                android:paddingVertical="6dp"
                 android:text="CHECKING"
-                android:textColor="#34C759"
-                android:textSize="12sp"
+                android:fontFamily="@font/inter"
+                android:textSize="11sp"
+                android:letterSpacing="0.05"
                 android:textStyle="bold" />
         </LinearLayout>
 
@@ -74,18 +76,22 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
             android:layout_marginBottom="20dp"
-            android:text="Waiting for SMS coordinates..."
-            android:textColor="@color/text_muted"
+            android:fontFamily="@font/inter"
+            android:text="Waiting for secure coordinates..."
             android:textSize="14sp" />
 
-        <Button
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnSettings"
             android:layout_width="match_parent"
-            android:layout_height="55dp"
-            android:backgroundTint="?attr/colorPrimary"
-            android:text="SET TARGET NUMBER"
+            android:layout_height="52dp"
+            android:text="TRUSTED CONTACTS"
+            android:fontFamily="@font/inter"
+            android:textSize="14sp"
             android:textColor="#FFFFFF"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
     </LinearLayout>
 
 </androidx.constraintlayout.widget.ConstraintLayout>

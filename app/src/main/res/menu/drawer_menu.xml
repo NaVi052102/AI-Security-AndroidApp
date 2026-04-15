@@ -30,11 +30,16 @@
                 android:title="Dark Mode"
                 app:actionLayout="@layout/nav_custom_switch_row" />
 
-
             <item
                 android:id="@+id/side_settings"
                 android:icon="@drawable/ic_settings_outlined"
                 android:title="Settings" />
+
+            <item
+                android:id="@+id/side_account"
+                android:icon="@drawable/ic_user_outlined"
+                android:title="Account Settings" />
+
             <item
                 android:id="@+id/side_help"
                 android:icon="@drawable/ic_help_outlined"
