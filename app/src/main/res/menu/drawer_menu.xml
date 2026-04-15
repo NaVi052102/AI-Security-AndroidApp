@@ -1,49 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"> <item android:title="System Configuration">
-    <menu>
-        <item
-            android:id="@+id/side_bluetooth"
-            android:icon="@drawable/ic_bluetooth_outlined"
-            android:title="Connections" />
-        <item
-            android:id="@+id/side_permissions"
-            android:icon="@drawable/ic_shield_outlined"
-            android:title="System Permissions" />
-    </menu>
-</item>
+    xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <item android:title="Audit &amp; Logs">
+    <item android:title="System Controls">
         <menu>
             <item
-                android:id="@+id/side_logs"
-                android:icon="@drawable/ic_history_outlined"
-                android:title="Security Audit Logs" />
+                android:id="@+id/side_bluetooth"
+                android:icon="@drawable/ic_bluetooth_outlined"
+                android:title="Connections" />
+            <item
+                android:id="@+id/side_permissions"
+                android:icon="@drawable/ic_shield_outlined"
+                android:title="App Permissions" />
         </menu>
     </item>
 
-    <item android:title="Application">
+    <item android:title="App Management">
+        <menu>
+            <item
+                android:id="@+id/side_settings"
+                android:icon="@drawable/ic_settings_outlined"
+                android:title="Settings" />
+            <item
+                android:id="@+id/side_logs"
+                android:icon="@drawable/ic_history_outlined"
+                android:title="Audit Logs" />
+            <item
+                android:id="@+id/side_help"
+                android:icon="@drawable/ic_help_outlined"
+                android:title="Help &amp; Support" />
+        </menu>
+    </item>
+
+    <item android:title="Theme">
         <menu>
             <item
                 android:id="@+id/side_dark_mode"
                 android:icon="@drawable/ic_moon_outline"
                 android:title="Dark Mode"
                 app:actionLayout="@layout/nav_custom_switch_row" />
-
-            <item
-                android:id="@+id/side_settings"
-                android:icon="@drawable/ic_settings_outlined"
-                android:title="Settings" />
-
-            <item
-                android:id="@+id/side_account"
-                android:icon="@drawable/ic_user_outlined"
-                android:title="Account Settings" />
-
-            <item
-                android:id="@+id/side_help"
-                android:icon="@drawable/ic_help_outlined"
-                android:title="Help &amp; Support" />
         </menu>
     </item>
 </menu>

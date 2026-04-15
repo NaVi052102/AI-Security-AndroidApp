@@ -1,10 +1,10 @@
 package com.example.aisecurity.ui.main
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -12,39 +12,45 @@ import android.provider.Settings
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
+import androidx.core.graphics.toColorInt
+import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
-import com.example.aisecurity.ui.map.LocationTrackingService
 import com.example.aisecurity.R
 import com.example.aisecurity.ui.biometrics.BiometricsFragment
 import com.example.aisecurity.ui.bluetooth.BluetoothFragment
 import com.example.aisecurity.ui.dashboard.DashboardFragment
+import com.example.aisecurity.ui.help.HelpFragment
 import com.example.aisecurity.ui.logs.LogsFragment
+import com.example.aisecurity.ui.map.LocationTrackingService
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
-import com.example.aisecurity.ui.settings.SettingsFragment
 import com.example.aisecurity.ui.settings.AccountSettingsFragment
-import com.example.aisecurity.ui.help.HelpFragment
+import com.example.aisecurity.ui.settings.SettingsFragment
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
 
-
+@Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
 
     private lateinit var drawerLayout: DrawerLayout
 
-    private val FOREGROUND_LOC_REQ = 101
-    private val BACKGROUND_LOC_REQ = 102
-    private val NOTIFICATION_REQ = 103
+    private val foregroundLocReq = 101
+    private val backgroundLocReq = 102
 
     private lateinit var dashboardFragment: Fragment
     private lateinit var biometricsFragment: Fragment
@@ -78,6 +84,48 @@ class MainActivity : AppCompatActivity() {
         val topAppBar = findViewById<MaterialToolbar>(R.id.topAppBar)
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
         val sideNav = findViewById<NavigationView>(R.id.nav_view_sidebar)
+
+        // --- DYNAMIC SIDEBAR HEADER INJECTION ---
+        val headerView = sideNav.getHeaderView(0)
+        val imgDrawerAvatar = headerView.findViewById<ImageView>(R.id.imgDrawerAvatar)
+        val tvDrawerName = headerView.findViewById<TextView>(R.id.tvDrawerName)
+        val headerLayoutContainer = headerView.findViewById<LinearLayout>(R.id.headerLayoutContainer)
+
+        // 🚨 THE EXPERT UI FIX: Intercept hardware insets and calculate pixel-perfect spacing
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(headerLayoutContainer) { view, insets ->
+            val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
+            val basePadding = (24 * resources.displayMetrics.density).toInt()
+
+            // Apply safe status bar height + 24dp breathing room
+            view.setPadding(basePadding, topInset + basePadding, basePadding, basePadding)
+            insets
+        }
+
+        headerLayoutContainer.setOnClickListener {
+            switchFragment(accountSettingsFragment)
+            topAppBar.title = "Account Settings"
+            drawerLayout.close()
+        }
+
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (currentUser != null) {
+            FirebaseFirestore.getInstance().collection("Users").document(currentUser.uid)
+                .addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                    val fullName = snapshot.getString("fullName") ?: "Administrator"
+                    val photoUri = snapshot.getString("photoUri") ?: ""
+
+                    tvDrawerName.text = fullName
+                    if (photoUri.isNotEmpty()) {
+                        try {
+                            imgDrawerAvatar.setImageURI(photoUri.toUri())
+                        } catch (_: Exception) {
+                            imgDrawerAvatar.setImageResource(android.R.color.transparent)
+                        }
+                    }
+                }
+        }
 
         // =========================================================
         // BULLETPROOF FRAGMENT RESTORATION
@@ -124,7 +172,7 @@ class MainActivity : AppCompatActivity() {
             activeFragment = supportFragmentManager.fragments.firstOrNull { !it.isHidden && it.tag != null } ?: dashboardFragment
         }
 
-        // --- Theme Engine (Kept Same) ---
+        // --- Theme Engine ---
         val actualDarkMode = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         var isCurrentlyDark = actualDarkMode
         val themeMenuItem = sideNav.menu.findItem(R.id.side_dark_mode)
@@ -133,7 +181,7 @@ class MainActivity : AppCompatActivity() {
 
         fun updateSwitchUI(isDark: Boolean, animate: Boolean) {
             val thumbTranslation = if (isDark) 20f * resources.displayMetrics.density else 0f
-            val trackColor = if (isDark) android.graphics.Color.parseColor("#1A1D24") else android.graphics.Color.parseColor("#E5E7EB")
+            val trackColor = if (isDark) "#1A1D24".toColorInt() else "#E5E7EB".toColorInt()
             val thumbIcon = if (isDark) R.drawable.ic_moon_filled else R.drawable.ic_sun_filled
 
             themeMenuItem?.setIcon(if (isDark) R.drawable.ic_moon_outline else R.drawable.ic_sun_outline)
@@ -152,17 +200,17 @@ class MainActivity : AppCompatActivity() {
 
         window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
         if (actualDarkMode) {
-            window.statusBarColor = android.graphics.Color.parseColor("#000000")
-            window.navigationBarColor = android.graphics.Color.parseColor("#000000")
-            window.decorView.setBackgroundColor(android.graphics.Color.parseColor("#000000"))
-            drawerLayout.setBackgroundColor(android.graphics.Color.parseColor("#000000"))
+            window.statusBarColor = "#000000".toColorInt()
+            window.navigationBarColor = "#000000".toColorInt()
+            window.decorView.setBackgroundColor("#000000".toColorInt())
+            drawerLayout.setBackgroundColor("#000000".toColorInt())
             WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = false
             WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = false
         } else {
-            window.statusBarColor = android.graphics.Color.parseColor("#FFFFFF")
-            window.navigationBarColor = android.graphics.Color.parseColor("#FFFFFF")
-            window.decorView.setBackgroundColor(android.graphics.Color.parseColor("#FFFFFF"))
-            drawerLayout.setBackgroundColor(android.graphics.Color.parseColor("#FFFFFF"))
+            window.statusBarColor = "#FFFFFF".toColorInt()
+            window.navigationBarColor = "#FFFFFF".toColorInt()
+            window.decorView.setBackgroundColor("#FFFFFF".toColorInt())
+            drawerLayout.setBackgroundColor("#FFFFFF".toColorInt())
             WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightStatusBars = true
             WindowCompat.getInsetsController(window, window.decorView).isAppearanceLightNavigationBars = true
         }
@@ -182,14 +230,13 @@ class MainActivity : AppCompatActivity() {
         sideNav.setNavigationItemSelectedListener { item ->
             when (item.itemId) {
                 R.id.side_settings -> { switchFragment(settingsFragment); topAppBar.title = "Settings" }
-                R.id.side_account -> { switchFragment(accountSettingsFragment); topAppBar.title = "Account Settings" }
                 R.id.side_bluetooth -> { switchFragment(bluetoothFragment); topAppBar.title = "Connections" }
                 R.id.side_permissions -> { switchFragment(permissionsFragment); topAppBar.title = "App Permissions" }
                 R.id.side_logs -> { switchFragment(logsFragment); topAppBar.title = "Security Audit Logs" }
                 R.id.side_help -> { switchFragment(helpFragment); topAppBar.title = "Help & Support" }
                 R.id.side_dark_mode -> {
                     isCurrentlyDark = !isCurrentlyDark
-                    prefs.edit().putBoolean("dark_mode", isCurrentlyDark).apply()
+                    prefs.edit { putBoolean("dark_mode", isCurrentlyDark) }
                     updateSwitchUI(isCurrentlyDark, true)
                     window.decorView.postDelayed({
                         if (isCurrentlyDark) AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
@@ -209,10 +256,6 @@ class MainActivity : AppCompatActivity() {
         activeFragment = targetFragment
     }
 
-    // =========================================================
-    // THE UNBREAKABLE PERMISSION CHAIN
-    // =========================================================
-
     private fun checkNotificationsAndForeground() {
         val permissions = mutableListOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -222,7 +265,7 @@ class MainActivity : AppCompatActivity() {
         val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
 
         if (missing.isNotEmpty()) {
-            ActivityCompat.requestPermissions(this, missing.toTypedArray(), FOREGROUND_LOC_REQ)
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), foregroundLocReq)
         } else {
             checkBackgroundLocation()
         }
@@ -236,7 +279,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Background Tracking Required")
                     .setMessage("To track this phone when it is stolen or the app is closed, you MUST select 'Allow all the time' in the next screen.")
                     .setPositiveButton("Go to Settings") { _, _ ->
-                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), BACKGROUND_LOC_REQ)
+                        ActivityCompat.requestPermissions(this, arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION), backgroundLocReq)
                     }
                     .setCancelable(false)
                     .show()
@@ -246,26 +289,25 @@ class MainActivity : AppCompatActivity() {
         checkBatteryOptimizations()
     }
 
+    @SuppressLint("BatteryLife")
     private fun checkBatteryOptimizations() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val intent = Intent()
-            val packageName = packageName
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        val intent = Intent()
+        val packageName = packageName
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
 
-            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                AlertDialog.Builder(this)
-                    .setTitle("Disable Battery Killer")
-                    .setMessage("Your phone will kill the security tracker to save battery. Please click 'Allow' to let BioGuard run forever.")
-                    .setPositiveButton("Fix Now") { _, _ ->
-                        intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                        intent.data = Uri.parse("package:$packageName")
-                        startActivity(intent)
-                        startLocationService()
-                    }
-                    .setCancelable(false)
-                    .show()
-                return
-            }
+        if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+            AlertDialog.Builder(this)
+                .setTitle("Disable Battery Killer")
+                .setMessage("Your phone will kill the security tracker to save battery. Please click 'Allow' to let BioGuard run forever.")
+                .setPositiveButton("Fix Now") { _, _ ->
+                    intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    intent.data = "package:$packageName".toUri()
+                    startActivity(intent)
+                    startLocationService()
+                }
+                .setCancelable(false)
+                .show()
+            return
         }
         startLocationService()
     }
@@ -273,14 +315,14 @@ class MainActivity : AppCompatActivity() {
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
 
-        if (requestCode == FOREGROUND_LOC_REQ) {
+        if (requestCode == foregroundLocReq) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 checkBackgroundLocation()
             } else {
                 Toast.makeText(this, "App cannot function without Basic Location.", Toast.LENGTH_LONG).show()
             }
         }
-        else if (requestCode == BACKGROUND_LOC_REQ) {
+        else if (requestCode == backgroundLocReq) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 checkBatteryOptimizations()
             } else {
@@ -292,10 +334,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun startLocationService() {
         val serviceIntent = Intent(this, LocationTrackingService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(serviceIntent)
-        } else {
-            startService(serviceIntent)
-        }
+        startForegroundService(serviceIntent)
     }
 }

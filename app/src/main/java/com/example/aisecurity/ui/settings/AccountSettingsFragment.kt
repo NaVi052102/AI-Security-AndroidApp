@@ -298,17 +298,14 @@ class AccountSettingsFragment : Fragment() {
     private fun applyPrimaryButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 1000f
-            orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            cornerRadius = 30f // Slightly squared edges feel more "Security Enterprise" than full pills
         }
         if (isNightMode) {
-            bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
-            bg.setStroke(4, Color.parseColor("#D4AF37"))
+            bg.setColor(Color.parseColor("#3B82F6")) // Vivid vibrant blue
             button.setTextColor(Color.parseColor("#FFFFFF"))
         } else {
-            bg.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
-            bg.setStroke(4, Color.parseColor("#2563EB"))
-            button.setTextColor(Color.parseColor("#1E293B"))
+            bg.setColor(Color.parseColor("#2563EB")) // Deep bold blue
+            button.setTextColor(Color.parseColor("#FFFFFF")) // White text on solid background
         }
         button.background = bg
     }
@@ -334,17 +331,14 @@ class AccountSettingsFragment : Fragment() {
     private fun applyDestructiveGhostButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 1000f
-            orientation = GradientDrawable.Orientation.TOP_BOTTOM
+            cornerRadius = 30f
         }
         if (isNightMode) {
-            bg.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004"))
-            bg.setStroke(3, Color.parseColor("#EF4444"))
-            button.setTextColor(Color.parseColor("#FFFFFF"))
+            bg.setColor(Color.parseColor("#1AEF4444")) // 10% Opacity Red
+            button.setTextColor(Color.parseColor("#F87171")) // Bright Red Text
         } else {
-            bg.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2"))
-            bg.setStroke(3, Color.parseColor("#EF4444"))
-            button.setTextColor(Color.parseColor("#7F1D1D"))
+            bg.setColor(Color.parseColor("#1AEF4444")) // 10% Opacity Red
+            button.setTextColor(Color.parseColor("#DC2626")) // Dark Red Text
         }
         button.background = bg
     }

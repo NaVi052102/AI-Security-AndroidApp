@@ -191,7 +191,7 @@
         <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnEditProfile"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="48dp"
             android:layout_marginHorizontal="20dp"
             android:layout_marginBottom="16dp"
             android:text="EDIT PROFILE"
@@ -206,7 +206,7 @@
         <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnLogout"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="48dp"
             android:layout_marginHorizontal="20dp"
             android:layout_marginBottom="40dp"
             android:text="SECURE LOGOUT"
