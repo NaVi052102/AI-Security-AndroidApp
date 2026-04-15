@@ -61,6 +61,41 @@
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
             android:layout_marginBottom="16dp"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/glass_card"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PEAK ELASTIC LIMIT" android:textColor="#F59E0B" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="14.2 m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/glass_card"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SESSION TIMER" android:textColor="#3B82F6" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="04h 12m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
             android:baselineAligned="false"
             android:orientation="horizontal"
             android:weightSum="2">
@@ -74,27 +109,8 @@
                 android:gravity="center"
                 android:orientation="vertical"
                 android:padding="20dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/inter"
-                    android:text="HEART RATE"
-                    android:textColor="#EF4444"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.1"/>
-
-                <TextView
-                    android:id="@+id/tvHeartRate"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:fontFamily="@font/inter"
-                    android:text="-- bpm"
-                    android:textColor="@color/ig_text_primary"
-                    android:textSize="20sp"
-                    android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="@font/inter" android:text="HEART RATE" android:textColor="#EF4444" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:id="@+id/tvHeartRate" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:fontFamily="@font/inter" android:text="-- bpm" android:textColor="@color/ig_text_primary" android:textSize="20sp" android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout
@@ -106,27 +122,23 @@
                 android:gravity="center"
                 android:orientation="vertical"
                 android:padding="20dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="@font/inter" android:text="WRIST STATUS" android:textColor="#3B82F6" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:id="@+id/tvSecurityStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:fontFamily="@font/inter" android:text="UNKNOWN" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/inter"
-                    android:text="WRIST STATUS"
-                    android:textColor="#3B82F6"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    android:letterSpacing="0.1"/>
-
-                <TextView
-                    android:id="@+id/tvSecurityStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:fontFamily="@font/inter"
-                    android:text="UNKNOWN"
-                    android:textColor="@color/ig_text_primary"
-                    android:textSize="16sp"
-                    android:textStyle="bold" />
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:fontFamily="@font/inter" android:letterSpacing="0.15" android:text="TOUCH SENSOR STATUS" android:textColor="@color/ig_text_secondary" android:textSize="12sp" android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="@font/inter" android:text="Current State:" android:textColor="@color/ig_text_secondary" android:textSize="14sp" />
+                <TextView android:id="@+id/tvTouchStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:fontFamily="@font/inter" android:text="Awaiting Hardware..." android:textColor="@color/ig_text_primary" android:textSize="15sp" android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
@@ -139,48 +151,21 @@
             android:orientation="vertical"
             android:padding="20dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:fontFamily="@font/inter"
-                android:letterSpacing="0.15"
-                android:text="TOUCH SENSOR STATUS"
-                android:textColor="@color/ig_text_secondary"
-                android:textSize="12sp"
-                android:textStyle="bold" />
-
-            <LinearLayout
+            <RelativeLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:layout_marginBottom="12dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SIGNAL STABILITY (RSSI)" android:textColor="#10B981" android:textSize="11sp" android:textStyle="bold" android:letterSpacing="0.15" />
+                <TextView android:id="@+id/tvCurrentRssiValue" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_alignParentEnd="true" android:fontFamily="monospace" android:text="-- dBm" android:textColor="#10B981" android:textSize="11sp" android:textStyle="bold" />
+            </RelativeLayout>
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:fontFamily="@font/inter"
-                    android:text="Current State:"
-                    android:textColor="@color/ig_text_secondary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tvTouchStatus"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:fontFamily="@font/inter"
-                    android:text="Awaiting Hardware..."
-                    android:textColor="@color/ig_text_primary"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
+            <com.example.aisecurity.ui.proximity.RssiChartView
+                android:id="@+id/rssiGraph"
+                android:layout_width="match_parent"
+                android:layout_height="100dp" />
         </LinearLayout>
 
-        <Space
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
+        <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
 
         <TextView
             android:id="@+id/tvScanStatus"

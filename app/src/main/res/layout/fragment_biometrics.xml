@@ -42,7 +42,7 @@
                 android:fontFamily="@font/inter"
                 android:text="0%"
                 android:textColor="#10B981"
-                android:textSize="48sp"
+                android:textSize="56sp"
                 android:textStyle="bold" />
 
             <TextView
@@ -53,7 +53,7 @@
                 android:text="SYSTEM SECURE"
                 android:textColor="@color/ig_text_secondary"
                 android:textSize="14sp"
-                android:letterSpacing="0.1"
+                android:letterSpacing="0.15"
                 android:layout_marginTop="4dp"
                 android:textStyle="bold"/>
 
@@ -95,9 +95,7 @@
                 android:fontFamily="@font/inter"
                 android:textSize="11sp"
                 android:textStyle="bold"
-                android:letterSpacing="0.08"
                 android:text="START"
-                android:stateListAnimator="@null"
                 android:background="@null" />
 
             <androidx.appcompat.widget.AppCompatButton
@@ -109,9 +107,7 @@
                 android:fontFamily="@font/inter"
                 android:textSize="11sp"
                 android:textStyle="bold"
-                android:letterSpacing="0.08"
                 android:text="USE AI"
-                android:stateListAnimator="@null"
                 android:background="@null" />
 
             <androidx.appcompat.widget.AppCompatButton
@@ -123,10 +119,50 @@
                 android:fontFamily="@font/inter"
                 android:textSize="11sp"
                 android:textStyle="bold"
-                android:letterSpacing="0.08"
                 android:text="RESET"
-                android:stateListAnimator="@null"
                 android:background="@null" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <RelativeLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="@font/inter"
+                    android:text="NEURAL MAPPING CURVE"
+                    android:textColor="#3B82F6"
+                    android:textSize="11sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.15" />
+
+                <TextView
+                    android:id="@+id/tvCurrentLossValue"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_alignParentEnd="true"
+                    android:fontFamily="monospace"
+                    android:text="LOSS: 0.0000"
+                    android:textColor="#3B82F6"
+                    android:textSize="11sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <com.example.aisecurity.ui.biometrics.LineChartView
+                android:id="@+id/aiLearningGraph"
+                android:layout_width="match_parent"
+                android:layout_height="140dp" />
         </LinearLayout>
 
         <LinearLayout
@@ -153,16 +189,13 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:baselineAligned="false">
+                android:orientation="horizontal">
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical"
                     android:gravity="center">
-
                     <TextView
                         android:id="@+id/tvPreviousApp"
                         android:layout_width="wrap_content"
@@ -175,19 +208,13 @@
                         android:ellipsize="end"/>
                 </LinearLayout>
 
-                <View
-                    android:layout_width="1dp"
-                    android:layout_height="match_parent"
-                    android:layout_marginHorizontal="16dp"
-                    android:background="#33999999" />
+                <View android:layout_width="1dp" android:layout_height="match_parent" android:layout_marginHorizontal="16dp" android:background="#33999999" />
 
                 <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:orientation="vertical"
                     android:gravity="center">
-
                     <TextView
                         android:id="@+id/tvCurrentApp"
                         android:layout_width="wrap_content"

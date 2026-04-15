@@ -63,7 +63,6 @@ class TouchDynamicsService : AccessibilityService() {
     private var lastRealAppLeaveTime = 0L
     private var isCurrentlyInNoise = false
 
-    // 🚨 NEW: Store the transitions for the watch tracker
     private var lastFromApp = "System UI"
     private var lastToApp = "Monitoring..."
 
@@ -92,11 +91,13 @@ class TouchDynamicsService : AccessibilityService() {
     private val knownAppOverrides = mapOf(
         "com.facebook.katana" to "Facebook",
         "com.facebook.orca" to "Messenger",
-        "com.zhiliaoapp.musically" to "TikTok",
+        "com.zhiliaoapp.musically" to "TikTok", // Global TikTok
+        "com.ss.android.ugc.trill" to "TikTok", // Asian Region TikTok
         "com.instagram.android" to "Instagram",
         "com.google.android.youtube" to "YouTube",
         "com.whatsapp" to "WhatsApp",
-        "com.twitter.android" to "X (Twitter)"
+        "com.twitter.android" to "X (Twitter)",
+        "com.mobile.legends" to "Mobile Legends"
     )
 
     private var windowManager: WindowManager? = null
@@ -136,10 +137,8 @@ class TouchDynamicsService : AccessibilityService() {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
 
-                    // 🚨 NEW: The Xiaomi/Vivo Instant Screen Lock Bypass
                     if (target == "FORCE_SLEEP") {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            // Run on a slight 300ms delay to ensure the Warning Activity has already launched
                             serviceScope.launch(Dispatchers.Main) {
                                 delay(300)
                                 performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
@@ -279,12 +278,13 @@ class TouchDynamicsService : AccessibilityService() {
             swipeJob?.cancel()
 
             swipeJob = serviceScope.launch {
-                delay(400)
+                delay(200)
                 val totalDuration = System.currentTimeMillis() - swipeStartTime
-                val estimatedPixels = (eventCount * 75).toFloat()
+                val estimatedPixels = (eventCount * 100).toFloat()
                 val velocity = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
 
-                if (!isCurrentlyInNoise && currentVisibleScreen.isNotEmpty()) {
+                // Swipes are allowed to be recorded here even if currentVisibleScreen is "Home Screen"
+                if (!systemNoiseList.contains(rawPackageName) && currentVisibleScreen.isNotEmpty()) {
                     processSwipe(totalDuration.toFloat(), velocity, currentVisibleScreen)
                 }
                 swipeStartTime = 0L
@@ -296,8 +296,7 @@ class TouchDynamicsService : AccessibilityService() {
     private fun updateContext(packageName: String) {
         val appName = getReadableAppName(packageName)
 
-        val isNoise = appName == "Home Screen" ||
-                appName.contains("System", ignoreCase = true) ||
+        val isNoise = appName.contains("System", ignoreCase = true) ||
                 appName.contains("quicksearchbox", ignoreCase = true) ||
                 systemNoiseList.contains(packageName)
 
@@ -310,8 +309,20 @@ class TouchDynamicsService : AccessibilityService() {
         }
 
         isCurrentlyInNoise = false
+
+        // 🚨 1. SWIPE TRACKER (Logs exact screen, including Home Screen)
         currentVisibleScreen = appName
 
+        // 🚨 2. TRANSITION TRACKER (Ignores Home Screen to map real app flows)
+        if (appName == "Home Screen") {
+            // We are on the home screen. Start the transition timer, but do NOT record a transition yet.
+            if (lastRealAppLeaveTime == 0L) {
+                lastRealAppLeaveTime = System.currentTimeMillis()
+            }
+            return
+        }
+
+        // If it's a REAL APP (Not noise, not Home Screen)
         if (appName != currentRealApp) {
             val previousApp = currentRealApp
             currentRealApp = appName
@@ -325,8 +336,8 @@ class TouchDynamicsService : AccessibilityService() {
 
             currentTransitionSpeed = (timeTaken.toFloat() / 10000f).coerceIn(0f, 1f)
 
-            if (previousApp.isNotEmpty() && timeTaken < 60000L) {
-                // 🚨 FIX: Save to global variables for the Watch Sync
+            // Only record transition if the previous app wasn't empty or the Home Screen
+            if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
                 lastFromApp = previousApp
                 lastToApp = currentRealApp
 
@@ -611,7 +622,7 @@ class TouchDynamicsService : AccessibilityService() {
     }
 
     private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
-        if (duration < 50) return
+        if (duration < 20) return
 
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
@@ -734,8 +745,7 @@ class TouchDynamicsService : AccessibilityService() {
         com.example.aisecurity.ble.WatchManager.sendData("<BIO:$bioScore|$status|$progress|$timeStr>")
         delay(40)
 
-        // 🚨 FIX: Also send the App Transition payload!
-        val safeFrom = lastFromApp.take(15) // Keep names short for Bluetooth buffer safety
+        val safeFrom = lastFromApp.take(15)
         val safeTo = lastToApp.take(15)
         com.example.aisecurity.ble.WatchManager.sendData("<BIOTRANS:$safeFrom|$safeTo>")
         delay(40)

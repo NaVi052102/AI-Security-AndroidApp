@@ -31,6 +31,12 @@ object WatchManager {
     val isConnected = MutableLiveData<Boolean>(false)
     val watchPayload = MutableLiveData<String>("")
 
+    // 🚨 SENSOR VARIABLES
+    val liveRSSI = MutableLiveData<Int>(0)
+    val liveHeartRate = MutableLiveData<String>("--")
+    val wristStatus = MutableLiveData<String>("Unknown")
+    val touchStatus = MutableLiveData<String>("Idle")
+
     private const val WATCH_NAME = "Watch Pro"
     private const val WATCH_MAC = "FC:01:2C:FD:DD:76"
 
@@ -117,7 +123,6 @@ object WatchManager {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(gatt: BluetoothGatt, status: Int, newState: Int) {
-            // 🚨 FIX: If Android detects ANY error or disconnect, instantly sever the UI connection!
             if (newState == BluetoothProfile.STATE_CONNECTED && status == BluetoothGatt.GATT_SUCCESS) {
                 liveStatus.postValue("Connected! Requesting Bandwidth...")
                 gatt.requestMtu(512)
@@ -171,6 +176,15 @@ object WatchManager {
                 val payload = char.getStringValue(0)
                 watchPayload.postValue(payload)
 
+                // 🚨 THIS PIPES THE WATCH SENSORS TO YOUR UI DASHBOARD
+                if (payload.startsWith("<HR:")) {
+                    liveHeartRate.postValue(payload.substringAfter(":").replace(">", ""))
+                } else if (payload.startsWith("<WRIST:")) {
+                    wristStatus.postValue(payload.substringAfter(":").replace(">", ""))
+                } else if (payload.startsWith("<TOUCH:")) {
+                    touchStatus.postValue(payload.substringAfter(":").replace(">", ""))
+                }
+
                 currentContext?.let { ctx ->
                     when (payload) {
                         "<CMD:PLAY>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
@@ -187,6 +201,10 @@ object WatchManager {
 
         override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
+
+                // 🚨 THIS IS THE FIX FOR THE GRAPH: IT NOW RECEIVES THE RSSI NUMBER!
+                liveRSSI.postValue(rssi)
+
                 val rawDistance = calculateDistance(rssi)
                 val stableDistance = distanceFilter.update(rawDistance)
                 val cleanDistance = round(stableDistance * 100) / 100.0
@@ -196,7 +214,6 @@ object WatchManager {
 
                 currentContext?.let { checkDistanceAndLock(it, cleanDistance.toFloat()) }
             } else {
-                // 🚨 FIX: If the ping fails (e.g. watch turned off mid-poll), kill the connection instantly!
                 disconnect()
             }
         }
@@ -280,14 +297,12 @@ object WatchManager {
         }
     }
 
-    // 🚨 FIX: Heartbeat Ping Logic
     private fun startRssiPolling() {
         rssiPollingJob?.cancel()
         rssiPollingJob = scope.launch {
             delay(1000)
             var failedPings = 0
             while (isActive && bluetoothGatt != null) {
-                // Request RSSI. If the Android stack rejects the request, the watch is gone.
                 val pingSent = bluetoothGatt?.readRemoteRssi() == true
 
                 if (!pingSent) {
@@ -298,9 +313,9 @@ object WatchManager {
                         break
                     }
                 } else {
-                    failedPings = 0 // Reset on success
+                    failedPings = 0
                 }
-                delay(1000) // 1 second heartbeat
+                delay(1000)
             }
         }
     }

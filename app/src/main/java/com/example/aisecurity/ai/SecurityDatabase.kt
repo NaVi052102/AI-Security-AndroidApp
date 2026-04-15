@@ -18,11 +18,9 @@ interface SecurityDao {
     // 1. SWIPE COMMANDS
     @Insert suspend fun insertTouch(profile: TouchProfile)
 
-    // REMOVED LIMIT 50: Now it gets all data collected during the 3 days
     @Query("SELECT * FROM touch_profiles")
     suspend fun getTrainingData(): List<TouchProfile>
 
-    // HELPER: Get total count for the "Minimum 200 swipes" check
     @Query("SELECT COUNT(*) FROM touch_profiles")
     suspend fun getTotalTouchCount(): Int
 
@@ -43,6 +41,10 @@ interface SecurityDao {
     suspend fun clearAppStats()
 
     // 3. TRANSITION COMMANDS
+    // 🚨 FIXED: Added this missing function to resolve the Dashboard errors
+    @Query("SELECT * FROM app_transitions")
+    suspend fun getAllTransitions(): List<TransitionProfile>
+
     @Query("SELECT * FROM app_transitions WHERE fromApp = :from AND toApp = :to LIMIT 1")
     suspend fun getTransition(from: String, to: String): TransitionProfile?
 
@@ -61,25 +63,18 @@ interface SecurityDao {
     }
 }
 
-// --- DATABASE SETUP ---
-// 1. Added SecurityLog::class to the entities list
-// 2. Bumped version from 3 to 4
 @Database(
     entities = [
         TouchProfile::class,
         AppUsageProfile::class,
         TransitionProfile::class,
-        SecurityLog::class // <-- NEW LOG TABLE ADDED
+        SecurityLog::class
     ],
     version = 4
 )
 abstract class SecurityDatabase : RoomDatabase() {
-
-    // Your AI Training Data
     abstract fun dao(): SecurityDao
-
-    // Your new Security Audit Trail
-    abstract fun securityLogDao(): SecurityLogDao // <-- NEW LOG DAO ADDED
+    abstract fun securityLogDao(): SecurityLogDao
 
     companion object {
         @Volatile private var INSTANCE: SecurityDatabase? = null

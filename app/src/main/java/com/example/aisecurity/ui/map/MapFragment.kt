@@ -13,8 +13,10 @@ import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.net.Uri
 import android.os.Bundle
 import android.preference.PreferenceManager
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.Surface
 import android.view.View
@@ -30,13 +32,17 @@ import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
+import org.json.JSONArray
+import org.json.JSONObject
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 
 import com.google.android.gms.maps.CameraUpdateFactory
@@ -50,6 +56,8 @@ import com.google.android.gms.maps.model.MarkerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.Locale
 
 class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
@@ -74,11 +82,25 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private lateinit var networkCallback: ConnectivityManager.NetworkCallback
 
     private var isFirstLocationUpdate = true
+    private var myCurrentGeoPoint: GeoPoint? = null
+    private var myCurrentLatLng: LatLng? = null
 
-    override fun onCreateView(
-        inflater: LayoutInflater, container: ViewGroup?,
-        savedInstanceState: Bundle?
-    ): View? {
+    // MY AVATAR DATA
+    private var myName: String = "Me"
+    private var myPhotoUri: String = ""
+    private var cachedMyBitmap: android.graphics.Bitmap? = null
+
+    // LIFE360 TRACKING ELEMENTS
+    private val activeFirebaseListeners = mutableListOf<ListenerRegistration>()
+    private val contactMarkersOSM = mutableMapOf<String, Marker>()
+    private val contactLinesOSM = mutableMapOf<String, Polyline>()
+    private val contactMarkersGMap = mutableMapOf<String, com.google.android.gms.maps.model.Marker>()
+    private val contactLinesGMap = mutableMapOf<String, com.google.android.gms.maps.model.Polyline>()
+
+    private var lastRouteFetchTime = 0L
+    private val routeCache = mutableMapOf<String, MutableList<GeoPoint>>()
+
+    override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         val ctx = requireActivity().applicationContext
         Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx))
         return inflater.inflate(R.layout.fragment_map, container, false)
@@ -96,35 +118,28 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         tvNetworkStatus = view.findViewById(R.id.tvNetworkStatus)
         btnSettings = view.findViewById(R.id.btnSettings)
 
-        // Setup dynamic map container opacity
         val bottomControlCard = view.findViewById<LinearLayout>(R.id.bottomControlCard)
         val tvSecureTrackingTitle = view.findViewById<TextView>(R.id.tvSecureTrackingTitle)
 
         val isNightMode = isDarkMode()
-
-        // ==========================================
-        // DYNAMIC MAP OPACITY FIX
-        // ==========================================
         if (!isNightMode) {
-            // LIGHT MODE: High-Opacity Frosted White with Deep Black/Slate Text
             val cardBg = GradientDrawable().apply {
                 cornerRadius = 60f
-                setColor(Color.parseColor("#F5FFFFFF")) // 96% Opaque White to block out the map
-                setStroke(2, Color.parseColor("#CBD5E1")) // Subtle silver border
+                setColor(Color.parseColor("#F5FFFFFF"))
+                setStroke(2, Color.parseColor("#CBD5E1"))
             }
             bottomControlCard.background = cardBg
-            tvSecureTrackingTitle.setTextColor(Color.parseColor("#0F172A")) // Solid Dark Slate
-            tvLocationStatus.setTextColor(Color.parseColor("#334155")) // Deep readable gray
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#0F172A"))
+            tvLocationStatus.setTextColor(Color.parseColor("#334155"))
         } else {
-            // DARK MODE: Elegant Semi-Opaque Navy
             val cardBg = GradientDrawable().apply {
                 cornerRadius = 60f
-                setColor(Color.parseColor("#E60F172A")) // 90% Opaque Deep Navy
-                setStroke(2, Color.parseColor("#334155")) // Slate border
+                setColor(Color.parseColor("#E60F172A"))
+                setStroke(2, Color.parseColor("#334155"))
             }
             bottomControlCard.background = cardBg
-            tvSecureTrackingTitle.setTextColor(Color.parseColor("#F8FAFC")) // Brilliant White
-            tvLocationStatus.setTextColor(Color.parseColor("#94A3B8")) // Muted Silver
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#F8FAFC"))
+            tvLocationStatus.setTextColor(Color.parseColor("#94A3B8"))
         }
 
         applyGlassButton(btnSettings, isNightMode)
@@ -141,12 +156,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
         networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                activity?.runOnUiThread { switchToOnlineMap() }
-            }
-            override fun onLost(network: Network) {
-                activity?.runOnUiThread { switchToOfflineMap() }
-            }
+            override fun onAvailable(network: Network) { activity?.runOnUiThread { switchToOnlineMap() } }
+            override fun onLost(network: Network) { activity?.runOnUiThread { switchToOfflineMap() } }
         }
 
         gpsProvider = GpsMyLocationProvider(requireContext())
@@ -157,41 +168,121 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     }
 
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        if (!hidden) {
+            lastRouteFetchTime = 0L
+            initLife360Engine()
+        }
+    }
+
     // ==========================================
-    // THE GLASSMORPHISM ENGINE
+    // 🚨 MASTER-CLASS CANVAS DRAWING ENGINE 🚨
+    // (Bypasses all XML Theme Crashes & Image Bugs)
     // ==========================================
+    private fun createMarkerBitmap(context: Context, name: String, photoUri: String): android.graphics.Bitmap? {
+        try {
+            // Setup perfect 60dp canvas mapping
+            val size = (60 * context.resources.displayMetrics.density).toInt()
+            val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+            val canvas = android.graphics.Canvas(bitmap)
+
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+            val center = size / 2f
+            val radius = size / 2f
+
+            // 1. Draw The Thick White Life360 Border
+            paint.color = android.graphics.Color.WHITE
+            canvas.drawCircle(center, center, radius, paint)
+
+            // 2. Prepare the Inner Content Dimensions
+            val innerRadius = radius - (4 * context.resources.displayMetrics.density) // 4dp border
+            var imageDrawn = false
+
+            // 3. Mathematical Perfect Circular Image Crop (No XML Required!)
+            if (photoUri.isNotEmpty()) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(Uri.parse(photoUri))
+                    val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                    inputStream?.close()
+
+                    if (rawBitmap != null) {
+                        val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(rawBitmap, (innerRadius * 2).toInt(), (innerRadius * 2).toInt(), true)
+
+                        val shader = android.graphics.BitmapShader(scaledBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
+                        val shaderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+                        shaderPaint.shader = shader
+
+                        // Shift canvas to inner circle, draw cropped image, shift back
+                        canvas.translate(center - innerRadius, center - innerRadius)
+                        canvas.drawCircle(innerRadius, innerRadius, innerRadius, shaderPaint)
+                        canvas.translate(-(center - innerRadius), -(center - innerRadius))
+
+                        imageDrawn = true
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            // 4. Fallback Initial Engine (if no photo or photo fails to load)
+            if (!imageDrawn) {
+                // Background
+                paint.color = android.graphics.Color.parseColor("#E0E7FF")
+                canvas.drawCircle(center, center, innerRadius, paint)
+
+                // Text
+                paint.color = android.graphics.Color.parseColor("#1E3A8A")
+                paint.textSize = 20f * context.resources.displayMetrics.scaledDensity
+                paint.textAlign = android.graphics.Paint.Align.CENTER
+                paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
+
+                val initials = getInitials(name)
+                val textBounds = android.graphics.Rect()
+                paint.getTextBounds(initials, 0, initials.length, textBounds)
+                val textY = center + (textBounds.height() / 2f)
+
+                canvas.drawText(initials, center, textY, paint)
+            }
+
+            return bitmap
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return null
+        }
+    }
+
+    private fun getInitials(name: String): String {
+        return name.trim().split("\\s+".toRegex())
+            .mapNotNull { it.firstOrNull()?.uppercase() }
+            .take(2)
+            .joinToString("")
+    }
+
     private fun applyGlassButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 1000f
             orientation = GradientDrawable.Orientation.TOP_BOTTOM
         }
-
         if (isNightMode) {
-            // THE FIX: Elegant Glossy Gold Button matching Biometrics/Permissions
             bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
-            bg.setStroke(4, Color.parseColor("#D4AF37")) // Gold Texture Rim
+            bg.setStroke(4, Color.parseColor("#D4AF37"))
             button.setTextColor(Color.parseColor("#FFFFFF"))
         } else {
-            // Light Mode: Sleek Pearlescent/White Button with Vibrant Blue Rim
             bg.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
-            bg.setStroke(4, Color.parseColor("#2563EB")) // Crisp Blue Rim
-            button.setTextColor(Color.parseColor("#1E293B")) // Deep Navy text
+            bg.setStroke(4, Color.parseColor("#2563EB"))
+            button.setTextColor(Color.parseColor("#1E293B"))
         }
-
         button.background = bg
     }
 
     private fun switchToOnlineMap() {
         if (googleMapContainer.visibility == View.VISIBLE) return
-
         tvNetworkStatus.text = "ONLINE"
         tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
-        val badgeBg = GradientDrawable()
-        badgeBg.cornerRadius = 50f
-        badgeBg.setColor(Color.parseColor("#1A10B981"))
+        val badgeBg = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
         tvNetworkStatus.background = badgeBg
-
         map.visibility = View.GONE
         googleMapContainer.visibility = View.VISIBLE
         val mapFragment = childFragmentManager.findFragmentById(R.id.googleMapContainer) as SupportMapFragment
@@ -200,14 +291,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     private fun switchToOfflineMap() {
         if (map.visibility == View.VISIBLE) return
-
         tvNetworkStatus.text = "OFFLINE"
         tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
-        val badgeBg = GradientDrawable()
-        badgeBg.cornerRadius = 50f
-        badgeBg.setColor(Color.parseColor("#1AF59E0B"))
+        val badgeBg = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
         tvNetworkStatus.background = badgeBg
-
         googleMapContainer.visibility = View.GONE
         map.visibility = View.VISIBLE
     }
@@ -215,37 +302,20 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     override fun onMapReady(googleMap: GoogleMap) {
         if (gMap != null) return
         gMap = googleMap
-
         if (isDarkMode()) {
-            try {
-                gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark))
-            } catch (e: Exception) { e.printStackTrace() }
-        } else {
-            gMap?.setMapStyle(null)
+            try { gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark)) } catch (e: Exception) {}
         }
 
-        val customArrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_nav_arrow)?.toBitmap(120, 120)
-        if (customArrow != null) {
-            gMapMarker = gMap?.addMarker(MarkerOptions()
-                .position(LatLng(0.0, 0.0))
-                .icon(BitmapDescriptorFactory.fromBitmap(customArrow))
-                .anchor(0.5f, 0.5f)
-                .flat(true)
-                .visible(false))
-        }
+        gMapMarker = gMap?.addMarker(MarkerOptions()
+            .position(LatLng(0.0, 0.0))
+            .anchor(0.5f, 0.5f).flat(true).visible(false))
+
+        updateAllTrackingLines()
     }
 
     private fun setupOfflineMap() {
-        val tileUrl = if (isDarkMode()) {
-            "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/"
-        } else {
-            "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/"
-        }
-
-        val dynamicTileSource = object : OnlineTileSourceBase(
-            "CartoDbDynamic", 1, 20, 256, ".png",
-            arrayOf(tileUrl)
-        ) {
+        val tileUrl = if (isDarkMode()) "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/" else "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/"
+        val dynamicTileSource = object : OnlineTileSourceBase("CartoDbDynamic", 1, 20, 256, ".png", arrayOf(tileUrl)) {
             override fun getTileURLString(pMapTileIndex: Long): String {
                 return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + mImageFilenameEnding
             }
@@ -255,10 +325,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         map.controller.setZoom(17.0)
 
         myLocationMarker = Marker(map)
-        val customArrow = ContextCompat.getDrawable(requireContext(), R.drawable.ic_nav_arrow)?.toBitmap(120, 120)
-        if (customArrow != null) {
-            myLocationMarker.icon = BitmapDrawable(resources, customArrow)
-        }
         myLocationMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         myLocationMarker.infoWindow = null
         myLocationMarker.isFlat = true
@@ -268,66 +334,89 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     override fun onResume() {
         super.onResume()
         map.onResume()
-        val networkRequest = NetworkRequest.Builder()
-            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-            .build()
-        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
 
+        lastRouteFetchTime = 0L
+
+        val networkRequest = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
         if (isInternetAvailable(requireContext())) switchToOnlineMap() else switchToOfflineMap()
 
+        // 🚨 FETCH MY AVATAR FIRST, THEN START GPS
+        val userId = auth.currentUser?.uid
+        if (userId != null) {
+            db.collection("Users").document(userId).get().addOnSuccessListener { doc ->
+                if (doc != null && doc.exists() && isAdded) {
+                    myName = doc.getString("fullName") ?: "Me"
+                    myPhotoUri = doc.getString("photoUri") ?: ""
+
+                    // Safely draw my avatar using background execution
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri)
+
+                        withContext(Dispatchers.Main) {
+                            startLocationTracking(userId)
+                        }
+                    }
+                } else {
+                    startLocationTracking(userId)
+                }
+            }.addOnFailureListener {
+                startLocationTracking(userId)
+            }
+        }
+
+        rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+        if (!isHidden) initLife360Engine()
+    }
+
+    private fun startLocationTracking(userId: String) {
         gpsProvider.startLocationProvider { location, _ ->
             if (location != null && isAdded) {
-
                 val currentLat = location.latitude
                 val currentLng = location.longitude
 
-                val myPoint = GeoPoint(currentLat, currentLng)
-                val gMyLatLng = LatLng(currentLat, currentLng)
+                val currentGeo = GeoPoint(currentLat, currentLng)
+                val currentLatlng = LatLng(currentLat, currentLng)
+
+                myCurrentGeoPoint = currentGeo
+                myCurrentLatLng = currentLatlng
 
                 viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                     var placeName = "Tracking Location..."
                     try {
-                        val geocoder = Geocoder(requireContext(), Locale.getDefault())
-                        val addresses = geocoder.getFromLocation(currentLat, currentLng, 1)
-                        if (!addresses.isNullOrEmpty()) {
-                            placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
-                        }
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                        val addresses = Geocoder(requireContext(), Locale.getDefault()).getFromLocation(currentLat, currentLng, 1)
+                        if (!addresses.isNullOrEmpty()) placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
+                    } catch (e: Exception) { }
 
-                    val userId = auth.currentUser?.uid
-                    if (userId != null) {
-                        val locationData = hashMapOf(
-                            "currentLat" to currentLat,
-                            "currentLng" to currentLng,
-                            "placeName" to placeName,
-                            "lastUpdated" to com.google.firebase.Timestamp.now()
-                        )
-
-                        db.collection("Users").document(userId)
-                            .set(locationData, SetOptions.merge())
-                    }
+                    val locationData = hashMapOf("currentLat" to currentLat, "currentLng" to currentLng, "placeName" to placeName, "lastUpdated" to com.google.firebase.Timestamp.now())
+                    db.collection("Users").document(userId).set(locationData, SetOptions.merge())
 
                     withContext(Dispatchers.Main) {
-                        myLocationMarker.position = myPoint
-                        map.invalidate()
 
-                        gMapMarker?.position = gMyLatLng
-                        gMapMarker?.isVisible = true
-
-                        if (isFirstLocationUpdate) {
-                            map.controller.setCenter(myPoint)
-                            gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(gMyLatLng, 18f))
-                            isFirstLocationUpdate = false
+                        // Apply my Circular Profile Bitmap!
+                        cachedMyBitmap?.let {
+                            myLocationMarker.icon = BitmapDrawable(resources, it)
+                            gMapMarker?.setIcon(BitmapDescriptorFactory.fromBitmap(it))
                         }
 
+                        myLocationMarker.position = currentGeo
+                        gMapMarker?.position = currentLatlng
+                        gMapMarker?.isVisible = true
+
+                        updateAllTrackingLines()
+
+                        if (isFirstLocationUpdate) {
+                            map.controller.setCenter(currentGeo)
+                            gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatlng, 18f))
+                            isFirstLocationUpdate = false
+                            initLife360Engine()
+                        }
+                        map.invalidate()
                         tvLocationStatus.text = placeName
                     }
                 }
             }
         }
-        rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
     }
 
     override fun onPause() {
@@ -335,32 +424,169 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         map.onPause()
         gpsProvider.stopLocationProvider()
         sensorManager.unregisterListener(this)
+        activeFirebaseListeners.forEach { it.remove() }
+        activeFirebaseListeners.clear()
         try { connectivityManager.unregisterNetworkCallback(networkCallback) } catch (e: Exception) {}
     }
 
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
-            val rotationMatrix = FloatArray(9)
-            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            val adjustedMatrix = FloatArray(9)
-            val windowManager = requireContext().getSystemService(Context.WINDOW_SERVICE) as WindowManager
-            when (windowManager.defaultDisplay.rotation) {
-                Surface.ROTATION_0 -> SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_X, SensorManager.AXIS_Y, adjustedMatrix)
-                Surface.ROTATION_90 -> SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_Y, SensorManager.AXIS_MINUS_X, adjustedMatrix)
-                Surface.ROTATION_180 -> SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_MINUS_X, SensorManager.AXIS_MINUS_Y, adjustedMatrix)
-                Surface.ROTATION_270 -> SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_MINUS_Y, SensorManager.AXIS_X, adjustedMatrix)
-                else -> SensorManager.remapCoordinateSystem(rotationMatrix, SensorManager.AXIS_X, SensorManager.AXIS_Y, adjustedMatrix)
+    private fun initLife360Engine() {
+        activeFirebaseListeners.forEach { it.remove() }
+        activeFirebaseListeners.clear()
+        val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val jsonStr = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
+        try {
+            val jsonArray = JSONArray(jsonStr)
+            for (i in 0 until jsonArray.length()) {
+                val obj = jsonArray.getJSONObject(i)
+                val uid = if (obj.has("uid")) obj.getString("uid") else ""
+                val name = obj.getString("name")
+                val friendPhotoUri = if (obj.has("photoUri")) obj.getString("photoUri") else ""
+
+                if (uid.isNotEmpty()) {
+                    val registration = db.collection("Users").document(uid).addSnapshotListener { snapshot, e ->
+                        if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                        val lat = snapshot.getDouble("currentLat")
+                        val lng = snapshot.getDouble("currentLng")
+
+                        val livePhotoUri = snapshot.getString("photoUri") ?: friendPhotoUri
+
+                        if (lat != null && lng != null && isAdded) {
+                            drawContactOnMap(uid, name, lat, lng, livePhotoUri)
+                        }
+                    }
+                    activeFirebaseListeners.add(registration)
+                }
             }
-            val orientationAngles = FloatArray(3)
-            SensorManager.getOrientation(adjustedMatrix, orientationAngles)
-            var azimuthDeg = Math.toDegrees(orientationAngles[0].toDouble()).toFloat()
-            if (azimuthDeg < 0) azimuthDeg += 360f
-            myLocationMarker.rotation = azimuthDeg
-            gMapMarker?.rotation = azimuthDeg
-            map.invalidate()
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun drawContactOnMap(uid: String, name: String, lat: Double, lng: Double, photoUri: String) {
+        val targetGeo = GeoPoint(lat, lng)
+        val targetLatlng = LatLng(lat, lng)
+        val trackerColor = Color.parseColor("#3B82F6")
+
+        // Offload image processing to Background Thread to keep map buttery smooth
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri)
+
+            withContext(Dispatchers.Main) {
+                if (!contactMarkersOSM.containsKey(uid)) {
+                    val contactMarker = Marker(map).apply {
+                        title = name
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                    }
+                    map.overlays.add(contactMarker)
+                    contactMarkersOSM[uid] = contactMarker
+
+                    val trackerLine = Polyline().apply { outlinePaint.color = trackerColor; outlinePaint.strokeWidth = 10f }
+                    map.overlays.add(trackerLine)
+                    contactLinesOSM[uid] = trackerLine
+                }
+
+                contactMarkersOSM[uid]?.position = targetGeo
+                friendBitmap?.let { contactMarkersOSM[uid]?.icon = BitmapDrawable(resources, it) }
+
+                gMap?.let { googleMap ->
+                    if (!contactMarkersGMap.containsKey(uid)) {
+                        val gMarker = googleMap.addMarker(MarkerOptions().position(targetLatlng).title(name))
+                        if (gMarker != null) contactMarkersGMap[uid] = gMarker
+                        val gLine = googleMap.addPolyline(com.google.android.gms.maps.model.PolylineOptions().color(trackerColor).width(10f))
+                        contactLinesGMap[uid] = gLine
+                    } else {
+                        contactMarkersGMap[uid]?.position = targetLatlng
+                    }
+                    friendBitmap?.let { contactMarkersGMap[uid]?.setIcon(BitmapDescriptorFactory.fromBitmap(it)) }
+                }
+
+                updateAllTrackingLines()
+            }
         }
     }
 
+    private fun updateAllTrackingLines() {
+        val currentGeo = myCurrentGeoPoint ?: return
+        val currentLat = myCurrentLatLng ?: return
+
+        if (contactMarkersOSM.isEmpty()) return
+
+        val currentTime = System.currentTimeMillis()
+        val shouldFetchRoute = (currentTime - lastRouteFetchTime > 10000L)
+
+        contactMarkersOSM.forEach { (uid, targetMarker) ->
+            val targetPos = GeoPoint(targetMarker.position.latitude, targetMarker.position.longitude)
+
+            if (shouldFetchRoute) {
+                viewLifecycleOwner.lifecycleScope.launch {
+                    val roadRoute = fetchRoadRoute(currentGeo, targetPos)
+                    if (roadRoute.size > 2) routeCache[uid] = roadRoute.toMutableList()
+
+                    withContext(Dispatchers.Main) {
+                        contactLinesOSM[uid]?.setPoints(roadRoute)
+                        contactLinesGMap[uid]?.points = roadRoute.map { LatLng(it.latitude, it.longitude) }
+                        map.invalidate()
+                    }
+                }
+            } else {
+                val cachedRoute = routeCache[uid]
+                if (cachedRoute != null && cachedRoute.isNotEmpty()) {
+                    cachedRoute[0] = currentGeo
+                    cachedRoute[cachedRoute.size - 1] = targetPos
+
+                    contactLinesOSM[uid]?.setPoints(cachedRoute)
+                    contactLinesGMap[uid]?.points = cachedRoute.map { LatLng(it.latitude, it.longitude) }
+                } else {
+                    val points = ArrayList<GeoPoint>().apply { add(currentGeo); add(targetPos) }
+                    contactLinesOSM[uid]?.setPoints(points)
+                    contactLinesGMap[uid]?.points = listOf(currentLat, LatLng(targetPos.latitude, targetPos.longitude))
+                }
+            }
+        }
+
+        if (shouldFetchRoute) lastRouteFetchTime = currentTime
+    }
+
+    private suspend fun fetchRoadRoute(start: GeoPoint, end: GeoPoint): List<GeoPoint> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val urlString = "https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson"
+                val url = URL(urlString)
+                val connection = url.openConnection() as HttpURLConnection
+                connection.requestMethod = "GET"
+                connection.setRequestProperty("User-Agent", "AISecurity/1.0 (Android)")
+                connection.connectTimeout = 5000
+                connection.readTimeout = 5000
+
+                if (connection.responseCode == 200) {
+                    val response = connection.inputStream.bufferedReader().use { it.readText() }
+                    val jsonObject = JSONObject(response)
+                    val routes = jsonObject.getJSONArray("routes")
+                    if (routes.length() > 0) {
+                        val geometry = routes.getJSONObject(0).getJSONObject("geometry")
+                        val coordinates = geometry.getJSONArray("coordinates")
+
+                        val routePoints = ArrayList<GeoPoint>()
+                        for (i in 0 until coordinates.length()) {
+                            val coord = coordinates.getJSONArray(i)
+                            val lon = coord.getDouble(0)
+                            val lat = coord.getDouble(1)
+                            routePoints.add(GeoPoint(lat, lon))
+                        }
+                        return@withContext routePoints
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+
+            val fallback = ArrayList<GeoPoint>()
+            fallback.add(start)
+            fallback.add(end)
+            return@withContext fallback
+        }
+    }
+
+    override fun onSensorChanged(event: SensorEvent?) {}
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun isInternetAvailable(context: Context): Boolean {
@@ -368,7 +594,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
         return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
-
     private fun isDarkMode(): Boolean {
         val currentNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES

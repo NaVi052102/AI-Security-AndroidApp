@@ -55,21 +55,21 @@ class BehavioralAuthClassifier(private val context: Context) {
             val inputMap = mapOf("x" to arrayOf(features))
 
             // Allocate 5 floats (4 bytes each) for the reconstruction output
-            val outputBuffer = ByteBuffer.allocateDirect(5 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+// CORRECTED CODE
+            val outputBuffer = ByteBuffer.allocateDirect(4 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
             val outputMap = mapOf("output" to outputBuffer)
 
             ai.runSignature(inputMap, outputMap, "infer")
 
-            val reconstruction = FloatArray(5)
+            val reconstruction = FloatArray(4)
             outputBuffer.rewind()
             outputBuffer.get(reconstruction)
 
-            // Manual calculation of Mean Absolute Error (MAE)
             var error = 0f
-            for (i in 0..4) {
+            for (i in 0..3) {
                 error += abs(features[i] - reconstruction[i])
             }
-            return error / 5f
+            return error / 4f
         } catch (e: Exception) {
             LiveLogger.log("INFER ERROR: ${e.message}")
             return 1.0f

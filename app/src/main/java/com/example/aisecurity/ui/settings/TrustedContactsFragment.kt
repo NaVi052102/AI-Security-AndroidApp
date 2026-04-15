@@ -24,6 +24,7 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
+import com.google.firebase.firestore.FirebaseFirestore
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -32,39 +33,22 @@ data class TrustedContact(
     val id: String,
     var name: String,
     var number: String,
-    var photoUri: String = ""
+    var photoUri: String = "",
+    var uid: String = ""
 )
 
 class TrustedContactsFragment : Fragment() {
 
+    private lateinit var db: FirebaseFirestore
     private lateinit var adapter: ContactsAdapter
     private val contactsList = mutableListOf<TrustedContact>()
 
-    // Variables to hold dialog state while pickers open
-    private var tempPhotoUri: String = ""
-    private var dialogAvatarImage: ImageView? = null
-    private var dialogAvatarInitials: TextView? = null
     private var pendingEtName: EditText? = null
     private var pendingEtNumber: EditText? = null
     private var pendingTvCountryCode: TextView? = null
 
-    // 1. THE IMAGE PICKER
-    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let {
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                requireActivity().contentResolver.takePersistableUriPermission(it, takeFlags)
-                tempPhotoUri = it.toString()
-                dialogAvatarImage?.setImageURI(it)
-                dialogAvatarImage?.visibility = View.VISIBLE
-                dialogAvatarInitials?.visibility = View.GONE
-            } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Failed to load image", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
+    // 🚨 REMOVED pickImageLauncher ENTIRELY to force automatic Firebase downloading!
 
-    // 2. THE SMART PHONE BOOK PICKER
     private val pickPhoneLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
             val contactUri = result.data?.data ?: return@registerForActivityResult
@@ -77,10 +61,8 @@ class TrustedContactsFragment : Fragment() {
                     val name = cursor.getString(nameIdx)
                     var number = cursor.getString(numberIdx)
 
-                    // Clean the imported number from dashes or spaces
                     number = number.replace(Regex("[^0-9+]"), "")
 
-                    // Smart Country Code Detection
                     if (number.startsWith("+63")) {
                         pendingTvCountryCode?.text = "+63 ▼"
                         number = "0" + number.removePrefix("+63")
@@ -105,6 +87,8 @@ class TrustedContactsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        db = FirebaseFirestore.getInstance()
+
         val recyclerContacts = view.findViewById<RecyclerView>(R.id.recyclerContacts)
         val btnAddContact = view.findViewById<Button>(R.id.btnAddContact)
         val btnBack = view.findViewById<TextView>(R.id.btnBack)
@@ -126,9 +110,6 @@ class TrustedContactsFragment : Fragment() {
         btnAddContact.setOnClickListener { showAddEditDialog(null) }
     }
 
-    // ==========================================
-    // THE DIALOG SYSTEM & FORMATTING ENGINE
-    // ==========================================
     private fun showAddEditDialog(existingContact: TrustedContact?) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_add_edit_contact, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
@@ -140,26 +121,19 @@ class TrustedContactsFragment : Fragment() {
         val btnImportContact = dialogView.findViewById<TextView>(R.id.btnImportContact)
         val tvCountryCode = dialogView.findViewById<TextView>(R.id.tvCountryCode)
 
-        dialogAvatarImage = dialogView.findViewById(R.id.imgDialogAvatar)
-        dialogAvatarInitials = dialogView.findViewById(R.id.tvDialogInitials)
-        val cardDialogAvatar = dialogView.findViewById<View>(R.id.cardDialogAvatar)
-
-        // Bind global variables for the Address Book intent
         pendingEtName = etName
         pendingEtNumber = etNumber
         pendingTvCountryCode = tvCountryCode
-        tempPhotoUri = ""
 
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-        // High-Opacity Glass Modal for Map Readability
         val dialogBg = GradientDrawable().apply {
             cornerRadius = 60f
             if (isNightMode) {
-                setColor(Color.parseColor("#FA0F172A")) // 98% Opaque Navy
+                setColor(Color.parseColor("#FA0F172A"))
                 setStroke(2, Color.parseColor("#334155"))
             } else {
-                setColor(Color.parseColor("#FAFFFFFF")) // 98% Opaque White
+                setColor(Color.parseColor("#FAFFFFFF"))
                 setStroke(2, Color.parseColor("#CBD5E1"))
             }
         }
@@ -167,9 +141,7 @@ class TrustedContactsFragment : Fragment() {
 
         applyPrimaryButton(btnSave, isNightMode)
         applyGhostButton(btnCancel, isNightMode)
-        applyAvatarBackground(dialogAvatarInitials!!, isNightMode)
 
-        // Default Input Filter to 11 digits for PH
         etNumber.filters = arrayOf(InputFilter.LengthFilter(11))
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -179,12 +151,10 @@ class TrustedContactsFragment : Fragment() {
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
-        // --- SMART EDIT PARSING ---
         if (existingContact != null) {
             tvTitle.text = "EDIT CONTACT"
             etName.setText(existingContact.name)
 
-            // Deconstruct E.164 format back to Local Format for editing
             val number = existingContact.number
             if (number.startsWith("+")) {
                 val parts = number.split(" ", limit = 2)
@@ -193,7 +163,6 @@ class TrustedContactsFragment : Fragment() {
                     tvCountryCode.text = "$code ▼"
                     var localNum = parts[1].replace(" ", "")
 
-                    // Re-inject the '0' for Filipino numbers so it looks natural
                     if (code == "+63" && !localNum.startsWith("0")) {
                         localNum = "0$localNum"
                     }
@@ -202,18 +171,8 @@ class TrustedContactsFragment : Fragment() {
             } else {
                 etNumber.setText(number)
             }
-
-            tempPhotoUri = existingContact.photoUri
-            if (tempPhotoUri.isNotEmpty()) {
-                dialogAvatarImage?.setImageURI(Uri.parse(tempPhotoUri))
-                dialogAvatarImage?.visibility = View.VISIBLE
-                dialogAvatarInitials?.visibility = View.GONE
-            } else {
-                dialogAvatarInitials?.text = getInitials(existingContact.name)
-            }
         }
 
-        // COUNTRY CODE SELECTOR
         tvCountryCode.setOnClickListener {
             val countries = arrayOf("🇵🇭 +63 (PH)", "🇺🇸 +1 (US)", "🇬🇧 +44 (UK)", "🇦🇺 +61 (AU)", "🌐 Other")
             AlertDialog.Builder(requireContext())
@@ -222,12 +181,8 @@ class TrustedContactsFragment : Fragment() {
                     val code = selected.split(" ")[1]
                     tvCountryCode.text = "$code ▼"
 
-                    // Restrict Philippines to 11 Digits, others to 15 max
-                    if (code == "+63") {
-                        etNumber.filters = arrayOf(InputFilter.LengthFilter(11))
-                    } else {
-                        etNumber.filters = arrayOf(InputFilter.LengthFilter(15))
-                    }
+                    if (code == "+63") etNumber.filters = arrayOf(InputFilter.LengthFilter(11))
+                    else etNumber.filters = arrayOf(InputFilter.LengthFilter(15))
                 }.show()
         }
 
@@ -236,45 +191,68 @@ class TrustedContactsFragment : Fragment() {
             pickPhoneLauncher.launch(intent)
         }
 
-        cardDialogAvatar.setOnClickListener {
-            pickImageLauncher.launch(arrayOf("image/*"))
-        }
-
         btnCancel.setOnClickListener { dialog.dismiss() }
 
-        // --- SMART SAVE FORMATTING ---
+        // ==========================================
+        // 🚨 FIREBASE VERIFICATION & AVATAR PULL
+        // ==========================================
         btnSave.setOnClickListener {
             val name = etName.text.toString().trim()
             val rawNumber = etNumber.text.toString().trim()
             val code = tvCountryCode.text.toString().replace(" ▼", "")
 
             if (name.isNotEmpty() && rawNumber.isNotEmpty()) {
+                btnSave.isEnabled = false
+                btnSave.text = "VERIFYING..."
 
-                // Clean the number of any rogue spaces or characters
                 var cleanNumber = rawNumber.replace(Regex("[^0-9]"), "")
+                if (code == "+63" && cleanNumber.startsWith("0")) cleanNumber = cleanNumber.substring(1)
 
-                // Strip the leading '0' for international standardization if it's a PH number
-                if (code == "+63" && cleanNumber.startsWith("0")) {
-                    cleanNumber = cleanNumber.substring(1)
-                }
+                val searchNumber = "$code$cleanNumber"
 
-                // Apply beautiful, readable formatting for the list
-                val finalNumber = if (code == "+63" && cleanNumber.length == 10) {
-                    "$code ${cleanNumber.substring(0,3)} ${cleanNumber.substring(3,6)} ${cleanNumber.substring(6)}" // +63 999 108 4986
+                val uiFormattedNumber = if (code == "+63" && cleanNumber.length == 10) {
+                    "$code ${cleanNumber.substring(0,3)} ${cleanNumber.substring(3,6)} ${cleanNumber.substring(6)}"
                 } else {
                     "$code $cleanNumber"
                 }
 
-                if (existingContact != null) {
-                    existingContact.name = name
-                    existingContact.number = finalNumber
-                    existingContact.photoUri = tempPhotoUri
-                } else {
-                    contactsList.add(TrustedContact(UUID.randomUUID().toString(), name, finalNumber, tempPhotoUri))
-                }
-                saveContacts()
-                adapter.notifyDataSetChanged()
-                dialog.dismiss()
+                db.collection("Users").whereEqualTo("phoneNumber", searchNumber).get()
+                    .addOnSuccessListener { documents ->
+                        var linkedUid = ""
+                        var fetchedPhotoUri = existingContact?.photoUri ?: "" // Keep existing if fail
+
+                        if (!documents.isEmpty) {
+                            val userDoc = documents.documents[0]
+                            linkedUid = userDoc.id
+
+                            // 🚨 FETCH THEIR PROFILE PICTURE FROM FIREBASE!
+                            val remotePhoto = userDoc.getString("photoUri") ?: ""
+                            if (remotePhoto.isNotEmpty()) fetchedPhotoUri = remotePhoto
+
+                            Toast.makeText(requireContext(), "User Verified! Live Tracking Enabled.", Toast.LENGTH_SHORT).show()
+                        } else {
+                            Toast.makeText(requireContext(), "Not on app. Saved as SMS-Only.", Toast.LENGTH_SHORT).show()
+                        }
+
+                        if (existingContact != null) {
+                            existingContact.name = name
+                            existingContact.number = uiFormattedNumber
+                            existingContact.photoUri = fetchedPhotoUri
+                            existingContact.uid = linkedUid
+                        } else {
+                            contactsList.add(TrustedContact(UUID.randomUUID().toString(), name, uiFormattedNumber, fetchedPhotoUri, linkedUid))
+                        }
+
+                        saveContacts()
+                        adapter.notifyDataSetChanged()
+                        dialog.dismiss()
+                    }
+                    .addOnFailureListener {
+                        Toast.makeText(requireContext(), "Network Error. Try again.", Toast.LENGTH_SHORT).show()
+                        btnSave.isEnabled = true
+                        btnSave.text = "SAVE"
+                    }
+
             } else {
                 Toast.makeText(requireContext(), "Please enter a Name and Number", Toast.LENGTH_SHORT).show()
             }
@@ -282,9 +260,6 @@ class TrustedContactsFragment : Fragment() {
         dialog.show()
     }
 
-    // ==========================================
-    // THE GLASSMORPHISM ENGINE
-    // ==========================================
     private fun applyPrimaryButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -322,9 +297,7 @@ class TrustedContactsFragment : Fragment() {
     }
 
     private fun applyAvatarBackground(textView: TextView, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.OVAL
-        }
+        val bg = GradientDrawable().apply { shape = GradientDrawable.OVAL }
         if (isNightMode) {
             bg.setColor(Color.parseColor("#1E293B"))
             textView.setTextColor(Color.parseColor("#94A3B8"))
@@ -342,9 +315,6 @@ class TrustedContactsFragment : Fragment() {
             .joinToString("")
     }
 
-    // ==========================================
-    // DATA MANAGEMENT
-    // ==========================================
     private fun loadContacts() {
         contactsList.clear()
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
@@ -355,7 +325,8 @@ class TrustedContactsFragment : Fragment() {
                 val obj = jsonArray.getJSONObject(i)
                 val id = if (obj.has("id")) obj.getString("id") else UUID.randomUUID().toString()
                 val photoUri = if (obj.has("photoUri")) obj.getString("photoUri") else ""
-                contactsList.add(TrustedContact(id, obj.getString("name"), obj.getString("number"), photoUri))
+                val uid = if (obj.has("uid")) obj.getString("uid") else ""
+                contactsList.add(TrustedContact(id, obj.getString("name"), obj.getString("number"), photoUri, uid))
             }
             adapter.notifyDataSetChanged()
         } catch (e: Exception) { e.printStackTrace() }
@@ -370,6 +341,7 @@ class TrustedContactsFragment : Fragment() {
                 put("name", contact.name)
                 put("number", contact.number)
                 put("photoUri", contact.photoUri)
+                put("uid", contact.uid)
             }
             jsonArray.put(obj)
         }
@@ -382,9 +354,6 @@ class TrustedContactsFragment : Fragment() {
         adapter.notifyDataSetChanged()
     }
 
-    // ==========================================
-    // LIST ADAPTER
-    // ==========================================
     inner class ContactsAdapter(
         private val contacts: List<TrustedContact>,
         private val onEditClick: (TrustedContact) -> Unit,
@@ -408,7 +377,13 @@ class TrustedContactsFragment : Fragment() {
 
         override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
             val contact = contacts[position]
-            holder.tvName.text = contact.name
+
+            if (contact.uid.isNotEmpty()) {
+                holder.tvName.text = "${contact.name} 🟢"
+            } else {
+                holder.tvName.text = contact.name
+            }
+
             holder.tvNumber.text = contact.number
 
             val isNightMode = (holder.itemView.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
