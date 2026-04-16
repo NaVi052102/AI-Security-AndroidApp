@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/dialogRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:layout_margin="16dp">
+
+    <TextView
+        android:id="@+id/tvDialogTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/inter"
+        android:gravity="center"
+        android:letterSpacing="0.15"
+        android:text="RESET SECURITY"
+        android:textColor="#EF4444"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"/>
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/inter"
+        android:gravity="center"
+        android:text="Enter the 6-digit OTP sent to your master phone number to authorize a complete AI memory wipe."
+        android:textColor="@color/ig_text_secondary"
+        android:textSize="12sp"
+        android:layout_marginBottom="24dp"/>
+
+    <EditText
+        android:id="@+id/etVerificationCode"
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:background="#1E293B"
+        android:fontFamily="monospace"
+        android:hint="123456"
+        android:textColorHint="#475569"
+        android:inputType="number"
+        android:maxLength="6"
+        android:gravity="center"
+        android:letterSpacing="0.3"
+        android:paddingHorizontal="16dp"
+        android:textColor="#FFFFFF"
+        android:textSize="20sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="24dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="2">
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnCancel"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="8dp"
+            android:fontFamily="@font/inter"
+            android:text="CANCEL"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="@null"/>
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnVerify"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:fontFamily="@font/inter"
+            android:text="VERIFY"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="@null"/>
+    </LinearLayout>
+
+</LinearLayout>

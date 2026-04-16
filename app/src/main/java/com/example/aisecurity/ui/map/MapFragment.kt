@@ -18,15 +18,11 @@ import android.os.Bundle
 import android.preference.PreferenceManager
 import android.util.Log
 import android.view.LayoutInflater
-import android.view.Surface
 import android.view.View
 import android.view.ViewGroup
-import android.view.WindowManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
-import androidx.core.content.ContextCompat
-import androidx.core.graphics.drawable.toBitmap
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
@@ -85,12 +81,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private var myCurrentGeoPoint: GeoPoint? = null
     private var myCurrentLatLng: LatLng? = null
 
-    // MY AVATAR DATA
     private var myName: String = "Me"
     private var myPhotoUri: String = ""
     private var cachedMyBitmap: android.graphics.Bitmap? = null
 
-    // LIFE360 TRACKING ELEMENTS
     private val activeFirebaseListeners = mutableListOf<ListenerRegistration>()
     private val contactMarkersOSM = mutableMapOf<String, Marker>()
     private val contactLinesOSM = mutableMapOf<String, Polyline>()
@@ -144,6 +138,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         applyGlassButton(btnSettings, isNightMode)
 
+        // 🚨 THE FIX: Revert to .hide() to prevent the Google Maps Backstack crash
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
@@ -168,21 +163,32 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     }
 
+    // 🚨 THE FIX: Manage battery & sensors when the fragment is hidden/shown
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) {
+        if (hidden) {
+            // Fragment is hidden (Trusted Contacts open). Pause all heavy tasks.
+            map.onPause()
+            gpsProvider.stopLocationProvider()
+            sensorManager.unregisterListener(this)
+            activeFirebaseListeners.forEach { it.remove() }
+            activeFirebaseListeners.clear()
+        } else {
+            // Fragment is visible again (Back button pressed). Resume everything!
+            map.onResume()
             lastRouteFetchTime = 0L
+
+            val userId = auth.currentUser?.uid
+            if (userId != null) {
+                startLocationTracking(userId)
+            }
+            rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
             initLife360Engine()
         }
     }
 
-    // ==========================================
-    // 🚨 MASTER-CLASS CANVAS DRAWING ENGINE 🚨
-    // (Bypasses all XML Theme Crashes & Image Bugs)
-    // ==========================================
     private fun createMarkerBitmap(context: Context, name: String, photoUri: String): android.graphics.Bitmap? {
         try {
-            // Setup perfect 60dp canvas mapping
             val size = (60 * context.resources.displayMetrics.density).toInt()
             val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
@@ -191,18 +197,16 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val center = size / 2f
             val radius = size / 2f
 
-            // 1. Draw The Thick White Life360 Border
             paint.color = android.graphics.Color.WHITE
             canvas.drawCircle(center, center, radius, paint)
 
-            // 2. Prepare the Inner Content Dimensions
-            val innerRadius = radius - (4 * context.resources.displayMetrics.density) // 4dp border
+            val innerRadius = radius - (4 * context.resources.displayMetrics.density)
             var imageDrawn = false
 
-            // 3. Mathematical Perfect Circular Image Crop (No XML Required!)
             if (photoUri.isNotEmpty()) {
                 try {
-                    val inputStream = context.contentResolver.openInputStream(Uri.parse(photoUri))
+                    val uri = Uri.parse(photoUri)
+                    val inputStream = context.contentResolver.openInputStream(uri)
                     val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
 
@@ -213,7 +217,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         val shaderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
                         shaderPaint.shader = shader
 
-                        // Shift canvas to inner circle, draw cropped image, shift back
                         canvas.translate(center - innerRadius, center - innerRadius)
                         canvas.drawCircle(innerRadius, innerRadius, innerRadius, shaderPaint)
                         canvas.translate(-(center - innerRadius), -(center - innerRadius))
@@ -221,17 +224,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         imageDrawn = true
                     }
                 } catch (e: Exception) {
-                    e.printStackTrace()
+                    Log.e("AVATAR_ERROR", "Failed to load URI due to Android permissions: ${e.message}")
                 }
             }
 
-            // 4. Fallback Initial Engine (if no photo or photo fails to load)
             if (!imageDrawn) {
-                // Background
                 paint.color = android.graphics.Color.parseColor("#E0E7FF")
                 canvas.drawCircle(center, center, innerRadius, paint)
 
-                // Text
                 paint.color = android.graphics.Color.parseColor("#1E3A8A")
                 paint.textSize = 20f * context.resources.displayMetrics.scaledDensity
                 paint.textAlign = android.graphics.Paint.Align.CENTER
@@ -341,7 +341,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
         if (isInternetAvailable(requireContext())) switchToOnlineMap() else switchToOfflineMap()
 
-        // 🚨 FETCH MY AVATAR FIRST, THEN START GPS
         val userId = auth.currentUser?.uid
         if (userId != null) {
             db.collection("Users").document(userId).get().addOnSuccessListener { doc ->
@@ -349,20 +348,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     myName = doc.getString("fullName") ?: "Me"
                     myPhotoUri = doc.getString("photoUri") ?: ""
 
-                    // Safely draw my avatar using background execution
                     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                         cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri)
-
-                        withContext(Dispatchers.Main) {
-                            startLocationTracking(userId)
-                        }
+                        withContext(Dispatchers.Main) { startLocationTracking(userId) }
                     }
                 } else {
                     startLocationTracking(userId)
                 }
-            }.addOnFailureListener {
-                startLocationTracking(userId)
-            }
+            }.addOnFailureListener { startLocationTracking(userId) }
         }
 
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
@@ -393,7 +386,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
                     withContext(Dispatchers.Main) {
 
-                        // Apply my Circular Profile Bitmap!
                         cachedMyBitmap?.let {
                             myLocationMarker.icon = BitmapDrawable(resources, it)
                             gMapMarker?.setIcon(BitmapDescriptorFactory.fromBitmap(it))
@@ -429,9 +421,33 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         try { connectivityManager.unregisterNetworkCallback(networkCallback) } catch (e: Exception) {}
     }
 
+    // 🚨 Safely clear the Google Map if the fragment is ever actually destroyed
+    override fun onDestroyView() {
+        super.onDestroyView()
+        gMap?.clear()
+        gMap = null
+    }
+
     private fun initLife360Engine() {
+        // 1. Stop all background Firebase listeners
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
+
+        // 🚨 THE FIX: Erase all "Ghost" markers and lines from both maps!
+        contactMarkersOSM.values.forEach { map.overlays.remove(it) }
+        contactLinesOSM.values.forEach { map.overlays.remove(it) }
+        contactMarkersOSM.clear()
+        contactLinesOSM.clear()
+
+        contactMarkersGMap.values.forEach { it.remove() }
+        contactLinesGMap.values.forEach { it.remove() }
+        contactMarkersGMap.clear()
+        contactLinesGMap.clear()
+
+        routeCache.clear()
+        map.invalidate()
+
+        // 2. Rebuild the live-tracking engine with the updated Contact List
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val jsonStr = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
         try {
@@ -466,7 +482,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val targetLatlng = LatLng(lat, lng)
         val trackerColor = Color.parseColor("#3B82F6")
 
-        // Offload image processing to Background Thread to keep map buttery smooth
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri)
 
