@@ -26,6 +26,11 @@ import kotlinx.coroutines.withContext
 
 class DashboardFragment : Fragment() {
 
+    // 🚨 STATE TRACKERS FOR INFINITE ANIMATION
+    private var currentAnimState = -1
+    private var pulseAnimX: android.animation.ObjectAnimator? = null
+    private var pulseAnimY: android.animation.ObjectAnimator? = null
+
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
         return inflater.inflate(R.layout.fragment_dashboard, container, false)
     }
@@ -40,6 +45,7 @@ class DashboardFragment : Fragment() {
         val tvActiveTitle = view.findViewById<TextView>(R.id.tvActiveTitle)
         val activeContainer = view.findViewById<LinearLayout>(R.id.activeContainer)
         val tvPermissionCount = view.findViewById<TextView>(R.id.tvPermissionCount)
+        val imgSentryLogo = view.findViewById<android.widget.ImageView>(R.id.imgSentryLogo)
 
         // Action Cards (The "To-Do" List)
         val actionCardPermissions = view.findViewById<LinearLayout>(R.id.actionCardPermissions)
@@ -74,7 +80,7 @@ class DashboardFragment : Fragment() {
                 val trustedContactsJson = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
                 val hasContacts = trustedContactsJson != "[]" && trustedContactsJson.length > 2
 
-                // 2. Calculate Permissions (Now checking 6 total, including AI Accessibility)
+                // 2. Calculate Permissions
                 var permsGranted = 0
                 val totalPerms = 6
 
@@ -87,7 +93,6 @@ class DashboardFragment : Fragment() {
                 val pm = requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager
                 if (pm.isIgnoringBatteryOptimizations(requireContext().packageName)) permsGranted++
 
-                // 🚨 6th Permission: Accessibility Service for Touch Dynamics AI
                 val enabledServices = Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
                 if (enabledServices?.contains(requireContext().packageName) == true) permsGranted++
 
@@ -100,7 +105,6 @@ class DashboardFragment : Fragment() {
                     var score = 0
                     var actionsRequired = 0
 
-                    // Module 1: Permissions (20%)
                     if (permsGranted >= totalPerms) {
                         score += 20
                         actionCardPermissions.visibility = View.GONE
@@ -112,7 +116,6 @@ class DashboardFragment : Fragment() {
                         activeRowPermissions.visibility = View.GONE
                     }
 
-                    // Module 2: Settings (20%)
                     if (isSettingsOptimal) {
                         score += 20
                         actionCardSettings.visibility = View.GONE
@@ -123,7 +126,6 @@ class DashboardFragment : Fragment() {
                         activeRowSettings.visibility = View.GONE
                     }
 
-                    // Module 3: Smartwatch (20%)
                     if (isWatchConnected) {
                         score += 20
                         actionCardWatch.visibility = View.GONE
@@ -134,7 +136,6 @@ class DashboardFragment : Fragment() {
                         activeRowWatch.visibility = View.GONE
                     }
 
-                    // Module 4: AI Engine (20%)
                     if (aiReady) {
                         score += 20
                         actionCardAi.visibility = View.GONE
@@ -145,7 +146,6 @@ class DashboardFragment : Fragment() {
                         activeRowAi.visibility = View.GONE
                     }
 
-                    // Module 5: Emergency Contacts (20%)
                     if (hasContacts) {
                         score += 20
                         actionCardSms.visibility = View.GONE
@@ -156,8 +156,65 @@ class DashboardFragment : Fragment() {
                         activeRowSms.visibility = View.GONE
                     }
 
-                    // --- Master UI Updates (Synchronized with Sidebar) ---
+                    // --- Master UI Updates ---
                     tvSystemPercentage.text = "$score%"
+
+                    // 🚨 THE METALLIC PROGRESSION ENGINE
+                    val newState = when {
+                        score == 100 -> 2 // Top Gold, Bottom Gold
+                        score > 0 -> 1    // Top Silver, Bottom Gold
+                        else -> 0         // Top Silver, Bottom Silver
+                    }
+
+                    // Only trigger if the score crosses a threshold, preventing stutter!
+                    if (newState != currentAnimState) {
+                        currentAnimState = newState
+
+                        pulseAnimX?.cancel()
+                        pulseAnimY?.cancel()
+
+                        // Remove all color filters to let the pure metal shine!
+                        imgSentryLogo.clearColorFilter()
+
+                        when (newState) {
+                            2 -> { // MAXIMUM SECURITY (100%): Full Gold + Snap Animation
+                                imgSentryLogo.setImageResource(R.drawable.ic_sentry_gold)
+                                imgSentryLogo.animate().scaleX(1.1f).scaleY(1.1f).setDuration(150).withEndAction {
+                                    imgSentryLogo.animate().scaleX(1f).scaleY(1f).setDuration(150).start()
+                                }.start()
+                            }
+                            1 -> { // BUILDING SECURITY (1-99%): Half Gold + Smooth Breathing
+                                imgSentryLogo.setImageResource(R.drawable.ic_sentry_half_gold)
+                                pulseAnimX = android.animation.ObjectAnimator.ofFloat(imgSentryLogo, "scaleX", 1f, 1.04f).apply {
+                                    duration = 1200
+                                    repeatCount = android.animation.ObjectAnimator.INFINITE
+                                    repeatMode = android.animation.ObjectAnimator.REVERSE
+                                    start()
+                                }
+                                pulseAnimY = android.animation.ObjectAnimator.ofFloat(imgSentryLogo, "scaleY", 1f, 1.04f).apply {
+                                    duration = 1200
+                                    repeatCount = android.animation.ObjectAnimator.INFINITE
+                                    repeatMode = android.animation.ObjectAnimator.REVERSE
+                                    start()
+                                }
+                            }
+                            0 -> { // VULNERABLE (0%): Full Silver + Rapid Heartbeat
+                                imgSentryLogo.setImageResource(R.drawable.ic_sentry_silver)
+                                pulseAnimX = android.animation.ObjectAnimator.ofFloat(imgSentryLogo, "scaleX", 1f, 0.9f).apply {
+                                    duration = 400
+                                    repeatCount = android.animation.ObjectAnimator.INFINITE
+                                    repeatMode = android.animation.ObjectAnimator.REVERSE
+                                    start()
+                                }
+                                pulseAnimY = android.animation.ObjectAnimator.ofFloat(imgSentryLogo, "scaleY", 1f, 0.9f).apply {
+                                    duration = 400
+                                    repeatCount = android.animation.ObjectAnimator.INFINITE
+                                    repeatMode = android.animation.ObjectAnimator.REVERSE
+                                    start()
+                                }
+                            }
+                        }
+                    }
 
                     if (actionsRequired == 0) {
                         tvActionTitle.visibility = View.GONE
@@ -177,7 +234,6 @@ class DashboardFragment : Fragment() {
                         activeContainer.visibility = View.VISIBLE
                     }
 
-                    // 🚨 Tell MainActivity to repaint the sidebar header to match!
                     if (activity is MainActivity) {
                         (activity as MainActivity).updateSidebarHeaderStatus(actionsRequired)
                     }
