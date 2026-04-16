@@ -9,7 +9,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
@@ -48,6 +47,10 @@ class TouchDynamicsService : AccessibilityService() {
     private val db by lazy { SecurityDatabase.get(this) }
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // ── EMA state persisted across swipes within a session ──────────────────
+    private var currentEma: Float = 1.0f
+    private var emaLoaded: Boolean = false
 
     private var swipeJob: Job? = null
     private var swipeStartTime = 0L
@@ -91,8 +94,8 @@ class TouchDynamicsService : AccessibilityService() {
     private val knownAppOverrides = mapOf(
         "com.facebook.katana" to "Facebook",
         "com.facebook.orca" to "Messenger",
-        "com.zhiliaoapp.musically" to "TikTok", // Global TikTok
-        "com.ss.android.ugc.trill" to "TikTok", // Asian Region TikTok
+        "com.zhiliaoapp.musically" to "TikTok",
+        "com.ss.android.ugc.trill" to "TikTok",
         "com.instagram.android" to "Instagram",
         "com.google.android.youtube" to "YouTube",
         "com.whatsapp" to "WhatsApp",
@@ -283,7 +286,6 @@ class TouchDynamicsService : AccessibilityService() {
                 val estimatedPixels = (eventCount * 100).toFloat()
                 val velocity = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
 
-                // Swipes are allowed to be recorded here even if currentVisibleScreen is "Home Screen"
                 if (!systemNoiseList.contains(rawPackageName) && currentVisibleScreen.isNotEmpty()) {
                     processSwipe(totalDuration.toFloat(), velocity, currentVisibleScreen)
                 }
@@ -309,20 +311,15 @@ class TouchDynamicsService : AccessibilityService() {
         }
 
         isCurrentlyInNoise = false
-
-        // 🚨 1. SWIPE TRACKER (Logs exact screen, including Home Screen)
         currentVisibleScreen = appName
 
-        // 🚨 2. TRANSITION TRACKER (Ignores Home Screen to map real app flows)
         if (appName == "Home Screen") {
-            // We are on the home screen. Start the transition timer, but do NOT record a transition yet.
             if (lastRealAppLeaveTime == 0L) {
                 lastRealAppLeaveTime = System.currentTimeMillis()
             }
             return
         }
 
-        // If it's a REAL APP (Not noise, not Home Screen)
         if (appName != currentRealApp) {
             val previousApp = currentRealApp
             currentRealApp = appName
@@ -336,7 +333,6 @@ class TouchDynamicsService : AccessibilityService() {
 
             currentTransitionSpeed = (timeTaken.toFloat() / 10000f).coerceIn(0f, 1f)
 
-            // Only record transition if the previous app wasn't empty or the Home Screen
             if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
                 lastFromApp = previousApp
                 lastToApp = currentRealApp
@@ -641,30 +637,67 @@ class TouchDynamicsService : AccessibilityService() {
         }
         db.dao().updateAppStats(newStats)
 
-        val normVelocity = (velocity / 5000f).coerceIn(0f, 1f)
-        val normPressure = 0.5f
-        val normAppUsage = (newStats.interactionCount.toFloat() / 100f).coerceIn(0f, 1f)
-        val normTransition = currentTransitionSpeed
-
-        val features = floatArrayOf(normVelocity, normPressure, normAppUsage, normTransition)
-        val threshold = prefs.getFloat("threshold", 1.0f)
+        val normVelocity    = (velocity / 5000f).coerceIn(0f, 1f)
+        val normPressure    = 0.5f
+        val normAppUsage    = (newStats.interactionCount.toFloat() / 100f).coerceIn(0f, 1f)
+        val normTransition  = currentTransitionSpeed
+        val features        = floatArrayOf(normVelocity, normPressure, normAppUsage, normTransition)
+        val threshold       = prefs.getFloat("threshold", 1.0f)
 
         if (!isReady) {
+            if (!emaLoaded) {
+                val savedEma = db.dao().getLatestEma()
+                currentEma = savedEma ?: 1.0f
+                emaLoaded = true
+            }
+
             db.dao().insertTouch(
-                TouchProfile(duration = duration, velocityX = velocity, pressure = 0.5f, appName = appLabel)
+                TouchProfile(
+                    duration   = duration,
+                    velocityX  = velocity,
+                    pressure   = normPressure,
+                    appName    = appLabel
+                )
             )
-            classifier.trainAI(features)
+
+            val rawLoss = classifier.trainAI(features)
+            currentEma = BehavioralAuthClassifier.emaStep(currentEma, rawLoss)
+
+            db.dao().insertLossPoint(
+                LossPoint(
+                    timestamp = System.currentTimeMillis(),
+                    lossValue = rawLoss,
+                    emaValue  = currentEma
+                )
+            )
+
+            LiveLogger.log(
+                "📉 Loss → raw: ${"%.4f".format(rawLoss)}  EMA: ${"%.4f".format(currentEma)}"
+            )
+
+            // 🚨 THE FIX: Factor in the restored swipes when calculating the auto-save!
+            val restoredSwipes = prefs.getInt("restored_swipe_count", 0)
+            val currentSwipeCount = db.dao().getTotalTouchCount() + restoredSwipes
+
+            // Save it so AiCloudSyncManager can grab it
+            prefs.edit().putInt("total_swipes", currentSwipeCount).apply()
+
+            if (currentSwipeCount > 0 && currentSwipeCount % 50 == 0) {
+                LiveLogger.log("☁️ Auto-Saving Training Progress to Cloud...")
+                val syncManager = AiCloudSyncManager(this@TouchDynamicsService)
+                syncManager.backupBrainToCloud { success ->
+                    if (success) LiveLogger.log("✅ Auto-Save Complete.")
+                }
+            }
+
         } else {
             var riskMultiplier = 1.0f
-
-            if (abs(velocity - newStats.avgVelocity) > 1000) {
+            if (kotlin.math.abs(velocity - newStats.avgVelocity) > 1000) {
                 riskMultiplier = 1.3f
                 LiveLogger.log("⚠️ Speed Anomaly in $appLabel")
             }
-
-            val error = classifier.getError(features) * riskMultiplier
+            val error     = classifier.getError(features) * riskMultiplier
             val swipeRisk = ((error / threshold) * 100).toInt()
-
             updateRiskScore(swipeRisk)
         }
 
@@ -709,7 +742,10 @@ class TouchDynamicsService : AccessibilityService() {
         val isPaused = prefs.getBoolean("training_paused", true)
         val risk = prefs.getInt("current_risk", 0)
 
+        // 🚨 THE FIX: Send the true total swipe count to the Smartwatch!
         val swipes = db.dao().getTotalTouchCount()
+        val restoredSwipes = prefs.getInt("restored_swipe_count", 0)
+        val totalSwipes = swipes + restoredSwipes
 
         var accumulatedTime = prefs.getLong("accumulated_time", 0L)
         val sessionStart = prefs.getLong("session_start_time", 0L)
@@ -725,7 +761,7 @@ class TouchDynamicsService : AccessibilityService() {
             if (isPaused) "PAUSED" else "TRAINING"
         }
 
-        val bioScore = if (isReady) risk else swipes
+        val bioScore = if (isReady) risk else totalSwipes // 🚨 Uses totalSwipes
 
         val progress = if (isReady) {
             ((risk / 120f) * 183f).toInt().coerceIn(0, 183)

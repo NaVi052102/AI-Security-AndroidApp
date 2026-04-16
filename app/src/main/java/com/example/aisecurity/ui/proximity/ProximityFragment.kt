@@ -49,7 +49,7 @@ class ProximityFragment : Fragment() {
             }
             else if (status.contains("Secure Link Established", ignoreCase = true) ||
                 status.contains("Connected", ignoreCase = true)) {
-                tvScanStatus.text = "Connected & Secured"
+                tvScanStatus.text = "Connected"
                 tvScanStatus.setTextColor(Color.parseColor("#10B981"))
             }
             else {

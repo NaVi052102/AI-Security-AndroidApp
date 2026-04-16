@@ -49,6 +49,8 @@ class AccountSettingsFragment : Fragment() {
                 val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
                 requireActivity().contentResolver.takePersistableUriPermission(it, takeFlags)
                 currentPhotoUri = it.toString()
+
+                // Freshly picked URIs are safe to use with setImageURI temporarily
                 dialogAvatarImage?.setImageURI(it)
                 dialogAvatarImage?.visibility = View.VISIBLE
                 dialogAvatarInitials?.visibility = View.GONE
@@ -92,17 +94,11 @@ class AccountSettingsFragment : Fragment() {
             showEditProfileDialog(tvNameHeader, tvFullName)
         }
 
-        // ==========================================
-        // SECURE PHONE UPDATE FLOW
-        // ==========================================
         btnChangePhone.setOnClickListener {
             AlertDialog.Builder(requireContext())
                 .setTitle("Secure Number Verification")
                 .setMessage("Changing your master phone number requires an SMS One-Time Password (OTP) to prove ownership. Do you wish to proceed to the verification flow?")
                 .setPositiveButton("Proceed") { _, _ ->
-                    // INDUSTRY STANDARD: You should route the user to a dedicated Activity here
-                    // where they enter the new number, receive a Firebase SMS, and verify it.
-                    // For now, we simulate the hook:
                     Toast.makeText(requireContext(), "Routing to Secure OTP Verification Activity...", Toast.LENGTH_LONG).show()
                 }
                 .setNegativeButton("Cancel", null)
@@ -159,9 +155,19 @@ class AccountSettingsFragment : Fragment() {
     private fun updateMainAvatarUI() {
         if (currentPhotoUri.isNotEmpty()) {
             try {
-                mainAvatarImage.setImageURI(Uri.parse(currentPhotoUri))
-                mainAvatarImage.visibility = View.VISIBLE
-                mainAvatarInitials.visibility = View.GONE
+                // 🚨 THE FIX: Force an immediate Bitmap decode to catch Security Exceptions instantly
+                val uri = Uri.parse(currentPhotoUri)
+                val inputStream = requireContext().contentResolver.openInputStream(uri)
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+
+                if (bitmap != null) {
+                    mainAvatarImage.setImageBitmap(bitmap)
+                    mainAvatarImage.visibility = View.VISIBLE
+                    mainAvatarInitials.visibility = View.GONE
+                } else {
+                    throw Exception("Bitmap decode failed")
+                }
             } catch (e: Exception) {
                 mainAvatarImage.visibility = View.GONE
                 mainAvatarInitials.visibility = View.VISIBLE
@@ -210,9 +216,25 @@ class AccountSettingsFragment : Fragment() {
         etMI.setText(currentMI)
 
         if (currentPhotoUri.isNotEmpty()) {
-            dialogAvatarImage?.setImageURI(Uri.parse(currentPhotoUri))
-            dialogAvatarImage?.visibility = View.VISIBLE
-            dialogAvatarInitials?.visibility = View.GONE
+            try {
+                // 🚨 THE FIX: Force an immediate Bitmap decode here too!
+                val uri = Uri.parse(currentPhotoUri)
+                val inputStream = requireContext().contentResolver.openInputStream(uri)
+                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                inputStream?.close()
+
+                if (bitmap != null) {
+                    dialogAvatarImage?.setImageBitmap(bitmap)
+                    dialogAvatarImage?.visibility = View.VISIBLE
+                    dialogAvatarInitials?.visibility = View.GONE
+                } else {
+                    throw Exception("Bitmap decode failed")
+                }
+            } catch (e: Exception) {
+                dialogAvatarImage?.visibility = View.GONE
+                dialogAvatarInitials?.visibility = View.VISIBLE
+                dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
+            }
         } else {
             dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
         }
@@ -263,7 +285,7 @@ class AccountSettingsFragment : Fragment() {
 
                     tvNameHeader.text = fullConst
                     tvFullName.text = fullConst
-                    updateMainAvatarUI() // Update the background page!
+                    updateMainAvatarUI()
 
                     Toast.makeText(requireContext(), "Profile Updated!", Toast.LENGTH_SHORT).show()
                     dialog.dismiss()
@@ -298,14 +320,14 @@ class AccountSettingsFragment : Fragment() {
     private fun applyPrimaryButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
-            cornerRadius = 30f // Slightly squared edges feel more "Security Enterprise" than full pills
+            cornerRadius = 30f
         }
         if (isNightMode) {
-            bg.setColor(Color.parseColor("#3B82F6")) // Vivid vibrant blue
+            bg.setColor(Color.parseColor("#3B82F6"))
             button.setTextColor(Color.parseColor("#FFFFFF"))
         } else {
-            bg.setColor(Color.parseColor("#2563EB")) // Deep bold blue
-            button.setTextColor(Color.parseColor("#FFFFFF")) // White text on solid background
+            bg.setColor(Color.parseColor("#2563EB"))
+            button.setTextColor(Color.parseColor("#FFFFFF"))
         }
         button.background = bg
     }
@@ -334,11 +356,11 @@ class AccountSettingsFragment : Fragment() {
             cornerRadius = 30f
         }
         if (isNightMode) {
-            bg.setColor(Color.parseColor("#1AEF4444")) // 10% Opacity Red
-            button.setTextColor(Color.parseColor("#F87171")) // Bright Red Text
+            bg.setColor(Color.parseColor("#1AEF4444"))
+            button.setTextColor(Color.parseColor("#F87171"))
         } else {
-            bg.setColor(Color.parseColor("#1AEF4444")) // 10% Opacity Red
-            button.setTextColor(Color.parseColor("#DC2626")) // Dark Red Text
+            bg.setColor(Color.parseColor("#1AEF4444"))
+            button.setTextColor(Color.parseColor("#DC2626"))
         }
         button.background = bg
     }

@@ -24,7 +24,9 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -39,6 +41,7 @@ data class TrustedContact(
 
 class TrustedContactsFragment : Fragment() {
 
+    private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
     private lateinit var adapter: ContactsAdapter
     private val contactsList = mutableListOf<TrustedContact>()
@@ -46,8 +49,6 @@ class TrustedContactsFragment : Fragment() {
     private var pendingEtName: EditText? = null
     private var pendingEtNumber: EditText? = null
     private var pendingTvCountryCode: TextView? = null
-
-    // 🚨 REMOVED pickImageLauncher ENTIRELY to force automatic Firebase downloading!
 
     private val pickPhoneLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == Activity.RESULT_OK) {
@@ -87,6 +88,7 @@ class TrustedContactsFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
+        auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
         val recyclerContacts = view.findViewById<RecyclerView>(R.id.recyclerContacts)
@@ -193,9 +195,6 @@ class TrustedContactsFragment : Fragment() {
 
         btnCancel.setOnClickListener { dialog.dismiss() }
 
-        // ==========================================
-        // 🚨 FIREBASE VERIFICATION & AVATAR PULL
-        // ==========================================
         btnSave.setOnClickListener {
             val name = etName.text.toString().trim()
             val rawNumber = etNumber.text.toString().trim()
@@ -219,13 +218,12 @@ class TrustedContactsFragment : Fragment() {
                 db.collection("Users").whereEqualTo("phoneNumber", searchNumber).get()
                     .addOnSuccessListener { documents ->
                         var linkedUid = ""
-                        var fetchedPhotoUri = existingContact?.photoUri ?: "" // Keep existing if fail
+                        var fetchedPhotoUri = existingContact?.photoUri ?: ""
 
                         if (!documents.isEmpty) {
                             val userDoc = documents.documents[0]
                             linkedUid = userDoc.id
 
-                            // 🚨 FETCH THEIR PROFILE PICTURE FROM FIREBASE!
                             val remotePhoto = userDoc.getString("photoUri") ?: ""
                             if (remotePhoto.isNotEmpty()) fetchedPhotoUri = remotePhoto
 
@@ -319,6 +317,7 @@ class TrustedContactsFragment : Fragment() {
         contactsList.clear()
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val jsonStr = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
+
         try {
             val jsonArray = JSONArray(jsonStr)
             for (i in 0 until jsonArray.length()) {
@@ -330,11 +329,49 @@ class TrustedContactsFragment : Fragment() {
             }
             adapter.notifyDataSetChanged()
         } catch (e: Exception) { e.printStackTrace() }
+
+        val userId = auth.currentUser?.uid
+        if (userId != null) {
+            db.collection("Users").document(userId).get().addOnSuccessListener { doc ->
+                if (doc != null && doc.contains("trustedContacts")) {
+                    try {
+                        val cloudContacts = doc.get("trustedContacts") as? List<Map<String, String>>
+                        if (cloudContacts != null && cloudContacts.isNotEmpty()) {
+                            contactsList.clear()
+                            val updatedJsonArray = JSONArray()
+
+                            for (c in cloudContacts) {
+                                val id = c["id"] ?: UUID.randomUUID().toString()
+                                val name = c["name"] ?: ""
+                                val number = c["number"] ?: ""
+                                val photoUri = c["photoUri"] ?: ""
+                                val uid = c["uid"] ?: ""
+
+                                contactsList.add(TrustedContact(id, name, number, photoUri, uid))
+
+                                val obj = JSONObject().apply {
+                                    put("id", id)
+                                    put("name", name)
+                                    put("number", number)
+                                    put("photoUri", photoUri)
+                                    put("uid", uid)
+                                }
+                                updatedJsonArray.put(obj)
+                            }
+                            prefs.edit().putString("trusted_contacts_json", updatedJsonArray.toString()).apply()
+                            adapter.notifyDataSetChanged()
+                        }
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+        }
     }
 
     private fun saveContacts() {
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val jsonArray = JSONArray()
+        val firestoreList = mutableListOf<Map<String, String>>()
+
         for (contact in contactsList) {
             val obj = JSONObject().apply {
                 put("id", contact.id)
@@ -344,8 +381,23 @@ class TrustedContactsFragment : Fragment() {
                 put("uid", contact.uid)
             }
             jsonArray.put(obj)
+
+            firestoreList.add(mapOf(
+                "id" to contact.id,
+                "name" to contact.name,
+                "number" to contact.number,
+                "photoUri" to contact.photoUri,
+                "uid" to contact.uid
+            ))
         }
+
         prefs.edit().putString("trusted_contacts_json", jsonArray.toString()).apply()
+
+        val userId = auth.currentUser?.uid
+        if (userId != null) {
+            db.collection("Users").document(userId)
+                .set(mapOf("trustedContacts" to firestoreList), SetOptions.merge())
+        }
     }
 
     private fun removeContact(contact: TrustedContact) {
@@ -389,11 +441,21 @@ class TrustedContactsFragment : Fragment() {
             val isNightMode = (holder.itemView.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
             applyAvatarBackground(holder.tvInitials, isNightMode)
 
+            // 🚨 THE FIX: Force Decode the Local File URI Bytes instead of relying on the buggy wrapper
             if (contact.photoUri.isNotEmpty()) {
                 try {
-                    holder.imgAvatar.setImageURI(Uri.parse(contact.photoUri))
-                    holder.imgAvatar.visibility = View.VISIBLE
-                    holder.tvInitials.visibility = View.GONE
+                    val uri = Uri.parse(contact.photoUri)
+                    val inputStream = holder.itemView.context.contentResolver.openInputStream(uri)
+                    val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+
+                    if (bitmap != null) {
+                        holder.imgAvatar.setImageBitmap(bitmap)
+                        holder.imgAvatar.visibility = View.VISIBLE
+                        holder.tvInitials.visibility = View.GONE
+                    } else {
+                        throw Exception("Cannot load local URI")
+                    }
+                    inputStream?.close()
                 } catch (e: Exception) {
                     holder.imgAvatar.visibility = View.GONE
                     holder.tvInitials.visibility = View.VISIBLE

@@ -162,7 +162,7 @@
             <com.example.aisecurity.ui.proximity.RssiChartView
                 android:id="@+id/rssiGraph"
                 android:layout_width="match_parent"
-                android:layout_height="100dp" />
+                android:layout_height="140dp" />
         </LinearLayout>
 
         <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
