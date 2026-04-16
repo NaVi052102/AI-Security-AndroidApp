@@ -1,16 +1,24 @@
 package com.example.aisecurity.ui.dashboard
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Color
+import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
-import com.example.aisecurity.ble.WatchManager // Pulls the live watch status
+import com.example.aisecurity.ble.WatchManager
+import com.example.aisecurity.ui.main.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -25,79 +33,156 @@ class DashboardFragment : Fragment() {
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
 
-        // 1. Grab the NEW IDs from your sleek updated XML
+        // Text Elements
         val tvSystemPercentage = view.findViewById<TextView>(R.id.tvSystemPercentage)
         val tvSystemStatus = view.findViewById<TextView>(R.id.tvSystemStatus)
-        val tvStatusAi = view.findViewById<TextView>(R.id.tvStatusAi)
-        val tvStatusWatch = view.findViewById<TextView>(R.id.tvStatusWatch)
-        val tvStatusSms = view.findViewById<TextView>(R.id.tvStatusSms)
+        val tvActionTitle = view.findViewById<TextView>(R.id.tvActionTitle)
+        val tvActiveTitle = view.findViewById<TextView>(R.id.tvActiveTitle)
+        val activeContainer = view.findViewById<LinearLayout>(R.id.activeContainer)
+        val tvPermissionCount = view.findViewById<TextView>(R.id.tvPermissionCount)
 
-        // 2. The Live Updating Dashboard Loop
+        // Action Cards (The "To-Do" List)
+        val actionCardPermissions = view.findViewById<LinearLayout>(R.id.actionCardPermissions)
+        val actionCardSettings = view.findViewById<LinearLayout>(R.id.actionCardSettings)
+        val actionCardWatch = view.findViewById<LinearLayout>(R.id.actionCardWatch)
+        val actionCardAi = view.findViewById<LinearLayout>(R.id.actionCardAi)
+        val actionCardSms = view.findViewById<LinearLayout>(R.id.actionCardSms)
+
+        // Active Rows (The "Completed" List)
+        val activeRowPermissions = view.findViewById<LinearLayout>(R.id.activeRowPermissions)
+        val activeRowSettings = view.findViewById<LinearLayout>(R.id.activeRowSettings)
+        val activeRowWatch = view.findViewById<LinearLayout>(R.id.activeRowWatch)
+        val activeRowAi = view.findViewById<LinearLayout>(R.id.activeRowAi)
+        val activeRowSms = view.findViewById<LinearLayout>(R.id.activeRowSms)
+
+        // Routing Logic
+        view.findViewById<TextView>(R.id.btnAuthorize).setOnClickListener { (requireActivity() as MainActivity).navigateToFromDashboard("PERMISSIONS") }
+        view.findViewById<TextView>(R.id.btnConfigure).setOnClickListener { (requireActivity() as MainActivity).navigateToFromDashboard("SETTINGS") }
+        view.findViewById<TextView>(R.id.btnConnect).setOnClickListener { (requireActivity() as MainActivity).navigateToFromDashboard("BLUETOOTH") }
+        view.findViewById<TextView>(R.id.btnTrain).setOnClickListener { (requireActivity() as MainActivity).navigateToFromDashboard("BIOMETRICS") }
+        view.findViewById<TextView>(R.id.btnAddContact).setOnClickListener { (requireActivity() as MainActivity).navigateToFromDashboard("ACCOUNT") }
+
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (true) {
+                if (!isAdded) return@launch
+
                 val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-                // Read the statuses
+                // 1. Gather Data States
                 val aiReady = prefs.getBoolean("ai_ready", false)
                 val isWatchConnected = WatchManager.isConnected.value == true
-
-                // --- NEW: Read the JSON array instead of the old string ---
                 val trustedContactsJson = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
                 val hasContacts = trustedContactsJson != "[]" && trustedContactsJson.length > 2
 
+                // 2. Calculate Permissions (Now checking 6 total, including AI Accessibility)
+                var permsGranted = 0
+                val totalPerms = 6
+
+                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) permsGranted++
+                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED) permsGranted++
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) permsGranted++
+                else if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) permsGranted++
+                if (Settings.canDrawOverlays(requireContext())) permsGranted++
+
+                val pm = requireContext().getSystemService(Context.POWER_SERVICE) as PowerManager
+                if (pm.isIgnoringBatteryOptimizations(requireContext().packageName)) permsGranted++
+
+                // 🚨 6th Permission: Accessibility Service for Touch Dynamics AI
+                val enabledServices = Settings.Secure.getString(requireContext().contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+                if (enabledServices?.contains(requireContext().packageName) == true) permsGranted++
+
+                // 3. Check Settings Configuration
+                val defenseActive = prefs.getBoolean("protocol_defense_active", true)
+                val sirenActive = prefs.getBoolean("protocol_siren", true)
+                val isSettingsOptimal = defenseActive && sirenActive
+
                 withContext(Dispatchers.Main) {
                     var score = 0
+                    var actionsRequired = 0
 
-                    // --- MODULE 1: AI ---
-                    if (aiReady) {
-                        tvStatusAi.text = "Active & Monitoring"
-                        tvStatusAi.setTextColor(Color.parseColor("#4CAF50")) // Green
-                        score += 34 // Extra 1% so it totals exactly 100
+                    // Module 1: Permissions (20%)
+                    if (permsGranted >= totalPerms) {
+                        score += 20
+                        actionCardPermissions.visibility = View.GONE
+                        activeRowPermissions.visibility = View.VISIBLE
                     } else {
-                        tvStatusAi.text = "Training Phase"
-                        tvStatusAi.setTextColor(Color.parseColor("#888888")) // Gray
+                        actionsRequired++
+                        tvPermissionCount.text = "Only $permsGranted of $totalPerms allowed."
+                        actionCardPermissions.visibility = View.VISIBLE
+                        activeRowPermissions.visibility = View.GONE
                     }
 
-                    // --- MODULE 2: WATCH ---
+                    // Module 2: Settings (20%)
+                    if (isSettingsOptimal) {
+                        score += 20
+                        actionCardSettings.visibility = View.GONE
+                        activeRowSettings.visibility = View.VISIBLE
+                    } else {
+                        actionsRequired++
+                        actionCardSettings.visibility = View.VISIBLE
+                        activeRowSettings.visibility = View.GONE
+                    }
+
+                    // Module 3: Smartwatch (20%)
                     if (isWatchConnected) {
-                        tvStatusWatch.text = "Secure Link Active"
-                        tvStatusWatch.setTextColor(Color.parseColor("#4CAF50")) // Green
-                        score += 33
+                        score += 20
+                        actionCardWatch.visibility = View.GONE
+                        activeRowWatch.visibility = View.VISIBLE
                     } else {
-                        tvStatusWatch.text = "Disconnected"
-                        tvStatusWatch.setTextColor(Color.parseColor("#888888")) // Gray
+                        actionsRequired++
+                        actionCardWatch.visibility = View.VISIBLE
+                        activeRowWatch.visibility = View.GONE
                     }
 
-                    // --- MODULE 3: SMS TRACKER (UPDATED) ---
+                    // Module 4: AI Engine (20%)
+                    if (aiReady) {
+                        score += 20
+                        actionCardAi.visibility = View.GONE
+                        activeRowAi.visibility = View.VISIBLE
+                    } else {
+                        actionsRequired++
+                        actionCardAi.visibility = View.VISIBLE
+                        activeRowAi.visibility = View.GONE
+                    }
+
+                    // Module 5: Emergency Contacts (20%)
                     if (hasContacts) {
-                        tvStatusSms.text = "Target Locked"
-                        tvStatusSms.setTextColor(Color.parseColor("#4CAF50")) // Green
-                        score += 33
+                        score += 20
+                        actionCardSms.visibility = View.GONE
+                        activeRowSms.visibility = View.VISIBLE
                     } else {
-                        tvStatusSms.text = "No Target Set"
-                        tvStatusSms.setTextColor(Color.parseColor("#888888")) // Gray
+                        actionsRequired++
+                        actionCardSms.visibility = View.VISIBLE
+                        activeRowSms.visibility = View.GONE
                     }
 
-                    // --- UPDATE MASTER SCORE ---
+                    // --- Master UI Updates (Synchronized with Sidebar) ---
                     tvSystemPercentage.text = "$score%"
 
-                    // Update the master title based on the score
-                    when (score) {
-                        100 -> {
-                            tvSystemStatus.text = "SYSTEM FULLY SECURED"
-                            tvSystemStatus.setTextColor(Color.parseColor("#4CAF50"))
-                        }
-                        0 -> {
-                            tvSystemStatus.text = "SYSTEM VULNERABLE"
-                            tvSystemStatus.setTextColor(Color.parseColor("#F44336")) // Red
-                        }
-                        else -> {
-                            tvSystemStatus.text = "SYSTEM SETUP INCOMPLETE"
-                            tvSystemStatus.setTextColor(Color.parseColor("#FF9800")) // Orange
-                        }
+                    if (actionsRequired == 0) {
+                        tvActionTitle.visibility = View.GONE
+                        tvSystemStatus.text = "DEVICE PROTECTED"
+                        tvSystemStatus.setTextColor(Color.parseColor("#10B981"))
+                    } else {
+                        tvActionTitle.visibility = View.VISIBLE
+                        tvSystemStatus.text = "SETUP INCOMPLETE: $actionsRequired ITEMS"
+                        tvSystemStatus.setTextColor(Color.parseColor("#EF4444"))
+                    }
+
+                    if (score == 0) {
+                        tvActiveTitle.visibility = View.GONE
+                        activeContainer.visibility = View.GONE
+                    } else {
+                        tvActiveTitle.visibility = View.VISIBLE
+                        activeContainer.visibility = View.VISIBLE
+                    }
+
+                    // 🚨 Tell MainActivity to repaint the sidebar header to match!
+                    if (activity is MainActivity) {
+                        (activity as MainActivity).updateSidebarHeaderStatus(actionsRequired)
                     }
                 }
-                delay(1000) // Refresh the dashboard every 1 second
+                delay(1000)
             }
         }
     }

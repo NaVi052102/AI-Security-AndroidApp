@@ -5,6 +5,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -23,7 +24,9 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
+import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
@@ -91,12 +94,11 @@ class MainActivity : AppCompatActivity() {
         val tvDrawerName = headerView.findViewById<TextView>(R.id.tvDrawerName)
         val headerLayoutContainer = headerView.findViewById<LinearLayout>(R.id.headerLayoutContainer)
 
-        // 🚨 THE EXPERT UI FIX: Intercept hardware insets and calculate pixel-perfect spacing
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(headerLayoutContainer) { view, insets ->
-            val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
+        // The Cleaned Inset Interceptor
+        ViewCompat.setOnApplyWindowInsetsListener(headerLayoutContainer) { view, insets ->
+            val topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val basePadding = (24 * resources.displayMetrics.density).toInt()
 
-            // Apply safe status bar height + 24dp breathing room
             view.setPadding(basePadding, topInset + basePadding, basePadding, basePadding)
             insets
         }
@@ -335,5 +337,51 @@ class MainActivity : AppCompatActivity() {
     private fun startLocationService() {
         val serviceIntent = Intent(this, LocationTrackingService::class.java)
         startForegroundService(serviceIntent)
+    }
+
+    // =========================================================
+    // PUBLIC DASHBOARD ROUTERS & UI SYNC
+    // =========================================================
+    fun navigateToFromDashboard(destination: String) {
+        val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
+        val topAppBar = findViewById<MaterialToolbar>(R.id.topAppBar)
+
+        when (destination) {
+            "PERMISSIONS" -> { switchFragment(permissionsFragment); topAppBar.title = "App Permissions" }
+            "SETTINGS" -> { switchFragment(settingsFragment); topAppBar.title = "Settings" }
+            "BLUETOOTH" -> { switchFragment(bluetoothFragment); topAppBar.title = "Connections" }
+            "ACCOUNT" -> { switchFragment(accountSettingsFragment); topAppBar.title = "Account Settings" }
+            "BIOMETRICS" -> {
+                switchFragment(biometricsFragment)
+                topAppBar.title = "Biometrics Engine"
+                bottomNav.selectedItemId = R.id.nav_biometrics
+            }
+        }
+    }
+
+    // 🚨 THIS DYNAMICALLY REPAINTS THE SIDEBAR HEADER TO MATCH THE DASHBOARD
+    fun updateSidebarHeaderStatus(actionsRequired: Int) {
+        val sideNav = findViewById<NavigationView>(R.id.nav_view_sidebar)
+        val headerView = sideNav.getHeaderView(0)
+        val tvDrawerStatus = headerView.findViewById<TextView>(R.id.tvDrawerStatus)
+        val imgDrawerStatusIcon = headerView.findViewById<ImageView>(R.id.imgDrawerStatusIcon)
+        val badgeContainer = tvDrawerStatus.parent as LinearLayout
+
+        val bg = GradientDrawable().apply {
+            cornerRadius = 12f * resources.displayMetrics.density
+            setStroke((1f * resources.displayMetrics.density).toInt(), if (actionsRequired == 0) "#10B981".toColorInt() else "#EF4444".toColorInt())
+            setColor(if (actionsRequired == 0) "#1A10B981".toColorInt() else "#1AEF4444".toColorInt())
+        }
+        badgeContainer.background = bg
+
+        if (actionsRequired == 0) {
+            tvDrawerStatus.text = "Device Protected"
+            tvDrawerStatus.setTextColor("#10B981".toColorInt())
+            imgDrawerStatusIcon.setColorFilter("#10B981".toColorInt())
+        } else {
+            tvDrawerStatus.text = "Setup Incomplete: $actionsRequired Items"
+            tvDrawerStatus.setTextColor("#EF4444".toColorInt())
+            imgDrawerStatusIcon.setColorFilter("#EF4444".toColorInt())
+        }
     }
 }
