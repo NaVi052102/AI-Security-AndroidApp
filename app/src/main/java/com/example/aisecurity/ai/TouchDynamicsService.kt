@@ -1,3 +1,4 @@
+// ... Keep your imports exactly as they are ...
 package com.example.aisecurity.ai
 
 import android.accessibilityservice.AccessibilityService
@@ -27,8 +28,6 @@ import com.example.aisecurity.ui.LockOverlayService
 import com.example.aisecurity.ui.TrampolineActivity
 import kotlinx.coroutines.*
 import java.util.Locale
-import java.util.concurrent.TimeUnit
-import kotlin.math.abs
 
 @SuppressLint("MissingPermission")
 @Suppress(
@@ -48,10 +47,6 @@ class TouchDynamicsService : AccessibilityService() {
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    // ── EMA state persisted across swipes within a session ──────────────────
-    private var currentEma: Float = 1.0f
-    private var emaLoaded: Boolean = false
-
     private var swipeJob: Job? = null
     private var swipeStartTime = 0L
     private var eventCount = 0
@@ -62,12 +57,14 @@ class TouchDynamicsService : AccessibilityService() {
     private var currentTransitionSpeed = 0.5f
 
     private var lastGuillotineTime = 0L
-
     private var lastRealAppLeaveTime = 0L
     private var isCurrentlyInNoise = false
 
     private var lastFromApp = "System UI"
     private var lastToApp = "Monitoring..."
+
+    private var isLockdownCooldown = false
+    private var lastUnlockTime = 0L
 
     private val systemNoiseList = listOf(
         "com.android.systemui",
@@ -107,29 +104,26 @@ class TouchDynamicsService : AccessibilityService() {
     private var aegisShieldView: View? = null
     private var isAegisDeployed = false
     private var isPoltergeistActive = false
-
     private var isWatchSyncLoopRunning = false
 
     private val osBiometricSyncReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_USER_PRESENT) {
                 val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-                val isLocked = prefs.getBoolean("is_system_locked", false)
+                lastUnlockTime = System.currentTimeMillis()
+                isLockdownCooldown = false
 
-                if (isLocked) {
-                    LiveLogger.log("🔓 OS BIOMETRIC SYNC: True Owner Verified by Android OS in the background.")
+                LiveLogger.log("🔓 OS UNLOCK: True Owner Verified. 3-Second Grace Period Started.")
+                prefs.edit()
+                    .putBoolean("is_system_locked", false)
+                    .putBoolean("is_auth_in_progress", false)
+                    .putInt("current_risk", 0)
+                    .apply()
 
-                    prefs.edit()
-                        .putBoolean("is_system_locked", false)
-                        .putBoolean("is_auth_in_progress", false)
-                        .putInt("current_risk", 0)
-                        .apply()
-
-                    try {
-                        val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
-                        stopService(lockIntent)
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
+                try {
+                    val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
+                    stopService(lockIntent)
+                } catch (e: Exception) { e.printStackTrace() }
             }
         }
     }
@@ -139,7 +133,6 @@ class TouchDynamicsService : AccessibilityService() {
             try {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
-
                     if (target == "FORCE_SLEEP") {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             serviceScope.launch(Dispatchers.Main) {
@@ -147,20 +140,16 @@ class TouchDynamicsService : AccessibilityService() {
                                 performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                             }
                         }
-                    }
-                    else if (target != "AIRPLANE" && target != "LOCK_AND_RECOVER_AIRPLANE") {
+                    } else if (target != "AIRPLANE" && target != "LOCK_AND_RECOVER_AIRPLANE") {
                         launchTeleportingPoltergeist(target)
-                    }
-                    else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
+                    } else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
                         try {
                             val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
                             this@TouchDynamicsService.startService(lockIntent)
                         } catch (_: Exception) { }
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
         }
     }
 
@@ -178,8 +167,89 @@ class TouchDynamicsService : AccessibilityService() {
 
         val userPresentFilter = IntentFilter(Intent.ACTION_USER_PRESENT)
         registerReceiver(osBiometricSyncReceiver, userPresentFilter)
-
         startWatchSyncLoop()
+    }
+
+    private fun getContextHash(text: String): Float {
+        return (kotlin.math.abs(text.hashCode()) % 1000) / 1000f
+    }
+
+    private suspend fun runContextualAI(
+        velocity: Float,
+        duration: Float,
+        appName: String,
+        fromApp: String,
+        transitionTime: Long
+    ) {
+        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val isReady = prefs.getBoolean("ai_ready", false)
+        val isPaused = prefs.getBoolean("training_paused", true)
+
+        val globalThreshold = prefs.getFloat("threshold", 0.08f)
+        val targetStability = globalThreshold * 1.2f
+        val baselineEma = 1.0f
+
+        val stats = db.dao().getAppStats(appName)
+        val interactionCount = stats?.interactionCount ?: 0
+        var appSpecificEma = prefs.getFloat("ema_loss_$appName", 1.0f)
+
+        // 🚨 Calculate the exact % this app is currently at
+        val progressRaw = ((baselineEma - appSpecificEma) / (baselineEma - targetStability)).coerceIn(0f, 1f)
+        val finalPct = (progressRaw * 100f).toInt()
+
+        val normVelocity    = (velocity / 5000f).coerceIn(0f, 1f)
+        val normPressure    = if (duration == 0f) 0.0f else 0.5f
+        val normAppUsage    = (interactionCount.toFloat() / 100f).coerceIn(0f, 1f)
+        val normTransition  = (transitionTime.toFloat() / 10000f).coerceIn(0f, 1f)
+        val appID           = getContextHash(appName)
+        val transitionID    = getContextHash("$fromApp->$appName")
+
+        val features = floatArrayOf(
+            normVelocity, normPressure, normAppUsage, normTransition, appID, transitionID
+        )
+
+        if (isReady) {
+            // 🛡️ AI PROTECTION IS ACTIVE
+            if (finalPct >= 75) {
+                // This app is trained! Evaluate intruder risk.
+                val error = classifier.getError(features)
+                val ratio = error / globalThreshold
+                val swipeRisk = if (ratio <= 1.0f) {
+                    (ratio * 25f).toInt()
+                } else {
+                    (25f + ((ratio - 1.0f) * 75f)).toInt()
+                }.coerceIn(0, 100)
+
+                updateRiskScore(swipeRisk)
+
+                if (swipeRisk < 35) {
+                    val rawLoss = classifier.trainAI(features)
+                    appSpecificEma = BehavioralAuthClassifier.emaStep(appSpecificEma, rawLoss)
+                    prefs.edit().putFloat("ema_loss_$appName", appSpecificEma).apply()
+                    db.dao().insertTouch(TouchProfile(duration = duration, velocityX = velocity, pressure = normPressure, appName = appName))
+                } else {
+                    LiveLogger.log("⚠️ [THREAT] High Risk in ARMED APP ($appName)! Risk: $swipeRisk%")
+                }
+            } else {
+                // 🛑 STRICT SUSPENSION: App is < 75%. The AI completely ignores it.
+                // No silent training. No risk evaluation.
+                LiveLogger.log("🛡️ [IGNORED] $appName is only $finalPct% trained. Intruder detection disabled.")
+
+                // Allow the global risk meter to slightly cool down since they are in a safe/untracked app
+                updateRiskScore(0)
+            }
+        } else if (!isPaused) {
+            // 🧠 AI IS NOT ARMED (LEARNING MODE IS ACTIVE)
+            val rawLoss = classifier.trainAI(features)
+            appSpecificEma = BehavioralAuthClassifier.emaStep(appSpecificEma, rawLoss)
+            prefs.edit().putFloat("ema_loss_$appName", appSpecificEma).apply()
+
+            db.dao().insertTouch(TouchProfile(duration = duration, velocityX = velocity, pressure = normPressure, appName = appName))
+            db.dao().insertLossPoint(LossPoint(timestamp = System.currentTimeMillis(), lossValue = rawLoss, emaValue = appSpecificEma))
+
+            LiveLogger.log("📉 [TRAIN] $appName | EMA: ${"%.4f".format(appSpecificEma)}")
+            updateRiskScore(0)
+        }
     }
 
     private fun startWatchSyncLoop() {
@@ -188,11 +258,7 @@ class TouchDynamicsService : AccessibilityService() {
             serviceScope.launch {
                 var loopCount = 0
                 while (isActive) {
-                    try {
-                        syncBiometricsToWatch(loopCount)
-                    } catch (e: Exception) {
-                        Log.e("AI_SYNC", "Database or BLE Error: ${e.message}")
-                    }
+                    try { syncBiometricsToWatch(loopCount) } catch (_: Exception) {}
                     loopCount++
                     delay(1000)
                 }
@@ -228,12 +294,9 @@ class TouchDynamicsService : AccessibilityService() {
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
         if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
-            if (className.contains("panel", true) ||
-                className.contains("notification", true) ||
-                className.contains("expand", true) ||
-                className.contains("settings", true) ||
+            if (className.contains("panel", true) || className.contains("notification", true) ||
+                className.contains("expand", true) || className.contains("settings", true) ||
                 eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-
                 triggerScrimSniper()
                 return
             }
@@ -241,7 +304,6 @@ class TouchDynamicsService : AccessibilityService() {
 
         if (isLocked) {
             deployAegisShield()
-
             if (rawPackageName.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 if (!isPoltergeistActive) {
                     val trampolineIntent = Intent(this, TrampolineActivity::class.java).apply {
@@ -268,12 +330,9 @@ class TouchDynamicsService : AccessibilityService() {
         }
 
         if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-
             if (!systemNoiseList.contains(rawPackageName) && !homeLaunchers.contains(rawPackageName) && !rawPackageName.contains("launcher")) {
                 val actualApp = getReadableAppName(rawPackageName)
-                if (actualApp != currentVisibleScreen) {
-                    updateContext(rawPackageName)
-                }
+                if (actualApp != currentVisibleScreen) updateContext(rawPackageName)
             }
 
             if (swipeStartTime == 0L) swipeStartTime = System.currentTimeMillis()
@@ -297,16 +356,11 @@ class TouchDynamicsService : AccessibilityService() {
 
     private fun updateContext(packageName: String) {
         val appName = getReadableAppName(packageName)
-
-        val isNoise = appName.contains("System", ignoreCase = true) ||
-                appName.contains("quicksearchbox", ignoreCase = true) ||
-                systemNoiseList.contains(packageName)
+        val isNoise = appName.contains("System", ignoreCase = true) || appName.contains("quicksearchbox", ignoreCase = true) || systemNoiseList.contains(packageName)
 
         if (isNoise) {
             isCurrentlyInNoise = true
-            if (lastRealAppLeaveTime == 0L) {
-                lastRealAppLeaveTime = System.currentTimeMillis()
-            }
+            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
             return
         }
 
@@ -314,9 +368,7 @@ class TouchDynamicsService : AccessibilityService() {
         currentVisibleScreen = appName
 
         if (appName == "Home Screen") {
-            if (lastRealAppLeaveTime == 0L) {
-                lastRealAppLeaveTime = System.currentTimeMillis()
-            }
+            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
             return
         }
 
@@ -325,22 +377,15 @@ class TouchDynamicsService : AccessibilityService() {
             currentRealApp = appName
             val now = System.currentTimeMillis()
 
-            val timeTaken = if (lastRealAppLeaveTime > 0) {
-                now - lastRealAppLeaveTime
-            } else {
-                now - lastAppSwitchTime
-            }.coerceAtLeast(100L)
-
-            currentTransitionSpeed = (timeTaken.toFloat() / 10000f).coerceIn(0f, 1f)
+            val timeTaken = if (lastRealAppLeaveTime > 0) now - lastRealAppLeaveTime else now - lastAppSwitchTime
+            currentTransitionSpeed = (timeTaken.coerceAtLeast(100L).toFloat() / 10000f).coerceIn(0f, 1f)
 
             if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
                 lastFromApp = previousApp
                 lastToApp = currentRealApp
-
                 LiveLogger.log("📱 FLOW: $previousApp -> $currentRealApp")
                 serviceScope.launch { learnTransition(previousApp, currentRealApp, timeTaken) }
             }
-
             lastAppSwitchTime = now
             lastRealAppLeaveTime = 0L
         } else {
@@ -352,18 +397,13 @@ class TouchDynamicsService : AccessibilityService() {
         val now = System.currentTimeMillis()
         if (now - lastGuillotineTime < 300) return
         lastGuillotineTime = now
-
         LiveLogger.log("🛡️ SCRIM SNIPER: Tapping bottom screen to abort Quick Settings!")
 
         serviceScope.launch(Dispatchers.Main) {
             repeat(5) {
                 executeBottomScreenTap()
                 performGlobalAction(GLOBAL_ACTION_BACK)
-
-                try {
-                    sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
-                } catch (_: Exception) {}
-
+                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
                 delay(50)
             }
         }
@@ -374,29 +414,20 @@ class TouchDynamicsService : AccessibilityService() {
             val metrics = resources.displayMetrics
             val midX = metrics.widthPixels / 2f
             val bottomY = metrics.heightPixels * 0.85f
-
-            val path = Path().apply {
-                moveTo(midX, bottomY)
-                lineTo(midX + 1f, bottomY + 1f)
-            }
-
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
-                .build()
+            val path = Path().apply { moveTo(midX, bottomY); lineTo(midX + 1f, bottomY + 1f) }
+            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 30)).build()
             dispatchGesture(gesture, null, null)
         } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun launchTeleportingPoltergeist(target: String) {
         if (isPoltergeistActive) return
-
         isPoltergeistActive = true
         val missions = if (target == "ALL") listOf("LOCATION", "BLUETOOTH", "DATA") else listOf(target)
         val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
 
         serviceScope.launch(Dispatchers.Main) {
             for (mission in missions) {
-
                 val initiallyNeedsToggle = try {
                     when (mission) {
                         "BLUETOOTH" -> (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == false
@@ -423,17 +454,14 @@ class TouchDynamicsService : AccessibilityService() {
                 }
 
                 try {
-                    val settingsIntent = Intent(intentAction)
-                    settingsIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
+                    val settingsIntent = Intent(intentAction).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION) }
                     startActivity(settingsIntent)
-
                     delay(800)
 
                     var attempts = 0
                     var tapFiredForData = false
 
                     while (isPoltergeistActive && attempts < 15) {
-
                         val stillNeedsToggle = try {
                             when (mission) {
                                 "BLUETOOTH" -> (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == false
@@ -448,7 +476,6 @@ class TouchDynamicsService : AccessibilityService() {
                         try {
                             var firedThisLoop = false
                             val activeRoot = rootInActiveWindow
-
                             if (activeRoot != null) firedThisLoop = nukeSwitch(activeRoot, mission)
 
                             if (!firedThisLoop) {
@@ -460,21 +487,12 @@ class TouchDynamicsService : AccessibilityService() {
                                 }
                             }
 
-                            if (firedThisLoop) {
-                                tapFiredForData = true
-                                delay(2000)
-                            } else {
-                                delay(300)
-                            }
-
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
+                            if (firedThisLoop) { tapFiredForData = true; delay(2000) } else { delay(300) }
+                        } catch (e: Exception) { e.printStackTrace() }
                         attempts++
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }
-
             performGlobalAction(GLOBAL_ACTION_HOME)
             isPoltergeistActive = false
         }
@@ -482,20 +500,14 @@ class TouchDynamicsService : AccessibilityService() {
 
     private fun fireHumanTap(x: Float, y: Float) {
         try {
-            val path = Path().apply {
-                moveTo(x - 1f, y - 1f)
-                lineTo(x + 1f, y + 1f)
-            }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 150))
-                .build()
+            val path = Path().apply { moveTo(x - 1f, y - 1f); lineTo(x + 1f, y + 1f) }
+            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 150)).build()
             dispatchGesture(gesture, null, null)
         } catch (e: Exception) { e.printStackTrace() }
     }
 
     private suspend fun nukeSwitch(rootNode: AccessibilityNodeInfo?, mission: String): Boolean {
         if (rootNode == null) return false
-
         val keywords = when (mission) {
             "BLUETOOTH" -> listOf("bluetooth")
             "LOCATION" -> listOf("location", "gps")
@@ -517,7 +529,6 @@ class TouchDynamicsService : AccessibilityService() {
         if (screenWidth <= 0) screenWidth = windowRect.width().toFloat()
 
         var struck = false
-
         for (node in allNodes) {
             val t = node.text?.toString()?.lowercase(Locale.ROOT) ?: ""
             val c = node.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
@@ -528,22 +539,11 @@ class TouchDynamicsService : AccessibilityService() {
 
                 if (rect.height() < 400 && rect.centerY() > 100) {
                     val y = rect.centerY().toFloat()
-
                     var p: AccessibilityNodeInfo? = node
                     var levels = 0
-                    while (p != null && levels < 5) {
-                        p.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                        p = p.parent
-                        levels++
-                    }
+                    while (p != null && levels < 5) { p.performAction(AccessibilityNodeInfo.ACTION_CLICK); p = p.parent; levels++ }
 
-                    if (screenWidth > 0) {
-                        delay(100)
-                        fireHumanTap(screenWidth * 0.88f, y)
-                    } else {
-                        fireHumanTap(rect.centerX().toFloat(), y)
-                    }
-
+                    if (screenWidth > 0) { delay(100); fireHumanTap(screenWidth * 0.88f, y) } else { fireHumanTap(rect.centerX().toFloat(), y) }
                     struck = true
                     break
                 }
@@ -557,13 +557,8 @@ class TouchDynamicsService : AccessibilityService() {
             val displayMetrics = resources.displayMetrics
             val middleX = displayMetrics.widthPixels / 2f
             val startY = displayMetrics.heightPixels / 2f
-            val endY = 0f
-            val path = Path()
-            path.moveTo(middleX, startY)
-            path.lineTo(middleX, endY)
-            val strokeDescription = GestureDescription.StrokeDescription(path, 0, 50)
-            val gestureBuilder = GestureDescription.Builder()
-            gestureBuilder.addStroke(strokeDescription)
+            val path = Path().apply { moveTo(middleX, startY); lineTo(middleX, 0f) }
+            val gestureBuilder = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 50))
             dispatchGesture(gestureBuilder.build(), null, null)
         } catch (e: Exception) { e.printStackTrace() }
     }
@@ -572,19 +567,13 @@ class TouchDynamicsService : AccessibilityService() {
     private fun deployAegisShield() {
         if (isAegisDeployed || windowManager == null) return
         try {
-            aegisShieldView = View(this).apply {
-                setBackgroundColor(Color.TRANSPARENT)
-                setOnTouchListener { _, _ -> true }
-            }
+            aegisShieldView = View(this).apply { setBackgroundColor(Color.TRANSPARENT); setOnTouchListener { _, _ -> true } }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT, 200,
                 WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                        WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT
-            )
-            params.gravity = Gravity.TOP
+            ).apply { gravity = Gravity.TOP }
             windowManager?.addView(aegisShieldView, params)
             isAegisDeployed = true
         } catch (e: Exception) { e.printStackTrace() }
@@ -592,10 +581,7 @@ class TouchDynamicsService : AccessibilityService() {
 
     private fun removeAegisShield() {
         if (!isAegisDeployed || windowManager == null || aegisShieldView == null) return
-        try {
-            windowManager?.removeView(aegisShieldView)
-            isAegisDeployed = false
-        } catch (e: Exception) { e.printStackTrace() }
+        try { windowManager?.removeView(aegisShieldView); isAegisDeployed = false } catch (e: Exception) { e.printStackTrace() }
     }
 
     private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
@@ -604,111 +590,56 @@ class TouchDynamicsService : AccessibilityService() {
         val isPaused = prefs.getBoolean("training_paused", true)
 
         if (isPaused && !isReady) return
+        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
 
         val history = db.dao().getTransition(from, to)
-
         if (history == null) {
-            if (isReady) increaseRisk(10)
+            if (isReady) increaseRisk(15)
             db.dao().updateTransition(TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1))
         } else {
-            val newAvgTime = ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
-            db.dao().updateTransition(history.copy(avgTime = newAvgTime, frequency = history.frequency + 1))
-            if (isReady) decreaseRisk(5)
+            if (isReady && kotlin.math.abs(history.avgTime - timeTaken) > 1500) increaseRisk(25) else if (isReady) decreaseRisk(5)
+            if (!isReady || kotlin.math.abs(history.avgTime - timeTaken) <= 1500) {
+                val newAvgTime = ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
+                db.dao().updateTransition(history.copy(avgTime = newAvgTime, frequency = history.frequency + 1))
+            }
         }
+        runContextualAI(velocity = 0f, duration = 0f, appName = to, fromApp = from, transitionTime = timeTaken)
     }
 
     private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
         if (duration < 20) return
-
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", true)
 
         if (isPaused && !isReady) return
+        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
 
-        val oldStats = db.dao().getAppStats(appLabel)
-        val newStats = if (oldStats == null) {
-            AppUsageProfile(appLabel, velocity, duration, 1)
-        } else {
-            val count = oldStats.interactionCount
-            val newAvgVel = ((oldStats.avgVelocity * count) + velocity) / (count + 1)
-            val newAvgDur = ((oldStats.avgDuration * count) + duration) / (count + 1)
-            AppUsageProfile(appLabel, newAvgVel, newAvgDur, count + 1)
-        }
-        db.dao().updateAppStats(newStats)
-
-        val normVelocity    = (velocity / 5000f).coerceIn(0f, 1f)
-        val normPressure    = 0.5f
-        val normAppUsage    = (newStats.interactionCount.toFloat() / 100f).coerceIn(0f, 1f)
-        val normTransition  = currentTransitionSpeed
-        val features        = floatArrayOf(normVelocity, normPressure, normAppUsage, normTransition)
-        val threshold       = prefs.getFloat("threshold", 1.0f)
-
+        // 🚨 UPGRADED: Only increment the UI swipe counts if we are actively in TRAINING MODE.
+        // If 'isReady' (USE AI) is true, we freeze the stats so they don't inflate endlessly.
         if (!isReady) {
-            if (!emaLoaded) {
-                val savedEma = db.dao().getLatestEma()
-                currentEma = savedEma ?: 1.0f
-                emaLoaded = true
+            val oldStats = db.dao().getAppStats(appLabel)
+            val newStats = if (oldStats == null) {
+                AppUsageProfile(appLabel, velocity, duration, 1)
+            } else {
+                val count = oldStats.interactionCount
+                val newAvgVel = ((oldStats.avgVelocity * count) + velocity) / (count + 1)
+                val newAvgDur = ((oldStats.avgDuration * count) + duration) / (count + 1)
+                AppUsageProfile(appLabel, newAvgVel, newAvgDur, count + 1)
             }
-
-            db.dao().insertTouch(
-                TouchProfile(
-                    duration   = duration,
-                    velocityX  = velocity,
-                    pressure   = normPressure,
-                    appName    = appLabel
-                )
-            )
-
-            val rawLoss = classifier.trainAI(features)
-            currentEma = BehavioralAuthClassifier.emaStep(currentEma, rawLoss)
-
-            db.dao().insertLossPoint(
-                LossPoint(
-                    timestamp = System.currentTimeMillis(),
-                    lossValue = rawLoss,
-                    emaValue  = currentEma
-                )
-            )
-
-            LiveLogger.log(
-                "📉 Loss → raw: ${"%.4f".format(rawLoss)}  EMA: ${"%.4f".format(currentEma)}"
-            )
-
-            // 🚨 THE FIX: Factor in the restored swipes when calculating the auto-save!
-            val restoredSwipes = prefs.getInt("restored_swipe_count", 0)
-            val currentSwipeCount = db.dao().getTotalTouchCount() + restoredSwipes
-
-            // Save it so AiCloudSyncManager can grab it
-            prefs.edit().putInt("total_swipes", currentSwipeCount).apply()
-
-            if (currentSwipeCount > 0 && currentSwipeCount % 50 == 0) {
-                LiveLogger.log("☁️ Auto-Saving Training Progress to Cloud...")
-                val syncManager = AiCloudSyncManager(this@TouchDynamicsService)
-                syncManager.backupBrainToCloud { success ->
-                    if (success) LiveLogger.log("✅ Auto-Save Complete.")
-                }
-            }
-
-        } else {
-            var riskMultiplier = 1.0f
-            if (kotlin.math.abs(velocity - newStats.avgVelocity) > 1000) {
-                riskMultiplier = 1.3f
-                LiveLogger.log("⚠️ Speed Anomaly in $appLabel")
-            }
-            val error     = classifier.getError(features) * riskMultiplier
-            val swipeRisk = ((error / threshold) * 100).toInt()
-            updateRiskScore(swipeRisk)
+            db.dao().updateAppStats(newStats)
         }
 
+        runContextualAI(velocity = velocity, duration = duration, appName = appLabel, fromApp = lastFromApp, transitionTime = (lastAppSwitchTime - lastRealAppLeaveTime).coerceAtLeast(100L))
         serviceScope.launch { syncBiometricsToWatch(-1) }
     }
 
     private fun increaseRisk(amount: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val current = prefs.getInt("current_risk", 0)
-        prefs.edit().putInt("current_risk", current + amount).apply()
-        checkLock(current + amount)
+        val newRisk = (current + amount).coerceIn(0, 100)
+        prefs.edit().putInt("current_risk", newRisk).apply()
+        checkLock(newRisk)
     }
 
     private fun decreaseRisk(amount: Int) {
@@ -720,15 +651,17 @@ class TouchDynamicsService : AccessibilityService() {
     private fun updateRiskScore(newCalculatedRisk: Int) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val oldRisk = prefs.getInt("current_risk", 0)
-        val smoothedRisk = (oldRisk + newCalculatedRisk) / 2
+        val smoothedRisk = kotlin.math.ceil((oldRisk.toFloat() + newCalculatedRisk.toFloat()) / 2f).toInt().coerceIn(0, 100)
         prefs.edit().putInt("current_risk", smoothedRisk).apply()
         checkLock(smoothedRisk)
     }
 
     private fun checkLock(risk: Int) {
-        if (risk > 120) {
+        if (risk >= 100 && !isLockdownCooldown) {
+            isLockdownCooldown = true
             serviceScope.launch(Dispatchers.Main) {
-                LiveLogger.log("🚨 DEVICE LOCKED: Threat Detected")
+                LiveLogger.log("🚨 DEVICE LOCKED: 100% Threat Reached")
+                getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putInt("current_risk", 50).apply()
                 enforcer.lockDevice("AI Touch Dynamics Threat Detected")
             }
         }
@@ -736,68 +669,24 @@ class TouchDynamicsService : AccessibilityService() {
 
     private suspend fun syncBiometricsToWatch(loopCount: Int) {
         if (com.example.aisecurity.ble.WatchManager.isConnected.value != true) return
-
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", true)
         val risk = prefs.getInt("current_risk", 0)
+        val totalSwipes = db.dao().getTotalTouchCount()
 
-        // 🚨 THE FIX: Send the true total swipe count to the Smartwatch!
-        val swipes = db.dao().getTotalTouchCount()
-        val restoredSwipes = prefs.getInt("restored_swipe_count", 0)
-        val totalSwipes = swipes + restoredSwipes
+        val status = if (isReady) { if (risk < 50) "SECURE" else if (risk < 100) "WARNING" else "INTRUDER" } else { if (isPaused) "PAUSED" else "TRAINING" }
+        val bioScore = if (isReady) risk else totalSwipes
+        val progress = if (isReady) ((risk / 100f) * 183f).toInt().coerceIn(0, 183) else ((totalSwipes.toFloat() / 200f) * 183f).toInt().coerceIn(0, 183)
+        val timeStr = if (isReady) "Active Protection" else "Hunting Plateau"
 
-        var accumulatedTime = prefs.getLong("accumulated_time", 0L)
-        val sessionStart = prefs.getLong("session_start_time", 0L)
-        if (!isPaused && sessionStart > 0 && !isReady) {
-            accumulatedTime += (System.currentTimeMillis() - sessionStart)
-        }
-
-        val requiredMs = TimeUnit.DAYS.toMillis(1)
-
-        val status = if (isReady) {
-            if (risk < 50) "SECURE" else if (risk < 100) "WARNING" else "INTRUDER"
-        } else {
-            if (isPaused) "PAUSED" else "TRAINING"
-        }
-
-        val bioScore = if (isReady) risk else totalSwipes // 🚨 Uses totalSwipes
-
-        val progress = if (isReady) {
-            ((risk / 120f) * 183f).toInt().coerceIn(0, 183)
-        } else {
-            ((accumulatedTime.toFloat() / requiredMs) * 183f).toInt().coerceIn(0, 183)
-        }
-
-        val timeStr = if (isReady) {
-            "Active Protection"
-        } else {
-            val remainingMs = (requiredMs - accumulatedTime).coerceAtLeast(0)
-            val d = TimeUnit.MILLISECONDS.toDays(remainingMs)
-            val h = TimeUnit.MILLISECONDS.toHours(remainingMs) % 24
-            "$d d $h h remaining"
-        }
-
-        com.example.aisecurity.ble.WatchManager.sendData("<BIO:$bioScore|$status|$progress|$timeStr>")
-        delay(40)
-
-        val safeFrom = lastFromApp.take(15)
-        val safeTo = lastToApp.take(15)
-        com.example.aisecurity.ble.WatchManager.sendData("<BIOTRANS:$safeFrom|$safeTo>")
-        delay(40)
+        com.example.aisecurity.ble.WatchManager.sendData("<BIO:$bioScore|$status|$progress|$timeStr>"); delay(40)
+        com.example.aisecurity.ble.WatchManager.sendData("<BIOTRANS:${lastFromApp.take(15)}|${lastToApp.take(15)}>"); delay(40)
 
         if (loopCount % 3 == 0 || loopCount == -1) {
-            com.example.aisecurity.ble.WatchManager.sendData("<BIOAPP:CLEAR>")
-            delay(40)
-
-            val allApps = db.dao().getAllAppStats()
-            val topApps = allApps.sortedByDescending { it.interactionCount }.take(5)
-
-            for (app in topApps) {
-                val speed = app.avgVelocity.toInt()
-                val count = app.interactionCount
-
-                com.example.aisecurity.ble.WatchManager.sendData("<BIOAPP:${app.packageName}|$speed px/s   $count>")
+            com.example.aisecurity.ble.WatchManager.sendData("<BIOAPP:CLEAR>"); delay(40)
+            db.dao().getAllAppStats().sortedByDescending { it.interactionCount }.take(5).forEach { app ->
+                com.example.aisecurity.ble.WatchManager.sendData("<BIOAPP:${app.packageName}|${app.avgVelocity.toInt()} px/s   ${app.interactionCount}>")
                 delay(40)
             }
             com.example.aisecurity.ble.WatchManager.sendData("<BIOAPP:END>")
@@ -810,10 +699,7 @@ class TouchDynamicsService : AccessibilityService() {
         super.onDestroy()
         removeAegisShield()
         isWatchSyncLoopRunning = false
-        try {
-            unregisterReceiver(ghostReceiver)
-            unregisterReceiver(osBiometricSyncReceiver)
-        } catch (_: IllegalArgumentException) {}
+        try { unregisterReceiver(ghostReceiver); unregisterReceiver(osBiometricSyncReceiver) } catch (_: IllegalArgumentException) {}
         serviceScope.cancel()
     }
 }

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
+<androidx.coordinatorlayout.widget.CoordinatorLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -8,90 +8,156 @@
 
     <FrameLayout
         android:id="@+id/map_container"
-        android:layout_width="0dp"
-        android:layout_height="0dp"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <org.osmdroid.views.MapView
-            android:id="@+id/mapView"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent" />
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
         <androidx.fragment.app.FragmentContainerView
             android:id="@+id/googleMapContainer"
             android:name="com.google.android.gms.maps.SupportMapFragment"
             android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:layout_height="match_parent" />
+
+        <FrameLayout
+            android:id="@+id/btnNavMode"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_gravity="top|end"
+            android:layout_marginTop="110dp"
+            android:layout_marginEnd="16dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:elevation="8dp">
+
+            <TextView
+                android:id="@+id/tvNavMode"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:text="3D"
+                android:fontFamily="@font/inter"
+                android:textStyle="bold"
+                android:textSize="16sp" />
+        </FrameLayout>
     </FrameLayout>
 
     <LinearLayout
-        android:id="@+id/bottomControlCard"
+        android:id="@+id/bottomSheet"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginHorizontal="20dp"
-        android:layout_marginBottom="32dp"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:padding="20dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        android:paddingTop="12dp"
+        android:paddingHorizontal="24dp"
+        android:elevation="24dp"
+        app:behavior_peekHeight="100dp"
+        app:behavior_hideable="false"
+        app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
+
+        <View
+            android:id="@+id/dragHandle"
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:gravity="center_vertical"
+            android:layout_marginBottom="16dp">
 
-            <TextView
-                android:id="@+id/tvSecureTrackingTitle"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:fontFamily="@font/inter"
-                android:letterSpacing="0.1"
-                android:text="SECURE TRACKING"
-                android:textSize="14sp"
-                android:textStyle="bold" />
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvSecureTrackingTitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="SECURE TRACKING"
+                    android:fontFamily="@font/inter"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.1" />
+
+                <TextView
+                    android:id="@+id/tvLocationStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Locating..."
+                    android:fontFamily="@font/inter"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/tvNetworkStatus"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:paddingHorizontal="14dp"
-                android:paddingVertical="6dp"
-                android:text="CHECKING"
-                android:fontFamily="@font/inter"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:text="ONLINE"
+                android:textColor="#10B981"
                 android:textSize="11sp"
-                android:letterSpacing="0.05"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                android:fontFamily="@font/inter" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvLocationStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="20dp"
-            android:fontFamily="@font/inter"
-            android:text="Waiting for secure coordinates..."
-            android:textSize="14sp" />
-
         <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/btnSettings"
+            android:id="@+id/btnSos"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:text="TRUSTED CONTACTS"
+            android:layout_height="50dp"
+            android:text="TRIGGER EMERGENCY SOS"
             android:fontFamily="@font/inter"
-            android:textSize="14sp"
-            android:textColor="#FFFFFF"
+            android:textSize="13sp"
             android:textStyle="bold"
-            android:letterSpacing="0.08"
-            android:stateListAnimator="@null"
-            android:background="@null" />
-    </LinearLayout>
+            android:letterSpacing="0.05"
+            android:layout_marginBottom="16dp"
+            android:stateListAnimator="@null" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <View
+            android:id="@+id/divider"
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginBottom="16dp" />
+
+        <androidx.core.widget.NestedScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true"
+            android:overScrollMode="never">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recyclerMapContacts"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:orientation="vertical"
+                    android:clipToPadding="false"
+                    android:nestedScrollingEnabled="false" />
+
+                <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginBottom="32dp"
+                    android:text="MANAGE CONTACTS"
+                    android:fontFamily="@font/inter"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.08"
+                    android:stateListAnimator="@null"
+                    android:background="@null" />
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

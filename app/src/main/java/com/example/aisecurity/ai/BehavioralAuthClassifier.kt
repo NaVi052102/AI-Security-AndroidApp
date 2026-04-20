@@ -8,7 +8,6 @@ import java.io.FileInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
-import kotlin.math.abs
 import kotlin.math.pow
 import kotlin.math.sqrt
 
@@ -16,9 +15,6 @@ class BehavioralAuthClassifier(private val context: Context) {
     private var interpreter: Interpreter? = null
     private val checkpointFile = File(context.filesDir, "brain_checkpoint.ckpt")
 
-    // ─── EMA state lives here so it persists across calls within a session ───
-    // On cold start it's loaded from SharedPreferences in TouchDynamicsService
-    // before any training call.  We expose a setter so the service can seed it.
     private var emaSeed: Float? = null
 
     fun seedEma(value: Float) { emaSeed = value }
@@ -50,37 +46,32 @@ class BehavioralAuthClassifier(private val context: Context) {
         )
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // SIGNATURE 1 — INFER  (verification / error scoring)
-    // ─────────────────────────────────────────────────────────────
     fun getError(features: FloatArray): Float {
         return try {
             val ai = interpreter ?: return 1.0f
             val inputMap = mapOf("x" to arrayOf(features))
-            val outputBuffer = ByteBuffer.allocateDirect(4 * 4)
+
+            val outputBuffer = ByteBuffer.allocateDirect(6 * 4)
                 .order(ByteOrder.nativeOrder()).asFloatBuffer()
             val outputMap = mapOf("output" to outputBuffer)
             ai.runSignature(inputMap, outputMap, "infer")
 
-            val reconstruction = FloatArray(4)
+            val reconstruction = FloatArray(6)
             outputBuffer.rewind()
             outputBuffer.get(reconstruction)
 
-            var error = 0f
-            for (i in 0..3) error += abs(features[i] - reconstruction[i])
-            error / 4f
+            var mseError = 0f
+            for (i in 0..5) {
+                val diff = features[i] - reconstruction[i]
+                mseError += (diff * diff)
+            }
+            mseError / 6f
         } catch (e: Exception) {
             LiveLogger.log("INFER ERROR: ${e.message}")
             1.0f
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // SIGNATURE 2 — TRAIN
-    // Returns the RAW per-sample MSE from TFLite (untouched).
-    // The caller (TouchDynamicsService) owns EMA smoothing so it
-    // can also persist the EMA across process restarts.
-    // ─────────────────────────────────────────────────────────────
     fun trainAI(features: FloatArray): Float {
         return try {
             val ai = interpreter ?: return 1.0f
@@ -97,8 +88,6 @@ class BehavioralAuthClassifier(private val context: Context) {
 
             saveWeights()
 
-            // Clamp to [0, 1] — TFLite can occasionally spit out NaN/Inf on the
-            // very first call before variables are fully seeded.
             if (rawLoss.isNaN() || rawLoss.isInfinite()) 1.0f else rawLoss.coerceIn(0f, 1f)
 
         } catch (e: Exception) {
@@ -108,9 +97,6 @@ class BehavioralAuthClassifier(private val context: Context) {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // SIGNATURE 3 & 4 — SAVE / RESTORE
-    // ─────────────────────────────────────────────────────────────
     private fun saveWeights() {
         try {
             val ai = interpreter ?: return
@@ -130,25 +116,17 @@ class BehavioralAuthClassifier(private val context: Context) {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────
-    // UTILITIES
-    // ─────────────────────────────────────────────────────────────
     fun wipeMemory() {
         if (checkpointFile.exists()) checkpointFile.delete()
         setupInterpreter()
     }
 
     companion object {
-        // alpha = 0.05 → very smooth, slow to react (good for a 24-hour curve)
-        // alpha = 0.15 → medium smoothing
-        // alpha = 0.30 → responsive but still filters noise
-        const val EMA_ALPHA = 0.05f
+        // 🚨 FIX: Changed from 0.01f to 0.002f.
+        // The AI is now extremely stubborn. It will require hundreds of stable
+        // swipes before the EMA line drops enough to grant 100% Armed status.
+        const val EMA_ALPHA = 0.002f
 
-        /**
-         * Apply one EMA step.
-         * @param prev   previous EMA value (loaded from prefs on cold start)
-         * @param raw    raw per-sample MSE from trainAI()
-         */
         fun emaStep(prev: Float, raw: Float): Float =
             EMA_ALPHA * raw + (1f - EMA_ALPHA) * prev
 
@@ -156,7 +134,8 @@ class BehavioralAuthClassifier(private val context: Context) {
             if (errors.isEmpty()) return 1.0f
             val mean = errors.average()
             val stdDev = sqrt(errors.map { (it - mean).pow(2) }.average())
-            val sensitivity = 0.5
+
+            val sensitivity = 3.0
             return (mean + (sensitivity * stdDev)).toFloat()
         }
     }

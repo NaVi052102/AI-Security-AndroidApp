@@ -9,6 +9,37 @@
     android:layout_marginBottom="12dp"
     android:gravity="center_vertical">
 
+    <FrameLayout
+        android:layout_width="120dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="16dp">
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#1A10B981" />
+
+        <ProgressBar
+            android:id="@+id/pbAppTraining"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:progressTint="#10B981"
+            android:max="100"
+            android:progress="0" />
+
+        <TextView
+            android:id="@+id/tvAppProgress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:text="0%"
+            android:textSize="10sp"
+            android:textColor="#FFFFFF"
+            android:fontFamily="@font/inter"
+            android:textStyle="bold" />
+    </FrameLayout>
+
     <TextView
         android:id="@+id/tvAppName"
         android:layout_width="0dp"

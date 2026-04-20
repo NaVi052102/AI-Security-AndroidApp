@@ -13,16 +13,32 @@
         android:orientation="vertical"
         android:paddingTop="24dp">
 
-        <TextView
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="24dp"
-            android:layout_marginBottom="24dp"
-            android:fontFamily="@font/inter"
-            android:text="Monitor real-time AI security learning and manage your continuous behavioral protection."
-            android:textColor="@color/ig_text_secondary"
-            android:textSize="14sp"
-            android:lineSpacingExtra="4dp"/>
+            android:layout_marginBottom="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_toStartOf="@id/btnInfo"
+                android:layout_marginEnd="16dp"
+                android:fontFamily="@font/inter"
+                android:text="Monitor real-time AI security learning and manage your continuous behavioral protection."
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="14sp"
+                android:lineSpacingExtra="4dp"/>
+
+            <ImageButton
+                android:id="@+id/btnInfo"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_alignParentEnd="true"
+                android:background="?selectableItemBackgroundBorderless"
+                android:src="@android:drawable/ic_dialog_info"
+                app:tint="#3B82F6" />
+        </RelativeLayout>
 
         <LinearLayout
             android:id="@+id/cardStatus"
@@ -74,7 +90,9 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
                 android:fontFamily="@font/inter"
-                android:text="Training: 0/200 Swipes"
+                android:text="AI CONVERGENCE"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"
                 android:textColor="@color/ig_text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -220,7 +238,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:fontFamily="@font/inter"
-                        android:text="Monitoring..."
+                        android:text="Monitoring"
                         android:textColor="@color/ig_text_primary"
                         android:textSize="16sp"
                         android:textStyle="bold"
@@ -230,17 +248,22 @@
             </LinearLayout>
         </LinearLayout>
 
-        <TextView
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="LIVE APP INSIGHTS"
-            android:fontFamily="@font/inter"
-            android:textColor="@color/ig_text_secondary"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.1"
-            android:layout_marginStart="24dp"
-            android:layout_marginBottom="8dp"/>
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="LIVE APP INSIGHTS"
+                android:fontFamily="@font/inter"
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:letterSpacing="0.1"/>
+        </LinearLayout>
 
         <androidx.recyclerview.widget.RecyclerView
             android:id="@+id/recyclerAppStats"

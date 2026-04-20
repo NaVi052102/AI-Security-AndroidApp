@@ -20,6 +20,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
+import androidx.constraintlayout.widget.ConstraintLayout
 import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -110,6 +111,69 @@ class TrustedContactsFragment : Fragment() {
 
         loadContacts()
         btnAddContact.setOnClickListener { showAddEditDialog(null) }
+    }
+
+    // 🚨 NEW: Hides both Top Bar and Bottom Nav to make it fully immersive
+    private fun toggleFullScreen(isFullScreen: Boolean) {
+        val activity = activity ?: return
+        val appBar = activity.findViewById<View>(R.id.appBarLayout)
+        val bottomNav = activity.findViewById<View>(R.id.bottom_navigation_container)
+        val container = activity.findViewById<View>(R.id.fragment_container)
+
+        if (appBar == null || bottomNav == null || container == null) return
+
+        val params = container.layoutParams as ConstraintLayout.LayoutParams
+
+        if (isFullScreen) {
+            // Hide the bars
+            appBar.visibility = View.GONE
+            bottomNav.visibility = View.GONE
+
+            // Stretch Container to the very Top and very Bottom of screen
+            params.topToBottom = ConstraintLayout.LayoutParams.UNSET
+            params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
+
+            params.bottomToTop = ConstraintLayout.LayoutParams.UNSET
+            params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
+        } else {
+            // Restore the bars
+            appBar.visibility = View.VISIBLE
+            bottomNav.visibility = View.VISIBLE
+
+            // Constrain Container back between the Top and Bottom bars
+            params.topToTop = ConstraintLayout.LayoutParams.UNSET
+            params.topToBottom = R.id.appBarLayout
+
+            params.bottomToBottom = ConstraintLayout.LayoutParams.UNSET
+            params.bottomToTop = R.id.bottom_navigation_container
+        }
+
+        container.layoutParams = params
+        container.requestLayout()
+    }
+
+    // 🚨 TRIGGER FULL SCREEN WHEN FRAGMENT OPENS
+    override fun onResume() {
+        super.onResume()
+        if (!isHidden) toggleFullScreen(true)
+    }
+
+    // 🚨 RESTORE LAYOUT WHEN LEAVING OR BACKGROUNDING
+    override fun onPause() {
+        super.onPause()
+        toggleFullScreen(false)
+    }
+
+    // 🚨 RESTORE LAYOUT IF BACK BUTTON DESTROYS FRAGMENT
+    override fun onDestroyView() {
+        super.onDestroyView()
+        toggleFullScreen(false)
+    }
+
+    // 🚨 HANDLE VISIBILITY IF WE USE .hide() & .show()
+    override fun onHiddenChanged(hidden: Boolean) {
+        super.onHiddenChanged(hidden)
+        toggleFullScreen(!hidden)
     }
 
     private fun showAddEditDialog(existingContact: TrustedContact?) {
@@ -431,7 +495,7 @@ class TrustedContactsFragment : Fragment() {
             val contact = contacts[position]
 
             if (contact.uid.isNotEmpty()) {
-                holder.tvName.text = "${contact.name} 🟢"
+                holder.tvName.text = "${contact.name} \uD83D\uDFE2" // Green circle indicating active
             } else {
                 holder.tvName.text = contact.name
             }
@@ -441,7 +505,6 @@ class TrustedContactsFragment : Fragment() {
             val isNightMode = (holder.itemView.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
             applyAvatarBackground(holder.tvInitials, isNightMode)
 
-            // 🚨 THE FIX: Force Decode the Local File URI Bytes instead of relying on the buggy wrapper
             if (contact.photoUri.isNotEmpty()) {
                 try {
                     val uri = Uri.parse(contact.photoUri)

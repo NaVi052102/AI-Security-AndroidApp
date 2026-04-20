@@ -1,5 +1,6 @@
 package com.example.aisecurity.ui.map
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
 import android.graphics.drawable.BitmapDrawable
@@ -9,13 +10,16 @@ import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
+import android.os.BatteryManager
 import android.os.Bundle
-import android.preference.PreferenceManager
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -23,8 +27,12 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
@@ -32,20 +40,14 @@ import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import org.json.JSONArray
 import org.json.JSONObject
-import org.osmdroid.config.Configuration
-import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
-import org.osmdroid.util.MapTileIndex
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Polyline
-import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
 import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.Circle
+import com.google.android.gms.maps.model.CircleOptions
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.gms.maps.model.MarkerOptions
@@ -56,47 +58,74 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
+data class MapContactSummary(
+    val uid: String,
+    val name: String,
+    val colorHex: String,
+    var locationName: String = "Locating...",
+    var statusStr: String = "Connecting..."
+)
+
+@SuppressLint("MissingPermission")
 class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
 
-    private lateinit var map: MapView
     private lateinit var googleMapContainer: View
     private lateinit var tvLocationStatus: TextView
     private lateinit var tvNetworkStatus: TextView
     private lateinit var btnSettings: Button
+    private lateinit var btnSos: androidx.appcompat.widget.AppCompatButton
 
-    private lateinit var myLocationMarker: Marker
+    // 3D NAVIGATION VARIABLES
+    private lateinit var btnNavMode: View
+    private lateinit var tvNavMode: TextView
+    private var isNavModeActive = false
+    private var lastKnownBearing = 0f
+    private var lastKnownCompassBearing = 0f
+
+    // Vertical Recycler Variables
+    private lateinit var recyclerMapContacts: RecyclerView
+    private val mapContactsList = mutableListOf<MapContactSummary>()
+    private lateinit var mapContactsAdapter: MapContactsAdapter
+
     private var gMap: GoogleMap? = null
     private var gMapMarker: com.google.android.gms.maps.model.Marker? = null
 
-    private lateinit var gpsProvider: GpsMyLocationProvider
+    private lateinit var locationManager: LocationManager
     private lateinit var sensorManager: SensorManager
     private var rotationSensor: Sensor? = null
     private lateinit var connectivityManager: ConnectivityManager
     private lateinit var networkCallback: ConnectivityManager.NetworkCallback
 
     private var isFirstLocationUpdate = true
-    private var myCurrentGeoPoint: GeoPoint? = null
     private var myCurrentLatLng: LatLng? = null
 
     private var myName: String = "Me"
     private var myPhotoUri: String = ""
     private var cachedMyBitmap: android.graphics.Bitmap? = null
+    private var lastSosStateForBitmap = false // Tracks if we need to redraw the avatar arrow to RED
+    private var isSosActive: Boolean = false
 
     private val activeFirebaseListeners = mutableListOf<ListenerRegistration>()
-    private val contactMarkersOSM = mutableMapOf<String, Marker>()
-    private val contactLinesOSM = mutableMapOf<String, Polyline>()
+
     private val contactMarkersGMap = mutableMapOf<String, com.google.android.gms.maps.model.Marker>()
     private val contactLinesGMap = mutableMapOf<String, com.google.android.gms.maps.model.Polyline>()
+    private val accuracyCirclesGMap = mutableMapOf<String, Circle>()
 
     private var lastRouteFetchTime = 0L
-    private val routeCache = mutableMapOf<String, MutableList<GeoPoint>>()
+    private val routeCache = mutableMapOf<String, MutableList<LatLng>>()
+
+    private var currentlySelectedUid: String? = null
+
+    private var myArrivalTime = System.currentTimeMillis()
+    private var myLastStationaryLatLng: LatLng? = null
+    private val contactArrivalTimes = mutableMapOf<String, Long>()
+    private val contactStationaryLatLngs = mutableMapOf<String, LatLng>()
+    private val GEOFENCE_RADIUS_METERS = 30.0
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
-        val ctx = requireActivity().applicationContext
-        Configuration.getInstance().load(ctx, PreferenceManager.getDefaultSharedPreferences(ctx))
         return inflater.inflate(R.layout.fragment_map, container, false)
     }
 
@@ -106,39 +135,197 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
-        map = view.findViewById(R.id.mapView)
         googleMapContainer = view.findViewById(R.id.googleMapContainer)
         tvLocationStatus = view.findViewById(R.id.tvLocationStatus)
         tvNetworkStatus = view.findViewById(R.id.tvNetworkStatus)
         btnSettings = view.findViewById(R.id.btnSettings)
+        btnSos = view.findViewById(R.id.btnSos)
+        recyclerMapContacts = view.findViewById(R.id.recyclerMapContacts)
 
-        val bottomControlCard = view.findViewById<LinearLayout>(R.id.bottomControlCard)
-        val tvSecureTrackingTitle = view.findViewById<TextView>(R.id.tvSecureTrackingTitle)
+        btnNavMode = view.findViewById(R.id.btnNavMode)
+        tvNavMode = view.findViewById(R.id.tvNavMode)
 
-        val isNightMode = isDarkMode()
-        if (!isNightMode) {
-            val cardBg = GradientDrawable().apply {
-                cornerRadius = 60f
-                setColor(Color.parseColor("#F5FFFFFF"))
-                setStroke(2, Color.parseColor("#CBD5E1"))
+        setupUI()
+
+        val mapFragment = childFragmentManager.findFragmentById(R.id.googleMapContainer) as SupportMapFragment
+        mapFragment.getMapAsync(this)
+
+        locationManager = requireContext().getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+        connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        networkCallback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                activity?.runOnUiThread {
+                    tvNetworkStatus.text = "ONLINE"
+                    tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
+                    tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
+                }
             }
-            bottomControlCard.background = cardBg
-            tvSecureTrackingTitle.setTextColor(Color.parseColor("#0F172A"))
-            tvLocationStatus.setTextColor(Color.parseColor("#334155"))
-        } else {
-            val cardBg = GradientDrawable().apply {
-                cornerRadius = 60f
-                setColor(Color.parseColor("#E60F172A"))
-                setStroke(2, Color.parseColor("#334155"))
+            override fun onLost(network: Network) {
+                activity?.runOnUiThread {
+                    tvNetworkStatus.text = "OFFLINE"
+                    tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+                    tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+                }
             }
-            bottomControlCard.background = cardBg
-            tvSecureTrackingTitle.setTextColor(Color.parseColor("#F8FAFC"))
-            tvLocationStatus.setTextColor(Color.parseColor("#94A3B8"))
         }
 
+        sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+
+        btnSos.setOnClickListener { toggleSosProtocol() }
+
+        if (!isHidden) {
+            view.post { toggleFullScreenMap(true) }
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return (dp * resources.displayMetrics.density).toInt()
+    }
+
+    private fun distanceBetween(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val results = FloatArray(1)
+        Location.distanceBetween(lat1, lon1, lat2, lon2, results)
+        return results[0].toDouble()
+    }
+
+    inner class MapContactsAdapter : RecyclerView.Adapter<MapContactsAdapter.ViewHolder>() {
+        inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+            val tvAvatar: TextView = view.findViewById(R.id.tvMapContactAvatar)
+            val tvName: TextView = view.findViewById(R.id.tvMapContactName)
+            val tvLocation: TextView = view.findViewById(R.id.tvMapContactLocation)
+            val tvStatus: TextView = view.findViewById(R.id.tvMapContactStatus)
+        }
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
+            val view = layoutInflater.inflate(R.layout.item_map_bottom_contact, parent, false)
+            return ViewHolder(view)
+        }
+
+        override fun onBindViewHolder(holder: ViewHolder, position: Int) {
+            val contact = mapContactsList[position]
+
+            holder.tvName.text = contact.name
+            holder.tvAvatar.text = getInitials(contact.name)
+            holder.tvLocation.text = contact.locationName
+            holder.tvStatus.text = contact.statusStr
+
+            val isNightMode = isDarkMode()
+
+            holder.itemView.background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = 32f
+                if (isNightMode) {
+                    setColor(Color.parseColor("#1E293B"))
+                    setStroke(2, Color.parseColor("#334155"))
+                } else {
+                    setColor(Color.parseColor("#F8FAFC"))
+                    setStroke(2, Color.parseColor("#E2E8F0"))
+                }
+            }
+
+            holder.tvAvatar.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor(contact.colorHex))
+            }
+
+            holder.itemView.setOnClickListener {
+                if (contact.uid == "ME") {
+                    currentlySelectedUid = null
+                    myCurrentLatLng?.let { latLng -> gMap?.animateCamera(CameraUpdateFactory.newLatLng(latLng)) }
+                    gMapMarker?.showInfoWindow()
+                } else {
+                    currentlySelectedUid = contact.uid
+                    contactMarkersGMap[contact.uid]?.let { marker ->
+                        gMap?.animateCamera(CameraUpdateFactory.newLatLng(marker.position))
+                        marker.showInfoWindow()
+                    }
+                }
+                updateAllTrackingLines()
+            }
+        }
+        override fun getItemCount() = mapContactsList.size
+    }
+
+    private fun toggleFullScreenMap(isMapVisible: Boolean) {
+        val activity = requireActivity()
+        val appBar = activity.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.appBarLayout)
+        val toolbar = activity.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.topAppBar)
+        val container = activity.findViewById<View>(R.id.fragment_container)
+
+        if (toolbar == null || container == null || appBar == null) return
+
+        val params = container.layoutParams as androidx.constraintlayout.widget.ConstraintLayout.LayoutParams
+
+        if (isMapVisible) {
+            toolbar.setBackgroundResource(android.R.color.transparent)
+            appBar.setBackgroundResource(android.R.color.transparent)
+            appBar.elevation = 0f
+            toolbar.setTitleTextColor(Color.TRANSPARENT)
+
+            params.topToBottom = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+            params.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.PARENT_ID
+            appBar.bringToFront()
+            appBar.translationZ = 100f
+        } else {
+            toolbar.setBackgroundResource(R.color.ig_background)
+            appBar.setBackgroundResource(R.color.ig_background)
+            appBar.elevation = dpToPx(4).toFloat()
+
+            val primaryTextColor = ContextCompat.getColor(requireContext(), R.color.ig_text_primary)
+            toolbar.setTitleTextColor(primaryTextColor)
+
+            params.topToTop = androidx.constraintlayout.widget.ConstraintLayout.LayoutParams.UNSET
+            params.topToBottom = R.id.appBarLayout
+            appBar.translationZ = 0f
+        }
+        container.layoutParams = params
+        container.requestLayout()
+    }
+
+    private fun setupUI() {
+        val bottomSheet = requireView().findViewById<LinearLayout>(R.id.bottomSheet)
+        val tvSecureTrackingTitle = requireView().findViewById<TextView>(R.id.tvSecureTrackingTitle)
+        val dragHandle = requireView().findViewById<View>(R.id.dragHandle)
+        val divider = requireView().findViewById<View>(R.id.divider)
+        val isNightMode = isDarkMode()
+
+        mapContactsAdapter = MapContactsAdapter()
+        recyclerMapContacts.layoutManager = LinearLayoutManager(requireContext())
+        recyclerMapContacts.adapter = mapContactsAdapter
+
+        val cornerRadiiArray = floatArrayOf(80f, 80f, 80f, 80f, 0f, 0f, 0f, 0f)
+
+        if (!isNightMode) {
+            dragHandle.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 50f; setColor(Color.parseColor("#CBD5E1")) }
+            bottomSheet.background = GradientDrawable().apply { cornerRadii = cornerRadiiArray; setColor(Color.parseColor("#FFFFFF")); setStroke(2, Color.parseColor("#E2E8F0")) }
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#64748B"))
+            tvLocationStatus.setTextColor(Color.parseColor("#0F172A"))
+            divider.setBackgroundColor(Color.parseColor("#F1F5F9"))
+        } else {
+            dragHandle.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 50f; setColor(Color.parseColor("#475569")) }
+            bottomSheet.background = GradientDrawable().apply { cornerRadii = cornerRadiiArray; setColor(Color.parseColor("#12151C")); setStroke(2, Color.parseColor("#1E293B")) }
+            tvSecureTrackingTitle.setTextColor(Color.parseColor("#94A3B8"))
+            tvLocationStatus.setTextColor(Color.parseColor("#F8FAFC"))
+            divider.setBackgroundColor(Color.parseColor("#1E293B"))
+        }
+
+        val sosBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 1000f
+            setStroke(4, Color.parseColor("#EF4444"))
+        }
+        if (isNightMode) {
+            sosBg.setColor(Color.parseColor("#1A0000"))
+            btnSos.setTextColor(Color.parseColor("#EF4444"))
+        } else {
+            sosBg.setColor(Color.parseColor("#FEF2F2"))
+            btnSos.setTextColor(Color.parseColor("#DC2626"))
+        }
+        btnSos.background = sosBg
         applyGlassButton(btnSettings, isNightMode)
 
-        // 🚨 THE FIX: Revert to .hide() to prevent the Google Maps Backstack crash
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
@@ -147,37 +334,71 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 .commit()
         }
 
-        setupOfflineMap()
+        updateNavButtonUI(isNightMode)
+        btnNavMode.setOnClickListener {
+            isNavModeActive = !isNavModeActive
+            updateNavButtonUI(isNightMode)
 
-        connectivityManager = requireContext().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
-        networkCallback = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) { activity?.runOnUiThread { switchToOnlineMap() } }
-            override fun onLost(network: Network) { activity?.runOnUiThread { switchToOfflineMap() } }
+            myCurrentLatLng?.let { latLng ->
+                if (isNavModeActive) {
+                    val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
+                        .target(latLng)
+                        .zoom(19.5f)
+                        .tilt(65f)
+                        .bearing(lastKnownBearing)
+                        .build()
+                    gMap?.animateCamera(CameraUpdateFactory.newCameraPosition(camPos))
+                } else {
+                    val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
+                        .target(latLng)
+                        .zoom(17f)
+                        .tilt(0f)
+                        .bearing(0f)
+                        .build()
+                    gMap?.animateCamera(CameraUpdateFactory.newCameraPosition(camPos))
+                }
+            }
         }
-
-        gpsProvider = GpsMyLocationProvider(requireContext())
-        gpsProvider.locationUpdateMinTime = 0
-        gpsProvider.locationUpdateMinDistance = 0f
-
-        sensorManager = requireContext().getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        rotationSensor = sensorManager.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
     }
 
-    // 🚨 THE FIX: Manage battery & sensors when the fragment is hidden/shown
+    private fun updateNavButtonUI(isNightMode: Boolean) {
+        if (isNavModeActive) {
+            btnNavMode.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 32f; setColor(Color.parseColor("#3B82F6")) }
+            tvNavMode.setTextColor(Color.WHITE)
+        } else {
+            if (isNightMode) {
+                btnNavMode.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 32f; setColor(Color.parseColor("#12151C")); setStroke(2, Color.parseColor("#1E293B")) }
+                tvNavMode.setTextColor(Color.parseColor("#94A3B8"))
+            } else {
+                btnNavMode.background = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 32f; setColor(Color.parseColor("#FFFFFF")); setStroke(2, Color.parseColor("#E2E8F0")) }
+                tvNavMode.setTextColor(Color.parseColor("#64748B"))
+            }
+        }
+    }
+
+    private fun toggleSosProtocol() {
+        isSosActive = !isSosActive
+        val userId = auth.currentUser?.uid ?: return
+        db.collection("Users").document(userId).set(hashMapOf("isSOS" to isSosActive), SetOptions.merge())
+
+        if (isSosActive) {
+            Toast.makeText(requireContext(), "🚨 EMERGENCY PROTOCOL ENGAGED! Contacts notified.", Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(requireContext(), "✅ Emergency Cancelled.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
+        view?.post { toggleFullScreenMap(!hidden) }
+
         if (hidden) {
-            // Fragment is hidden (Trusted Contacts open). Pause all heavy tasks.
-            map.onPause()
-            gpsProvider.stopLocationProvider()
+            stopLocationTracking()
             sensorManager.unregisterListener(this)
             activeFirebaseListeners.forEach { it.remove() }
             activeFirebaseListeners.clear()
         } else {
-            // Fragment is visible again (Back button pressed). Resume everything!
-            map.onResume()
             lastRouteFetchTime = 0L
-
             val userId = auth.currentUser?.uid
             if (userId != null) {
                 startLocationTracking(userId)
@@ -187,84 +408,130 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
-    private fun createMarkerBitmap(context: Context, name: String, photoUri: String): android.graphics.Bitmap? {
+    inner class CustomGoogleInfoWindowAdapter : GoogleMap.InfoWindowAdapter {
+        override fun getInfoWindow(marker: com.google.android.gms.maps.model.Marker): View? {
+            val view = layoutInflater.inflate(R.layout.layout_map_info_window, null)
+            val tvName = view.findViewById<TextView>(R.id.tvInfoName)
+            val tvStatus = view.findViewById<TextView>(R.id.tvInfoStatus)
+            val tvBattery = view.findViewById<TextView>(R.id.tvInfoBattery)
+            val tvDistance = view.findViewById<TextView>(R.id.tvInfoDistance)
+
+            try {
+                val data = JSONObject(marker.snippet ?: "{}")
+                tvName.text = data.getString("name")
+                tvStatus.text = data.getString("status")
+                tvDistance.text = "📍 ${data.getString("distance")}"
+
+                val battery = data.getInt("battery")
+                tvBattery.text = "🔋 $battery%"
+                tvBattery.setTextColor(if (battery <= 20) Color.parseColor("#EF4444") else Color.parseColor("#10B981"))
+
+                if (data.getBoolean("isSOS")) {
+                    tvStatus.text = "🚨 SOS ACTIVE 🚨"
+                    tvStatus.setTextColor(Color.parseColor("#EF4444"))
+                }
+            } catch (e: Exception) {
+                tvName.text = marker.title
+                tvStatus.text = marker.snippet
+            }
+            return view
+        }
+        override fun getInfoContents(marker: com.google.android.gms.maps.model.Marker): View? = null
+    }
+
+    private fun getBatteryLevel(): Int {
+        val bm = requireContext().getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+        return bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    }
+
+    private fun formatDistance(meters: Double): String {
+        return if (meters < 1000) "${meters.toInt()}m" else String.format("%.1fkm", meters / 1000f)
+    }
+
+    private fun formatDuration(millis: Long): String {
+        val mins = millis / 60000
+        if (mins < 1) return "Just arrived"
+        val hours = mins / 60
+        if (hours > 0) return "${hours}h ${mins % 60}m"
+        return "${mins}m"
+    }
+
+    private fun getInitials(name: String): String {
+        return name.trim().split("\\s+".toRegex()).mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
+    }
+
+    // 🚨 NEW AVATAR GENERATOR: Draws the 3D Directional Arrow
+    private fun createMarkerBitmap(context: Context, name: String, photoUri: String, arrowColorHex: String): android.graphics.Bitmap? {
         try {
-            val size = (60 * context.resources.displayMetrics.density).toInt()
+            val density = context.resources.displayMetrics.density
+            val size = (76 * density).toInt() // Increased size to fit the arrow
             val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
-
             val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+
             val center = size / 2f
-            val radius = size / 2f
+            val radius = 26 * density
 
+            // 1. Draw the Directional Arrow pointing UP (0 degrees)
+            paint.color = android.graphics.Color.parseColor(arrowColorHex)
+            val path = android.graphics.Path()
+            path.moveTo(center, 2 * density) // Tip of arrow
+            path.lineTo(center - (10 * density), 18 * density) // Left base
+            path.lineTo(center + (10 * density), 18 * density) // Right base
+            path.close()
+
+            // Add a deep shadow to the arrow to make it pop in 3D
+            paint.setShadowLayer(4f, 0f, 2f, android.graphics.Color.argb(80, 0, 0, 0))
+            canvas.drawPath(path, paint)
+            paint.clearShadowLayer()
+
+            // 2. Draw the White Border for the Avatar
             paint.color = android.graphics.Color.WHITE
+            paint.setShadowLayer(6f, 0f, 3f, android.graphics.Color.argb(100, 0, 0, 0))
             canvas.drawCircle(center, center, radius, paint)
+            paint.clearShadowLayer()
 
-            val innerRadius = radius - (4 * context.resources.displayMetrics.density)
+            // 3. Draw the Inner Avatar
+            val innerRadius = radius - (3 * density)
             var imageDrawn = false
-
             if (photoUri.isNotEmpty()) {
                 try {
                     val uri = Uri.parse(photoUri)
                     val inputStream = context.contentResolver.openInputStream(uri)
                     val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
                     inputStream?.close()
-
                     if (rawBitmap != null) {
                         val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(rawBitmap, (innerRadius * 2).toInt(), (innerRadius * 2).toInt(), true)
-
                         val shader = android.graphics.BitmapShader(scaledBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
                         val shaderPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
                         shaderPaint.shader = shader
-
                         canvas.translate(center - innerRadius, center - innerRadius)
                         canvas.drawCircle(innerRadius, innerRadius, innerRadius, shaderPaint)
                         canvas.translate(-(center - innerRadius), -(center - innerRadius))
-
                         imageDrawn = true
                     }
-                } catch (e: Exception) {
-                    Log.e("AVATAR_ERROR", "Failed to load URI due to Android permissions: ${e.message}")
-                }
+                } catch (e: Exception) { Log.e("AVATAR_ERROR", "Error: ${e.message}") }
             }
 
             if (!imageDrawn) {
                 paint.color = android.graphics.Color.parseColor("#E0E7FF")
                 canvas.drawCircle(center, center, innerRadius, paint)
-
                 paint.color = android.graphics.Color.parseColor("#1E3A8A")
                 paint.textSize = 20f * context.resources.displayMetrics.scaledDensity
                 paint.textAlign = android.graphics.Paint.Align.CENTER
                 paint.typeface = android.graphics.Typeface.DEFAULT_BOLD
-
                 val initials = getInitials(name)
                 val textBounds = android.graphics.Rect()
                 paint.getTextBounds(initials, 0, initials.length, textBounds)
                 val textY = center + (textBounds.height() / 2f)
-
                 canvas.drawText(initials, center, textY, paint)
             }
-
             return bitmap
-        } catch (e: Exception) {
-            e.printStackTrace()
-            return null
-        }
-    }
-
-    private fun getInitials(name: String): String {
-        return name.trim().split("\\s+".toRegex())
-            .mapNotNull { it.firstOrNull()?.uppercase() }
-            .take(2)
-            .joinToString("")
+        } catch (e: Exception) { return null }
     }
 
     private fun applyGlassButton(button: Button, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 1000f
-            orientation = GradientDrawable.Orientation.TOP_BOTTOM
-        }
+        val bg = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 1000f; orientation = GradientDrawable.Orientation.TOP_BOTTOM }
         if (isNightMode) {
             bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
             bg.setStroke(4, Color.parseColor("#D4AF37"))
@@ -277,69 +544,55 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         button.background = bg
     }
 
-    private fun switchToOnlineMap() {
-        if (googleMapContainer.visibility == View.VISIBLE) return
-        tvNetworkStatus.text = "ONLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
-        val badgeBg = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
-        tvNetworkStatus.background = badgeBg
-        map.visibility = View.GONE
-        googleMapContainer.visibility = View.VISIBLE
-        val mapFragment = childFragmentManager.findFragmentById(R.id.googleMapContainer) as SupportMapFragment
-        mapFragment.getMapAsync(this)
-    }
-
-    private fun switchToOfflineMap() {
-        if (map.visibility == View.VISIBLE) return
-        tvNetworkStatus.text = "OFFLINE"
-        tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
-        val badgeBg = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
-        tvNetworkStatus.background = badgeBg
-        googleMapContainer.visibility = View.GONE
-        map.visibility = View.VISIBLE
-    }
-
     override fun onMapReady(googleMap: GoogleMap) {
         if (gMap != null) return
         gMap = googleMap
+        gMap?.setInfoWindowAdapter(CustomGoogleInfoWindowAdapter())
+        gMap?.setPadding(0, dpToPx(90), 0, 0)
+
         if (isDarkMode()) {
             try { gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark)) } catch (e: Exception) {}
         }
 
-        gMapMarker = gMap?.addMarker(MarkerOptions()
-            .position(LatLng(0.0, 0.0))
-            .anchor(0.5f, 0.5f).flat(true).visible(false))
+        // 🚨 NATIVE 3D INTEGRATION: The .flat(true) makes the marker tilt with the map!
+        gMapMarker = gMap?.addMarker(MarkerOptions().position(LatLng(0.0, 0.0)).title("Me").anchor(0.5f, 0.5f).flat(true).visible(false))
+
+        gMap?.setOnCameraMoveStartedListener { reason ->
+            if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE && isNavModeActive) {
+                isNavModeActive = false
+                updateNavButtonUI(isDarkMode())
+            }
+        }
+
+        gMap?.setOnMarkerClickListener { clickedMarker ->
+            val clickedUid = clickedMarker.tag as? String
+            if (clickedUid != null) {
+                currentlySelectedUid = if (currentlySelectedUid == clickedUid) null else clickedUid
+                updateAllTrackingLines()
+                clickedMarker.showInfoWindow()
+                return@setOnMarkerClickListener true
+            } else if (clickedMarker.title == "Me") {
+                currentlySelectedUid = null
+                updateAllTrackingLines()
+                clickedMarker.showInfoWindow()
+                return@setOnMarkerClickListener true
+            }
+            false
+        }
 
         updateAllTrackingLines()
     }
 
-    private fun setupOfflineMap() {
-        val tileUrl = if (isDarkMode()) "https://cartodb-basemaps-a.global.ssl.fastly.net/dark_all/" else "https://cartodb-basemaps-a.global.ssl.fastly.net/light_all/"
-        val dynamicTileSource = object : OnlineTileSourceBase("CartoDbDynamic", 1, 20, 256, ".png", arrayOf(tileUrl)) {
-            override fun getTileURLString(pMapTileIndex: Long): String {
-                return baseUrl + MapTileIndex.getZoom(pMapTileIndex) + "/" + MapTileIndex.getX(pMapTileIndex) + "/" + MapTileIndex.getY(pMapTileIndex) + mImageFilenameEnding
-            }
-        }
-        map.setTileSource(dynamicTileSource)
-        map.setMultiTouchControls(true)
-        map.controller.setZoom(17.0)
-
-        myLocationMarker = Marker(map)
-        myLocationMarker.setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-        myLocationMarker.infoWindow = null
-        myLocationMarker.isFlat = true
-        map.overlays.add(myLocationMarker)
-    }
-
     override fun onResume() {
         super.onResume()
-        map.onResume()
-
         lastRouteFetchTime = 0L
+
+        if (!isHidden) {
+            view?.post { toggleFullScreenMap(true) }
+        }
 
         val networkRequest = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
         connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
-        if (isInternetAvailable(requireContext())) switchToOnlineMap() else switchToOfflineMap()
 
         val userId = auth.currentUser?.uid
         if (userId != null) {
@@ -348,10 +601,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     myName = doc.getString("fullName") ?: "Me"
                     myPhotoUri = doc.getString("photoUri") ?: ""
 
-                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                        cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri)
-                        withContext(Dispatchers.Main) { startLocationTracking(userId) }
-                    }
+                    startLocationTracking(userId)
                 } else {
                     startLocationTracking(userId)
                 }
@@ -362,156 +612,386 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (!isHidden) initLife360Engine()
     }
 
+    // 🚨 SENSOR: 60 FPS REAL-TIME COMPASS TRACKING
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+            val rotationMatrix = FloatArray(9)
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            val orientation = FloatArray(3)
+            SensorManager.getOrientation(rotationMatrix, orientation)
+
+            // 1. Calculate the exact real-time physical bearing
+            val azimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
+            lastKnownCompassBearing = (azimuth + 360) % 360
+
+            // 2. INSTANTLY rotate the user's avatar arrow (60 frames per second!)
+            gMapMarker?.rotation = lastKnownCompassBearing
+
+            // 3. INSTANTLY spin the 3D Camera if Nav Mode is active
+            if (isNavModeActive && myCurrentLatLng != null) {
+                val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
+                    .target(myCurrentLatLng!!)
+                    .zoom(19.5f)
+                    .tilt(65f)
+                    .bearing(lastKnownCompassBearing)
+                    .build()
+
+                // 🚨 CRITICAL FIX: Use moveCamera instead of animateCamera here!
+                // Because this fires 60 times a second, moveCamera creates a buttery-smooth
+                // continuous spin without lagging the animation queue.
+                gMap?.moveCamera(CameraUpdateFactory.newCameraPosition(camPos))
+            }
+        }
+    }
+
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    private val locationListener = LocationListener { location ->
+        processLocationUpdate(location)
+    }
+
     private fun startLocationTracking(userId: String) {
-        gpsProvider.startLocationProvider { location, _ ->
-            if (location != null && isAdded) {
-                val currentLat = location.latitude
-                val currentLng = location.longitude
+        try {
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, locationListener)
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener)
 
-                val currentGeo = GeoPoint(currentLat, currentLng)
-                val currentLatlng = LatLng(currentLat, currentLng)
+            val lastLoc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            lastLoc?.let { processLocationUpdate(it) }
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        }
+    }
 
-                myCurrentGeoPoint = currentGeo
-                myCurrentLatLng = currentLatlng
+    private fun stopLocationTracking() {
+        locationManager.removeUpdates(locationListener)
+    }
 
-                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-                    var placeName = "Tracking Location..."
-                    try {
-                        val addresses = Geocoder(requireContext(), Locale.getDefault()).getFromLocation(currentLat, currentLng, 1)
-                        if (!addresses.isNullOrEmpty()) placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
-                    } catch (e: Exception) { }
+    private fun processLocationUpdate(location: Location) {
+        if (!isAdded) return
+        val currentLat = location.latitude
+        val currentLng = location.longitude
+        val currentAccuracy = location.accuracy
+        val speed = location.speed
 
-                    val locationData = hashMapOf("currentLat" to currentLat, "currentLng" to currentLng, "placeName" to placeName, "lastUpdated" to com.google.firebase.Timestamp.now())
-                    db.collection("Users").document(userId).set(locationData, SetOptions.merge())
+        val currentLatlng = LatLng(currentLat, currentLng)
+        myCurrentLatLng = currentLatlng
 
-                    withContext(Dispatchers.Main) {
+        // 🚨 3D BEARING LOGIC: GPS if driving/walking fast, Compass if standing still
+        if (location.hasBearing() && speed > 1.0f) {
+            lastKnownBearing = location.bearing
+        } else {
+            lastKnownBearing = lastKnownCompassBearing
+        }
 
-                        cachedMyBitmap?.let {
-                            myLocationMarker.icon = BitmapDrawable(resources, it)
-                            gMapMarker?.setIcon(BitmapDescriptorFactory.fromBitmap(it))
-                        }
-
-                        myLocationMarker.position = currentGeo
-                        gMapMarker?.position = currentLatlng
-                        gMapMarker?.isVisible = true
-
-                        updateAllTrackingLines()
-
-                        if (isFirstLocationUpdate) {
-                            map.controller.setCenter(currentGeo)
-                            gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatlng, 18f))
-                            isFirstLocationUpdate = false
-                            initLife360Engine()
-                        }
-                        map.invalidate()
-                        tvLocationStatus.text = placeName
-                    }
+        if (currentAccuracy < 50f) {
+            if (myLastStationaryLatLng == null) {
+                myLastStationaryLatLng = currentLatlng
+                myArrivalTime = System.currentTimeMillis()
+            } else {
+                val distMoved = distanceBetween(myLastStationaryLatLng!!.latitude, myLastStationaryLatLng!!.longitude, currentLat, currentLng)
+                if (distMoved > GEOFENCE_RADIUS_METERS) {
+                    myLastStationaryLatLng = currentLatlng
+                    myArrivalTime = System.currentTimeMillis()
                 }
+            }
+        }
+
+        val myDwellMillis = System.currentTimeMillis() - myArrivalTime
+        val myDwellStr = formatDuration(myDwellMillis)
+        val currentBattery = getBatteryLevel()
+
+        val myJsonData = JSONObject().apply {
+            put("name", "Me")
+            put("status", "Stationary for $myDwellStr")
+            put("distance", "0m")
+            put("battery", currentBattery)
+            put("isSOS", isSosActive)
+        }.toString()
+
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            var placeName = "Tracking Location..."
+            try {
+                val addresses = Geocoder(requireContext(), Locale.getDefault()).getFromLocation(currentLat, currentLng, 1)
+                if (!addresses.isNullOrEmpty()) placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
+            } catch (e: Exception) { }
+
+            // 🚨 FIREBASE SYNC: Pushing your real-time hardware bearing to the cloud!
+            val userId = auth.currentUser?.uid ?: return@launch
+            val locationData = hashMapOf(
+                "currentLat" to currentLat,
+                "currentLng" to currentLng,
+                "accuracy" to currentAccuracy,
+                "battery" to currentBattery,
+                "isSOS" to isSosActive,
+                "bearing" to lastKnownBearing,
+                "placeName" to placeName,
+                "lastUpdated" to com.google.firebase.Timestamp.now()
+            )
+            db.collection("Users").document(userId).set(locationData, SetOptions.merge())
+
+            withContext(Dispatchers.Main) {
+                if (gMapMarker == null) {
+                    gMapMarker = gMap?.addMarker(MarkerOptions().position(currentLatlng).title("Me").anchor(0.5f, 0.5f).flat(true))
+                }
+
+                // Refresh the custom bitmap only if SOS state changes to save memory
+                val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
+                if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
+                    cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri, myArrowColor)
+                    lastSosStateForBitmap = isSosActive
+                }
+
+                cachedMyBitmap?.let {
+                    gMapMarker?.setIcon(BitmapDescriptorFactory.fromBitmap(it))
+                }
+
+                gMapMarker?.position = currentLatlng
+                gMapMarker?.rotation = lastKnownBearing // 🚨 Spin the marker to match the hardware!
+                gMapMarker?.snippet = myJsonData
+                gMapMarker?.isVisible = true
+                if (gMapMarker?.isInfoWindowShown == true) gMapMarker?.showInfoWindow()
+
+                mapContactsList.firstOrNull { it.uid == "ME" }?.let {
+                    it.locationName = placeName
+                    it.statusStr = "Since ${formatDuration(myDwellMillis)} ago"
+                    mapContactsAdapter.notifyItemChanged(0)
+                }
+
+                updateAllTrackingLines()
+
+                if (!isNavModeActive && isFirstLocationUpdate) {
+                    gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatlng, 18f))
+                    isFirstLocationUpdate = false
+                    initLife360Engine()
+                } else if (isNavModeActive) {
+                    // Smoothly slide the map forward as the user walks,
+                    // without touching the rotation (the compass handles that now!)
+                    gMap?.animateCamera(CameraUpdateFactory.newLatLng(currentLatlng), 1000, null)
+                }
+                tvLocationStatus.text = placeName
             }
         }
     }
 
     override fun onPause() {
         super.onPause()
-        map.onPause()
-        gpsProvider.stopLocationProvider()
+        stopLocationTracking()
         sensorManager.unregisterListener(this)
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
         try { connectivityManager.unregisterNetworkCallback(networkCallback) } catch (e: Exception) {}
     }
 
-    // 🚨 Safely clear the Google Map if the fragment is ever actually destroyed
     override fun onDestroyView() {
         super.onDestroyView()
+        toggleFullScreenMap(false)
         gMap?.clear()
         gMap = null
     }
 
     private fun initLife360Engine() {
-        // 1. Stop all background Firebase listeners
+        val userId = auth.currentUser?.uid
+        if (userId == null) {
+            startTrackingEngine()
+            return
+        }
+
+        db.collection("Users").document(userId).get().addOnSuccessListener { doc ->
+            if (doc != null && doc.contains("trustedContacts") && isAdded) {
+                try {
+                    val cloudContacts = doc.get("trustedContacts") as? List<Map<String, String>>
+                    if (cloudContacts != null) {
+                        val jsonArray = JSONArray()
+                        for (c in cloudContacts) {
+                            val obj = JSONObject().apply {
+                                put("id", c["id"] ?: "")
+                                put("name", c["name"] ?: "")
+                                put("number", c["number"] ?: "")
+                                put("photoUri", c["photoUri"] ?: "")
+                                put("uid", c["uid"] ?: "")
+                            }
+                            jsonArray.put(obj)
+                        }
+                        requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                            .edit().putString("trusted_contacts_json", jsonArray.toString()).apply()
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+            }
+            if (isAdded) startTrackingEngine()
+        }.addOnFailureListener {
+            if (isAdded) startTrackingEngine()
+        }
+    }
+
+    private fun startTrackingEngine() {
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
 
-        // 🚨 THE FIX: Erase all "Ghost" markers and lines from both maps!
-        contactMarkersOSM.values.forEach { map.overlays.remove(it) }
-        contactLinesOSM.values.forEach { map.overlays.remove(it) }
-        contactMarkersOSM.clear()
-        contactLinesOSM.clear()
-
-        contactMarkersGMap.values.forEach { it.remove() }
-        contactLinesGMap.values.forEach { it.remove() }
-        contactMarkersGMap.clear()
-        contactLinesGMap.clear()
-
-        routeCache.clear()
-        map.invalidate()
-
-        // 2. Rebuild the live-tracking engine with the updated Contact List
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val jsonStr = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
-        try {
-            val jsonArray = JSONArray(jsonStr)
-            for (i in 0 until jsonArray.length()) {
-                val obj = jsonArray.getJSONObject(i)
-                val uid = if (obj.has("uid")) obj.getString("uid") else ""
-                val name = obj.getString("name")
-                val friendPhotoUri = if (obj.has("photoUri")) obj.getString("photoUri") else ""
+        val jsonArray = org.json.JSONArray(jsonStr)
 
-                if (uid.isNotEmpty()) {
-                    val registration = db.collection("Users").document(uid).addSnapshotListener { snapshot, e ->
-                        if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+        val validUids = mutableListOf<String>()
+        for (i in 0 until jsonArray.length()) {
+            val uid = jsonArray.getJSONObject(i).optString("uid", "")
+            if (uid.isNotEmpty()) validUids.add(uid)
+        }
 
-                        val lat = snapshot.getDouble("currentLat")
-                        val lng = snapshot.getDouble("currentLng")
+        val uidsToRemove = contactMarkersGMap.keys.filter { it !in validUids }
+        uidsToRemove.forEach { uid ->
+            contactMarkersGMap[uid]?.remove()
+            contactLinesGMap[uid]?.remove()
+            accuracyCirclesGMap[uid]?.remove()
+            contactMarkersGMap.remove(uid)
+            contactLinesGMap.remove(uid)
+            accuracyCirclesGMap.remove(uid)
+            routeCache.remove(uid)
+        }
 
-                        val livePhotoUri = snapshot.getString("photoUri") ?: friendPhotoUri
+        val oldContacts = mapContactsList.associateBy { it.uid }
+        mapContactsList.clear()
 
-                        if (lat != null && lng != null && isAdded) {
-                            drawContactOnMap(uid, name, lat, lng, livePhotoUri)
-                        }
+        val beautifulColors = arrayOf("#8B5CF6", "#F97316", "#10B981", "#EF4444", "#3B82F6")
+
+        val oldMe = oldContacts["ME"]
+        mapContactsList.add(MapContactSummary(
+            "ME", "Me", "#3B82F6",
+            oldMe?.locationName ?: "Locating...",
+            oldMe?.statusStr ?: "Connecting..."
+        ))
+
+        for (i in 0 until jsonArray.length()) {
+            val obj = jsonArray.getJSONObject(i)
+            val uid = obj.optString("uid", "")
+            val name = obj.optString("name", "")
+            val friendPhotoUri = obj.optString("photoUri", "")
+
+            if (uid.isNotEmpty()) {
+                val oldFriend = oldContacts[uid]
+                val assignedColorHex = beautifulColors[(i + 1) % beautifulColors.size]
+
+                mapContactsList.add(MapContactSummary(
+                    uid, name, assignedColorHex,
+                    oldFriend?.locationName ?: "Connecting...",
+                    oldFriend?.statusStr ?: "Awaiting GPS..."
+                ))
+
+                val registration = db.collection("Users").document(uid).addSnapshotListener { snapshot, e ->
+                    if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                    val lat = snapshot.getDouble("currentLat")
+                    val lng = snapshot.getDouble("currentLng")
+                    val accuracy = snapshot.getDouble("accuracy") ?: 10.0
+                    val battery = snapshot.getLong("battery")?.toInt() ?: 100
+                    val isContactSOS = snapshot.getBoolean("isSOS") ?: false
+
+                    // 🚨 PULLING THEIR LIVE BEARING FROM THE CLOUD
+                    val remoteBearing = snapshot.getDouble("bearing")?.toFloat() ?: 0f
+
+                    val lastUpdatedMillis = snapshot.getTimestamp("lastUpdated")?.toDate()?.time ?: System.currentTimeMillis()
+                    val livePhotoUri = snapshot.getString("photoUri") ?: friendPhotoUri
+
+                    if (lat != null && lng != null && isAdded) {
+                        drawContactOnMap(uid, name, lat, lng, accuracy, battery, isContactSOS, lastUpdatedMillis, livePhotoUri, remoteBearing, assignedColorHex)
                     }
-                    activeFirebaseListeners.add(registration)
                 }
+                activeFirebaseListeners.add(registration)
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        }
+
+        mapContactsAdapter.notifyDataSetChanged()
     }
 
-    private fun drawContactOnMap(uid: String, name: String, lat: Double, lng: Double, photoUri: String) {
-        val targetGeo = GeoPoint(lat, lng)
+    private fun drawContactOnMap(uid: String, name: String, lat: Double, lng: Double, accuracy: Double, battery: Int, isContactSOS: Boolean, lastUpdatedMillis: Long, photoUri: String, remoteBearing: Float, assignedColorHex: String) {
         val targetLatlng = LatLng(lat, lng)
-        val trackerColor = Color.parseColor("#3B82F6")
+
+        val trackerColor = if (isContactSOS) Color.parseColor("#EF4444") else Color.parseColor(assignedColorHex)
+
+        val timeSinceUpdate = System.currentTimeMillis() - lastUpdatedMillis
+        val isOffline = timeSinceUpdate > 120_000
+
+        if (!contactStationaryLatLngs.containsKey(uid)) {
+            contactStationaryLatLngs[uid] = targetLatlng
+            contactArrivalTimes[uid] = System.currentTimeMillis()
+        } else {
+            val distMoved = distanceBetween(contactStationaryLatLngs[uid]!!.latitude, contactStationaryLatLngs[uid]!!.longitude, lat, lng)
+            if (distMoved > GEOFENCE_RADIUS_METERS) {
+                contactStationaryLatLngs[uid] = targetLatlng
+                contactArrivalTimes[uid] = System.currentTimeMillis()
+            }
+        }
+        val contactDwellMillis = System.currentTimeMillis() - (contactArrivalTimes[uid] ?: System.currentTimeMillis())
+
+        val statusString = if (isOffline) {
+            val mins = timeSinceUpdate / 60000
+            "Last seen ${mins}m ago"
+        } else {
+            "Since ${formatDuration(contactDwellMillis)} ago"
+        }
+
+        var distanceStr = ""
+        myCurrentLatLng?.let { myPos -> distanceStr = formatDistance(distanceBetween(myPos.latitude, myPos.longitude, lat, lng)) }
+
+        val finalJsonSnippet = JSONObject().apply {
+            put("uid", uid)
+            put("name", name)
+            put("status", statusString)
+            put("distance", distanceStr)
+            put("battery", battery)
+            put("isSOS", isContactSOS)
+        }.toString()
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri)
+
+            // Generate the friend's avatar WITH the directional arrow!
+            val arrowColorHex = if (isContactSOS) "#EF4444" else assignedColorHex
+            val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri, arrowColorHex)
 
             withContext(Dispatchers.Main) {
-                if (!contactMarkersOSM.containsKey(uid)) {
-                    val contactMarker = Marker(map).apply {
-                        title = name
-                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
-                    }
-                    map.overlays.add(contactMarker)
-                    contactMarkersOSM[uid] = contactMarker
-
-                    val trackerLine = Polyline().apply { outlinePaint.color = trackerColor; outlinePaint.strokeWidth = 10f }
-                    map.overlays.add(trackerLine)
-                    contactLinesOSM[uid] = trackerLine
+                val idx = mapContactsList.indexOfFirst { it.uid == uid }
+                if (idx != -1) {
+                    mapContactsList[idx].locationName = "Distance: $distanceStr"
+                    mapContactsList[idx].statusStr = statusString
+                    mapContactsAdapter.notifyItemChanged(idx)
                 }
 
-                contactMarkersOSM[uid]?.position = targetGeo
-                friendBitmap?.let { contactMarkersOSM[uid]?.icon = BitmapDrawable(resources, it) }
-
                 gMap?.let { googleMap ->
+                    if (!accuracyCirclesGMap.containsKey(uid)) {
+                        val circle = googleMap.addCircle(CircleOptions().center(targetLatlng).radius(accuracy).fillColor(0x223B82F6).strokeWidth(0f))
+                        accuracyCirclesGMap[uid] = circle
+                    } else {
+                        accuracyCirclesGMap[uid]?.center = targetLatlng
+                        accuracyCirclesGMap[uid]?.radius = accuracy
+                    }
+
                     if (!contactMarkersGMap.containsKey(uid)) {
-                        val gMarker = googleMap.addMarker(MarkerOptions().position(targetLatlng).title(name))
-                        if (gMarker != null) contactMarkersGMap[uid] = gMarker
-                        val gLine = googleMap.addPolyline(com.google.android.gms.maps.model.PolylineOptions().color(trackerColor).width(10f))
+                        // 🚨 3D INTEGRATION: Added .flat(true) so friends tilt and rotate with the map!
+                        val gMarker = googleMap.addMarker(MarkerOptions()
+                            .position(targetLatlng)
+                            .title(name)
+                            .snippet(finalJsonSnippet)
+                            .anchor(0.5f, 0.5f)
+                            .flat(true)
+                            .rotation(remoteBearing)
+                        )
+                        if (gMarker != null) {
+                            gMarker.tag = uid
+                            contactMarkersGMap[uid] = gMarker
+                        }
+                        val gLine = googleMap.addPolyline(com.google.android.gms.maps.model.PolylineOptions().width(10f).visible(false))
                         contactLinesGMap[uid] = gLine
                     } else {
                         contactMarkersGMap[uid]?.position = targetLatlng
+                        contactMarkersGMap[uid]?.snippet = finalJsonSnippet
+
+                        // 🚨 Instantly rotate their arrow when they turn their phone in real life!
+                        contactMarkersGMap[uid]?.rotation = remoteBearing
+
+                        if (currentlySelectedUid == uid) contactMarkersGMap[uid]?.showInfoWindow()
                     }
                     friendBitmap?.let { contactMarkersGMap[uid]?.setIcon(BitmapDescriptorFactory.fromBitmap(it)) }
+                    contactLinesGMap[uid]?.color = trackerColor
                 }
 
                 updateAllTrackingLines()
@@ -520,40 +1000,39 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     private fun updateAllTrackingLines() {
-        val currentGeo = myCurrentGeoPoint ?: return
         val currentLat = myCurrentLatLng ?: return
 
-        if (contactMarkersOSM.isEmpty()) return
+        if (contactMarkersGMap.isEmpty()) return
 
         val currentTime = System.currentTimeMillis()
         val shouldFetchRoute = (currentTime - lastRouteFetchTime > 10000L)
 
-        contactMarkersOSM.forEach { (uid, targetMarker) ->
-            val targetPos = GeoPoint(targetMarker.position.latitude, targetMarker.position.longitude)
+        contactMarkersGMap.forEach { (uid, targetMarker) ->
+            val shouldShowLine = (uid == currentlySelectedUid)
+
+            contactLinesGMap[uid]?.isVisible = shouldShowLine
+
+            if (!shouldShowLine) return@forEach
+
+            val targetPos = targetMarker.position
 
             if (shouldFetchRoute) {
                 viewLifecycleOwner.lifecycleScope.launch {
-                    val roadRoute = fetchRoadRoute(currentGeo, targetPos)
+                    val roadRoute = fetchRoadRoute(currentLat, targetPos)
                     if (roadRoute.size > 2) routeCache[uid] = roadRoute.toMutableList()
 
                     withContext(Dispatchers.Main) {
-                        contactLinesOSM[uid]?.setPoints(roadRoute)
-                        contactLinesGMap[uid]?.points = roadRoute.map { LatLng(it.latitude, it.longitude) }
-                        map.invalidate()
+                        contactLinesGMap[uid]?.points = roadRoute
                     }
                 }
             } else {
                 val cachedRoute = routeCache[uid]
                 if (cachedRoute != null && cachedRoute.isNotEmpty()) {
-                    cachedRoute[0] = currentGeo
+                    cachedRoute[0] = currentLat
                     cachedRoute[cachedRoute.size - 1] = targetPos
-
-                    contactLinesOSM[uid]?.setPoints(cachedRoute)
-                    contactLinesGMap[uid]?.points = cachedRoute.map { LatLng(it.latitude, it.longitude) }
+                    contactLinesGMap[uid]?.points = cachedRoute
                 } else {
-                    val points = ArrayList<GeoPoint>().apply { add(currentGeo); add(targetPos) }
-                    contactLinesOSM[uid]?.setPoints(points)
-                    contactLinesGMap[uid]?.points = listOf(currentLat, LatLng(targetPos.latitude, targetPos.longitude))
+                    contactLinesGMap[uid]?.points = listOf(currentLat, targetPos)
                 }
             }
         }
@@ -561,14 +1040,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (shouldFetchRoute) lastRouteFetchTime = currentTime
     }
 
-    private suspend fun fetchRoadRoute(start: GeoPoint, end: GeoPoint): List<GeoPoint> {
+    private suspend fun fetchRoadRoute(start: LatLng, end: LatLng): List<LatLng> {
         return withContext(Dispatchers.IO) {
             try {
                 val urlString = "https://router.project-osrm.org/route/v1/driving/${start.longitude},${start.latitude};${end.longitude},${end.latitude}?overview=full&geometries=geojson"
                 val url = URL(urlString)
                 val connection = url.openConnection() as HttpURLConnection
                 connection.requestMethod = "GET"
-                connection.setRequestProperty("User-Agent", "AISecurity/1.0 (Android)")
+                connection.setRequestProperty("User-Agent", "AISecurity/1.0")
                 connection.connectTimeout = 5000
                 connection.readTimeout = 5000
 
@@ -579,36 +1058,23 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     if (routes.length() > 0) {
                         val geometry = routes.getJSONObject(0).getJSONObject("geometry")
                         val coordinates = geometry.getJSONArray("coordinates")
-
-                        val routePoints = ArrayList<GeoPoint>()
+                        val routePoints = ArrayList<LatLng>()
                         for (i in 0 until coordinates.length()) {
                             val coord = coordinates.getJSONArray(i)
-                            val lon = coord.getDouble(0)
-                            val lat = coord.getDouble(1)
-                            routePoints.add(GeoPoint(lat, lon))
+                            routePoints.add(LatLng(coord.getDouble(1), coord.getDouble(0)))
                         }
                         return@withContext routePoints
                     }
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (e: Exception) { e.printStackTrace() }
 
-            val fallback = ArrayList<GeoPoint>()
+            val fallback = ArrayList<LatLng>()
             fallback.add(start)
             fallback.add(end)
             return@withContext fallback
         }
     }
 
-    override fun onSensorChanged(event: SensorEvent?) {}
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-    private fun isInternetAvailable(context: Context): Boolean {
-        val activeNetwork = connectivityManager.activeNetwork ?: return false
-        val capabilities = connectivityManager.getNetworkCapabilities(activeNetwork) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
-    }
     private fun isDarkMode(): Boolean {
         val currentNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
