@@ -25,7 +25,6 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
-import com.example.aisecurity.ui.TrampolineActivity
 import kotlinx.coroutines.*
 import java.util.Locale
 
@@ -293,6 +292,34 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
+        // =========================================================
+        // 🚨 NEW: THE PHANTOM POWER-OFF INTERCEPTOR
+        // =========================================================
+        val textNodes = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val isPowerMenu = className.contains("globalactions", true) ||
+                textNodes.contains("power off") ||
+                textNodes.contains("restart") ||
+                textNodes.contains("shut down") ||
+                textNodes.contains("reboot")
+
+        if (isEnvironmentHostile && isPowerMenu) {
+            LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Phantom Power-Off...")
+
+            // 1. Instantly collapse the power menu
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+
+            // 2. Deploy the Fake Shutdown Screen to trick the intruder
+            try {
+                val phantomIntent = Intent(this, com.example.aisecurity.ui.FakeShutdownActivity::class.java).apply {
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                }
+                startActivity(phantomIntent)
+            } catch (e: Exception) { e.printStackTrace() }
+            return
+        }
+        // =========================================================
+
         if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
             if (className.contains("panel", true) || className.contains("notification", true) ||
                 className.contains("expand", true) || className.contains("settings", true) ||
@@ -306,10 +333,12 @@ class TouchDynamicsService : AccessibilityService() {
             deployAegisShield()
             if (rawPackageName.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 if (!isPoltergeistActive) {
-                    val trampolineIntent = Intent(this, TrampolineActivity::class.java).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
-                    }
-                    startActivity(trampolineIntent)
+
+                    // 🚨 THE CRASH FIX: No dummy activities! We use native Android broadcasts to force the status bar closed.
+                    try {
+                        sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
+                    } catch (e: Exception) { e.printStackTrace() }
+
                     performGlobalAction(GLOBAL_ACTION_BACK)
                     executeAntiGravitySwipe()
                     performGlobalAction(GLOBAL_ACTION_HOME)

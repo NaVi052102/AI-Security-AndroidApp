@@ -5,7 +5,6 @@ import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
@@ -29,9 +28,7 @@ class BootEnforcerReceiver : BroadcastReceiver() {
                 if (dpm.isAdminActive(adminComponent)) {
                     dpm.lockNow() // Forces the screen to go black instantly
                 }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+            } catch (_: Exception) { }
 
             if (Settings.canDrawOverlays(context)) {
                 val lockIntent = Intent(context, LockOverlayService::class.java)
@@ -39,12 +36,9 @@ class BootEnforcerReceiver : BroadcastReceiver() {
                 // The 500ms fast-strike delay
                 Handler(Looper.getMainLooper()).postDelayed({
                     try {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                            context.startForegroundService(lockIntent)
-                        } else {
-                            context.startService(lockIntent)
-                        }
-                    } catch (e: Exception) { e.printStackTrace() }
+                        // Unnecessary SDK version check removed
+                        context.startForegroundService(lockIntent)
+                    } catch (_: Exception) { }
                 }, 500)
             }
         }

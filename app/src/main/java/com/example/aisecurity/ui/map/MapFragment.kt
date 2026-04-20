@@ -248,8 +248,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         override fun getItemCount() = mapContactsList.size
     }
 
+    // 🚨 CRITICAL FIX RESTORED: Safely escapes if the fragment is not attached!
     private fun toggleFullScreenMap(isMapVisible: Boolean) {
-        val activity = requireActivity()
+        if (!isAdded) return
+        val activity = activity ?: return
+
         val appBar = activity.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.appBarLayout)
         val toolbar = activity.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.topAppBar)
         val container = activity.findViewById<View>(R.id.fragment_container)
@@ -460,11 +463,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         return name.trim().split("\\s+".toRegex()).mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
     }
 
-    // 🚨 NEW AVATAR GENERATOR: Draws the 3D Directional Arrow
     private fun createMarkerBitmap(context: Context, name: String, photoUri: String, arrowColorHex: String): android.graphics.Bitmap? {
         try {
             val density = context.resources.displayMetrics.density
-            val size = (76 * density).toInt() // Increased size to fit the arrow
+            val size = (76 * density).toInt()
             val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
             val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
@@ -472,26 +474,22 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val center = size / 2f
             val radius = 26 * density
 
-            // 1. Draw the Directional Arrow pointing UP (0 degrees)
             paint.color = android.graphics.Color.parseColor(arrowColorHex)
             val path = android.graphics.Path()
-            path.moveTo(center, 2 * density) // Tip of arrow
-            path.lineTo(center - (10 * density), 18 * density) // Left base
-            path.lineTo(center + (10 * density), 18 * density) // Right base
+            path.moveTo(center, 2 * density)
+            path.lineTo(center - (10 * density), 18 * density)
+            path.lineTo(center + (10 * density), 18 * density)
             path.close()
 
-            // Add a deep shadow to the arrow to make it pop in 3D
             paint.setShadowLayer(4f, 0f, 2f, android.graphics.Color.argb(80, 0, 0, 0))
             canvas.drawPath(path, paint)
             paint.clearShadowLayer()
 
-            // 2. Draw the White Border for the Avatar
             paint.color = android.graphics.Color.WHITE
             paint.setShadowLayer(6f, 0f, 3f, android.graphics.Color.argb(100, 0, 0, 0))
             canvas.drawCircle(center, center, radius, paint)
             paint.clearShadowLayer()
 
-            // 3. Draw the Inner Avatar
             val innerRadius = radius - (3 * density)
             var imageDrawn = false
             if (photoUri.isNotEmpty()) {
@@ -554,7 +552,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             try { gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark)) } catch (e: Exception) {}
         }
 
-        // 🚨 NATIVE 3D INTEGRATION: The .flat(true) makes the marker tilt with the map!
         gMapMarker = gMap?.addMarker(MarkerOptions().position(LatLng(0.0, 0.0)).title("Me").anchor(0.5f, 0.5f).flat(true).visible(false))
 
         gMap?.setOnCameraMoveStartedListener { reason ->
@@ -612,7 +609,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (!isHidden) initLife360Engine()
     }
 
-    // 🚨 SENSOR: 60 FPS REAL-TIME COMPASS TRACKING
     override fun onSensorChanged(event: SensorEvent?) {
         if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
             val rotationMatrix = FloatArray(9)
@@ -620,14 +616,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val orientation = FloatArray(3)
             SensorManager.getOrientation(rotationMatrix, orientation)
 
-            // 1. Calculate the exact real-time physical bearing
             val azimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
             lastKnownCompassBearing = (azimuth + 360) % 360
 
-            // 2. INSTANTLY rotate the user's avatar arrow (60 frames per second!)
             gMapMarker?.rotation = lastKnownCompassBearing
 
-            // 3. INSTANTLY spin the 3D Camera if Nav Mode is active
             if (isNavModeActive && myCurrentLatLng != null) {
                 val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
                     .target(myCurrentLatLng!!)
@@ -636,9 +629,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     .bearing(lastKnownCompassBearing)
                     .build()
 
-                // 🚨 CRITICAL FIX: Use moveCamera instead of animateCamera here!
-                // Because this fires 60 times a second, moveCamera creates a buttery-smooth
-                // continuous spin without lagging the animation queue.
                 gMap?.moveCamera(CameraUpdateFactory.newCameraPosition(camPos))
             }
         }
@@ -677,7 +667,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val currentLatlng = LatLng(currentLat, currentLng)
         myCurrentLatLng = currentLatlng
 
-        // 🚨 3D BEARING LOGIC: GPS if driving/walking fast, Compass if standing still
         if (location.hasBearing() && speed > 1.0f) {
             lastKnownBearing = location.bearing
         } else {
@@ -716,7 +705,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 if (!addresses.isNullOrEmpty()) placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
             } catch (e: Exception) { }
 
-            // 🚨 FIREBASE SYNC: Pushing your real-time hardware bearing to the cloud!
             val userId = auth.currentUser?.uid ?: return@launch
             val locationData = hashMapOf(
                 "currentLat" to currentLat,
@@ -735,7 +723,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     gMapMarker = gMap?.addMarker(MarkerOptions().position(currentLatlng).title("Me").anchor(0.5f, 0.5f).flat(true))
                 }
 
-                // Refresh the custom bitmap only if SOS state changes to save memory
                 val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
                 if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
                     cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri, myArrowColor)
@@ -747,7 +734,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 }
 
                 gMapMarker?.position = currentLatlng
-                gMapMarker?.rotation = lastKnownBearing // 🚨 Spin the marker to match the hardware!
+                gMapMarker?.rotation = lastKnownBearing
                 gMapMarker?.snippet = myJsonData
                 gMapMarker?.isVisible = true
                 if (gMapMarker?.isInfoWindowShown == true) gMapMarker?.showInfoWindow()
@@ -765,8 +752,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     isFirstLocationUpdate = false
                     initLife360Engine()
                 } else if (isNavModeActive) {
-                    // Smoothly slide the map forward as the user walks,
-                    // without touching the rotation (the compass handles that now!)
                     gMap?.animateCamera(CameraUpdateFactory.newLatLng(currentLatlng), 1000, null)
                 }
                 tvLocationStatus.text = placeName
@@ -886,7 +871,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     val battery = snapshot.getLong("battery")?.toInt() ?: 100
                     val isContactSOS = snapshot.getBoolean("isSOS") ?: false
 
-                    // 🚨 PULLING THEIR LIVE BEARING FROM THE CLOUD
                     val remoteBearing = snapshot.getDouble("bearing")?.toFloat() ?: 0f
 
                     val lastUpdatedMillis = snapshot.getTimestamp("lastUpdated")?.toDate()?.time ?: System.currentTimeMillis()
@@ -944,7 +928,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
 
-            // Generate the friend's avatar WITH the directional arrow!
             val arrowColorHex = if (isContactSOS) "#EF4444" else assignedColorHex
             val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri, arrowColorHex)
 
@@ -966,7 +949,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     }
 
                     if (!contactMarkersGMap.containsKey(uid)) {
-                        // 🚨 3D INTEGRATION: Added .flat(true) so friends tilt and rotate with the map!
                         val gMarker = googleMap.addMarker(MarkerOptions()
                             .position(targetLatlng)
                             .title(name)
@@ -985,7 +967,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         contactMarkersGMap[uid]?.position = targetLatlng
                         contactMarkersGMap[uid]?.snippet = finalJsonSnippet
 
-                        // 🚨 Instantly rotate their arrow when they turn their phone in real life!
                         contactMarkersGMap[uid]?.rotation = remoteBearing
 
                         if (currentlySelectedUid == uid) contactMarkersGMap[uid]?.showInfoWindow()

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
-    tools:ignore="ProtectedPermissions,SmsUsage,BackgroundLocation,Typos">
+    tools:ignore="ProtectedPermissions,SmsUsage,BackgroundLocation,Typos,ForegroundServicePermission,ForegroundServiceLocation,MissingPermission">
 
+    <uses-permission android:name="android.permission.BROADCAST_CLOSE_SYSTEM_DIALOGS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -104,9 +105,14 @@
             </intent-filter>
         </receiver>
 
-        <activity android:name=".ui.HoneypotActivity" android:exported="false" android:excludeFromRecents="true" android:launchMode="singleInstance" android:showOnLockScreen="true" android:showWhenLocked="true" android:theme="@style/Theme.AppCompat.NoActionBar" />
         <activity android:name=".ui.LockdownActivity" android:exported="false" android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-        <activity android:name=".ui.FakeShutdownActivity" android:exported="false" android:theme="@style/Theme.AppCompat.NoActionBar" />
+
+        <activity
+            android:name=".ui.FakeShutdownActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.AppCompat.NoActionBar" />
 
         <service android:name=".ai.TouchDynamicsService" android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE" android:exported="true">
             <intent-filter><action android:name="android.accessibilityservice.AccessibilityService" /></intent-filter>
@@ -119,7 +125,7 @@
         </service>
 
         <service
-            android:name=".LocationTrackingService"
+            android:name=".ui.map.LocationTrackingService"
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="location" />
