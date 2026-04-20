@@ -49,4 +49,11 @@
         <item name="android:divider">@color/sidebar_divider_line</item>
         <item name="android:listDivider">@color/sidebar_divider_line</item>
     </style>
+
+    <style name="Theme.Sentry.Splash" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="android:windowBackground">#0A0A0A</item>
+        <item name="android:statusBarColor">#0A0A0A</item>
+        <item name="android:navigationBarColor">#0A0A0A</item>
+
+    </style>
 </resources>
