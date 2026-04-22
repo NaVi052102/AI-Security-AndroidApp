@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.util.Log
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
@@ -88,13 +89,11 @@ class MainActivity : AppCompatActivity() {
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
         val sideNav = findViewById<NavigationView>(R.id.nav_view_sidebar)
 
-        // --- DYNAMIC SIDEBAR HEADER INJECTION ---
         val headerView = sideNav.getHeaderView(0)
         val imgDrawerAvatar = headerView.findViewById<ImageView>(R.id.imgDrawerAvatar)
         val tvDrawerName = headerView.findViewById<TextView>(R.id.tvDrawerName)
         val headerLayoutContainer = headerView.findViewById<LinearLayout>(R.id.headerLayoutContainer)
 
-        // The Cleaned Inset Interceptor
         ViewCompat.setOnApplyWindowInsetsListener(headerLayoutContainer) { view, insets ->
             val topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             val basePadding = (24 * resources.displayMetrics.density).toInt()
@@ -129,9 +128,6 @@ class MainActivity : AppCompatActivity() {
                 }
         }
 
-        // =========================================================
-        // BULLETPROOF FRAGMENT RESTORATION
-        // =========================================================
         if (savedInstanceState == null) {
             dashboardFragment = DashboardFragment()
             biometricsFragment = BiometricsFragment()
@@ -174,7 +170,6 @@ class MainActivity : AppCompatActivity() {
             activeFragment = supportFragmentManager.fragments.firstOrNull { !it.isHidden && it.tag != null } ?: dashboardFragment
         }
 
-        // --- Theme Engine ---
         val actualDarkMode = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         var isCurrentlyDark = actualDarkMode
         val themeMenuItem = sideNav.menu.findItem(R.id.side_dark_mode)
@@ -183,7 +178,7 @@ class MainActivity : AppCompatActivity() {
 
         fun updateSwitchUI(isDark: Boolean, animate: Boolean) {
             val thumbTranslation = if (isDark) 20f * resources.displayMetrics.density else 0f
-            val trackColor = if (isDark) "#1A1D24".toColorInt() else "#E5E7EB".toColorInt()
+            val trackColor = if (isDark) "#1A10B981".toColorInt() else "#E5E7EB".toColorInt()
             val thumbIcon = if (isDark) R.drawable.ic_moon_filled else R.drawable.ic_sun_filled
 
             themeMenuItem?.setIcon(if (isDark) R.drawable.ic_moon_outline else R.drawable.ic_sun_outline)
@@ -249,6 +244,31 @@ class MainActivity : AppCompatActivity() {
             }
             drawerLayout.close()
             true
+        }
+
+        // 🚨 STARTUP QR ROUTER
+        val uri = intent?.data
+        if (uri != null && uri.scheme == "https" && uri.host == "bioguard-efb32.web.app") {
+            bottomNav.selectedItemId = R.id.nav_map
+        }
+    }
+
+    // 🚨 FIXED: Removed the '?' from Intent to perfectly match Android's requirements
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent) // Update the intent so MapFragment can read the new data
+
+        val uri = intent.data
+        if (uri != null && uri.scheme == "https" && uri.host == "bioguard-efb32.web.app") {
+            Log.d("QR_ROUTER", "Intercepted Deep Link from background! Routing to Map Tab.")
+
+            // Switch to Map Tab immediately
+            findViewById<BottomNavigationView>(R.id.bottom_navigation).selectedItemId = R.id.nav_map
+
+            // If Map is already open, force it to process the QR code immediately
+            if (activeFragment == mapFragment) {
+                (mapFragment as MapFragment).checkAndProcessQrIntent()
+            }
         }
     }
 
@@ -339,9 +359,6 @@ class MainActivity : AppCompatActivity() {
         startForegroundService(serviceIntent)
     }
 
-    // =========================================================
-    // PUBLIC DASHBOARD ROUTERS & UI SYNC
-    // =========================================================
     fun navigateToFromDashboard(destination: String) {
         val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
         val topAppBar = findViewById<MaterialToolbar>(R.id.topAppBar)
@@ -359,7 +376,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // 🚨 THIS DYNAMICALLY REPAINTS THE SIDEBAR HEADER TO MATCH THE DASHBOARD
     fun updateSidebarHeaderStatus(actionsRequired: Int) {
         val sideNav = findViewById<NavigationView>(R.id.nav_view_sidebar)
         val headerView = sideNav.getHeaderView(0)

@@ -172,24 +172,38 @@ class RegisterActivity : AppCompatActivity() {
         // ==========================================
         btnVerifyOtp.setOnClickListener {
             val code = etOtpCode.text.toString().trim()
+
             if (code.length < 6) {
                 Toast.makeText(this, "Please enter the 6-digit code", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+
+            // 🚨 CRITICAL FIX: Prevent crash if clicked before SMS Session is ready
+            if (storedVerificationId.isEmpty()) {
+                Toast.makeText(this, "Please wait, still requesting SMS session...", Toast.LENGTH_SHORT).show()
                 return@setOnClickListener
             }
 
             btnVerifyOtp.isEnabled = false
             btnVerifyOtp.text = "Verifying..."
 
-            val credential = PhoneAuthProvider.getCredential(storedVerificationId, code)
+            try {
+                val credential = PhoneAuthProvider.getCredential(storedVerificationId, code)
 
-            auth.currentUser?.linkWithCredential(credential)?.addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    finalizeAccountAndLogin()
-                } else {
-                    btnVerifyOtp.isEnabled = true
-                    btnVerifyOtp.text = "Verify Security Code"
-                    Toast.makeText(this, "Incorrect Code: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                auth.currentUser?.linkWithCredential(credential)?.addOnCompleteListener { task ->
+                    if (task.isSuccessful) {
+                        finalizeAccountAndLogin()
+                    } else {
+                        btnVerifyOtp.isEnabled = true
+                        btnVerifyOtp.text = "Verify Security Code"
+                        Toast.makeText(this, "Incorrect Code: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    }
                 }
+            } catch (e: Exception) {
+                // Catch any other unexpected formatting crashes
+                btnVerifyOtp.isEnabled = true
+                btnVerifyOtp.text = "Verify Security Code"
+                Toast.makeText(this, "Verification Error. Try again.", Toast.LENGTH_LONG).show()
             }
         }
 

@@ -61,11 +61,17 @@ class BehavioralAuthClassifier(private val context: Context) {
             outputBuffer.get(reconstruction)
 
             var mseError = 0f
+
+            // 🚨 THE FIX: Weighted Error Calculation
+            // Index 0 (Velocity) and Index 1 (Duration) get a 5.0x penalty multiplier!
+            val weights = floatArrayOf(5.0f, 5.0f, 1.0f, 1.0f, 1.0f, 1.0f)
+            val totalWeight = 14.0f
+
             for (i in 0..5) {
                 val diff = features[i] - reconstruction[i]
-                mseError += (diff * diff)
+                mseError += (diff * diff) * weights[i]
             }
-            mseError / 6f
+            mseError / totalWeight
         } catch (e: Exception) {
             LiveLogger.log("INFER ERROR: ${e.message}")
             1.0f
@@ -122,9 +128,6 @@ class BehavioralAuthClassifier(private val context: Context) {
     }
 
     companion object {
-        // 🚨 FIX: Changed from 0.01f to 0.002f.
-        // The AI is now extremely stubborn. It will require hundreds of stable
-        // swipes before the EMA line drops enough to grant 100% Armed status.
         const val EMA_ALPHA = 0.002f
 
         fun emaStep(prev: Float, raw: Float): Float =
@@ -135,7 +138,8 @@ class BehavioralAuthClassifier(private val context: Context) {
             val mean = errors.average()
             val stdDev = sqrt(errors.map { (it - mean).pow(2) }.average())
 
-            val sensitivity = 3.0
+            // 🚨 THE FIX: Dropped to 1.5. Highly intolerant of sloppy swipes.
+            val sensitivity = 1.5
             return (mean + (sensitivity * stdDev)).toFloat()
         }
     }

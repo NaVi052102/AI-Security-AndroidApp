@@ -17,6 +17,7 @@ import com.example.aisecurity.ai.BehavioralAuthClassifier
 import com.example.aisecurity.ai.SecurityDatabase
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
+import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.*
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -31,7 +32,6 @@ object WatchManager {
     val isConnected = MutableLiveData<Boolean>(false)
     val watchPayload = MutableLiveData<String>("")
 
-    // 🚨 SENSOR VARIABLES
     val liveRSSI = MutableLiveData<Int>(0)
     val liveHeartRate = MutableLiveData<String>("--")
     val wristStatus = MutableLiveData<String>("Unknown")
@@ -167,6 +167,13 @@ object WatchManager {
                     fetchLiveWeatherAndSend()
                     delay(500)
                     WatchMediaService.syncCurrentMedia()
+                    delay(500)
+
+                    val auth = FirebaseAuth.getInstance()
+                    val identifier = auth.currentUser?.email ?: auth.currentUser?.phoneNumber ?: ""
+                    if (identifier.isNotEmpty()) {
+                        syncUserTracker(identifier)
+                    }
                 }
             }
         }
@@ -176,7 +183,6 @@ object WatchManager {
                 val payload = char.getStringValue(0)
                 watchPayload.postValue(payload)
 
-                // 🚨 THIS PIPES THE WATCH SENSORS TO YOUR UI DASHBOARD
                 if (payload.startsWith("<HR:")) {
                     liveHeartRate.postValue(payload.substringAfter(":").replace(">", ""))
                 } else if (payload.startsWith("<WRIST:")) {
@@ -201,8 +207,6 @@ object WatchManager {
 
         override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-
-                // 🚨 THIS IS THE FIX FOR THE GRAPH: IT NOW RECEIVES THE RSSI NUMBER!
                 liveRSSI.postValue(rssi)
 
                 val rawDistance = calculateDistance(rssi)
@@ -442,6 +446,24 @@ object WatchManager {
                 rxChar.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
                 @Suppress("DEPRECATION")
                 gatt.writeCharacteristic(rxChar)
+            }
+        }
+    }
+
+    fun syncUserTracker(identifier: String) {
+        val safeId = identifier.replace("<", "").replace(">", "").replace("|", "").take(50)
+        sendData("<TRACK:$safeId>")
+
+        scope.launch {
+            delay(300)
+            val user = FirebaseAuth.getInstance().currentUser
+            if (user != null) {
+                val uid = user.uid
+                val email = user.email ?: user.phoneNumber ?: "LostDevice"
+
+                // 🚨 FIXED: Now uses your REAL Firebase Hosting URL!
+                val qrUrl = "https://bioguard-efb32.web.app/track?uid=$uid&name=$email"
+                sendData("<QR:$qrUrl>")
             }
         }
     }

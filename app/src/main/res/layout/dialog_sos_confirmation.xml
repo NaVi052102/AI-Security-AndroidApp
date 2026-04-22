@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/dialogRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp">
+
+    <TextView
+        android:id="@+id/tvDialogTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/inter"
+        android:text="ENGAGE SOS PROTOCOL"
+        android:textColor="#EF4444"
+        android:textSize="18sp"
+        android:textStyle="bold"
+        android:gravity="center"
+        android:letterSpacing="0.1"
+        android:layout_marginBottom="16dp" />
+
+    <TextView
+        android:id="@+id/tvSosWarning"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:fontFamily="@font/inter"
+        android:text="WARNING: Triggering SOS will instantly grant your Trusted Contacts remote control over this device to aid in recovery. They will be able to:\n\n• Lock screen &amp; ring alarm\n• Take silent photos (Front/Back Cam)\n• Record ambient audio (Mic)\n• View live Battery, Data, and WiFi status\n• Force-enable GPS Location\n• Check mobile load balance\n• Trigger flashlight beacon"
+        android:textColor="@color/ig_text_secondary"
+        android:textSize="13sp"
+        android:lineSpacingExtra="4dp"
+        android:layout_marginBottom="24dp" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="32dp">
+
+        <EditText
+            android:id="@+id/etConfirmationCode"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:background="#1A888888"
+            android:hint="6-Digit SMS Code"
+            android:textColorHint="@color/ig_text_secondary"
+            android:textColor="@color/ig_text_primary"
+            android:paddingHorizontal="16dp"
+            android:fontFamily="@font/inter"
+            android:textSize="15sp"
+            android:inputType="number"
+            android:maxLength="6"
+            android:letterSpacing="0.2"
+            android:gravity="center" />
+
+        <TextView
+            android:id="@+id/btnGetCode"
+            android:layout_width="wrap_content"
+            android:layout_height="52dp"
+            android:layout_marginStart="8dp"
+            android:background="#1AEF4444"
+            android:gravity="center"
+            android:paddingHorizontal="16dp"
+            android:text="SEND\nCODE"
+            android:textColor="#EF4444"
+            android:fontFamily="@font/inter"
+            android:textSize="10sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:weightSum="2">
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnCancelSos"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="6dp"
+            android:text="CANCEL"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnVerifySos"
+            android:layout_width="0dp"
+            android:layout_height="52dp"
+            android:layout_weight="1"
+            android:layout_marginStart="6dp"
+            android:text="VERIFY &amp; TRIGGER"
+            android:fontFamily="@font/inter"
+            android:textColor="#EF4444"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+    </LinearLayout>
+</LinearLayout>

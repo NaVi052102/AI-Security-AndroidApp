@@ -113,7 +113,6 @@ class TrustedContactsFragment : Fragment() {
         btnAddContact.setOnClickListener { showAddEditDialog(null) }
     }
 
-    // 🚨 NEW: Hides both Top Bar and Bottom Nav to make it fully immersive
     private fun toggleFullScreen(isFullScreen: Boolean) {
         val activity = activity ?: return
         val appBar = activity.findViewById<View>(R.id.appBarLayout)
@@ -125,22 +124,18 @@ class TrustedContactsFragment : Fragment() {
         val params = container.layoutParams as ConstraintLayout.LayoutParams
 
         if (isFullScreen) {
-            // Hide the bars
             appBar.visibility = View.GONE
             bottomNav.visibility = View.GONE
 
-            // Stretch Container to the very Top and very Bottom of screen
             params.topToBottom = ConstraintLayout.LayoutParams.UNSET
             params.topToTop = ConstraintLayout.LayoutParams.PARENT_ID
 
             params.bottomToTop = ConstraintLayout.LayoutParams.UNSET
             params.bottomToBottom = ConstraintLayout.LayoutParams.PARENT_ID
         } else {
-            // Restore the bars
             appBar.visibility = View.VISIBLE
             bottomNav.visibility = View.VISIBLE
 
-            // Constrain Container back between the Top and Bottom bars
             params.topToTop = ConstraintLayout.LayoutParams.UNSET
             params.topToBottom = R.id.appBarLayout
 
@@ -152,25 +147,21 @@ class TrustedContactsFragment : Fragment() {
         container.requestLayout()
     }
 
-    // 🚨 TRIGGER FULL SCREEN WHEN FRAGMENT OPENS
     override fun onResume() {
         super.onResume()
         if (!isHidden) toggleFullScreen(true)
     }
 
-    // 🚨 RESTORE LAYOUT WHEN LEAVING OR BACKGROUNDING
     override fun onPause() {
         super.onPause()
         toggleFullScreen(false)
     }
 
-    // 🚨 RESTORE LAYOUT IF BACK BUTTON DESTROYS FRAGMENT
     override fun onDestroyView() {
         super.onDestroyView()
         toggleFullScreen(false)
     }
 
-    // 🚨 HANDLE VISIBILITY IF WE USE .hide() & .show()
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
         toggleFullScreen(!hidden)
@@ -292,6 +283,42 @@ class TrustedContactsFragment : Fragment() {
                             if (remotePhoto.isNotEmpty()) fetchedPhotoUri = remotePhoto
 
                             Toast.makeText(requireContext(), "User Verified! Live Tracking Enabled.", Toast.LENGTH_SHORT).show()
+
+                            // ==========================================
+                            // 🚨 NEW LOGIC: MUTUAL ADDITION (ADD ME TO THEIR LIST)
+                            // ==========================================
+                            val myUid = auth.currentUser?.uid
+                            if (myUid != null && linkedUid.isNotEmpty() && myUid != linkedUid) {
+                                // 1. Fetch their current trusted contacts list
+                                db.collection("Users").document(linkedUid).get().addOnSuccessListener { theirDoc ->
+                                    val theirContacts = theirDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
+
+                                    // 2. Check if we are already in their list. If not, add us.
+                                    if (theirContacts.none { it["uid"] == myUid }) {
+                                        // 3. Fetch OUR profile data to give to them
+                                        db.collection("Users").document(myUid).get().addOnSuccessListener { myDoc ->
+                                            val myName = myDoc.getString("fullName") ?: myDoc.getString("name") ?: "Sentry User"
+                                            val myPhone = myDoc.getString("phoneNumber") ?: myDoc.getString("number") ?: ""
+                                            val myPhoto = myDoc.getString("photoUri") ?: ""
+
+                                            // 4. Create the contact object for their database
+                                            val myContactForThem = mapOf(
+                                                "id" to UUID.randomUUID().toString(),
+                                                "name" to myName,
+                                                "number" to myPhone,
+                                                "photoUri" to myPhoto,
+                                                "uid" to myUid
+                                            )
+
+                                            // 5. Save the updated list back to their database
+                                            theirContacts.add(myContactForThem)
+                                            db.collection("Users").document(linkedUid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
+                                        }
+                                    }
+                                }
+                            }
+                            // ==========================================
+
                         } else {
                             Toast.makeText(requireContext(), "Not on app. Saved as SMS-Only.", Toast.LENGTH_SHORT).show()
                         }
@@ -495,7 +522,7 @@ class TrustedContactsFragment : Fragment() {
             val contact = contacts[position]
 
             if (contact.uid.isNotEmpty()) {
-                holder.tvName.text = "${contact.name} \uD83D\uDFE2" // Green circle indicating active
+                holder.tvName.text = "${contact.name} \uD83D\uDFE2"
             } else {
                 holder.tvName.text = contact.name
             }

@@ -1,9 +1,9 @@
 package com.example.aisecurity.ui.map
 
+import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.Color
-import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.GradientDrawable
 import android.hardware.Sensor
 import android.hardware.SensorEvent
@@ -24,23 +24,20 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.view.animation.RotateAnimation
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
+import androidx.cardview.widget.CardView
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.firestore.FirebaseFirestore
-import com.google.firebase.firestore.ListenerRegistration
-import com.google.firebase.firestore.SetOptions
-import org.json.JSONArray
-import org.json.JSONObject
-
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -51,19 +48,29 @@ import com.google.android.gms.maps.model.CircleOptions
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.gms.maps.model.MarkerOptions
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.switchmaterial.SwitchMaterial
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
+import java.util.UUID
 
 data class MapContactSummary(
     val uid: String,
     val name: String,
     val colorHex: String,
     var locationName: String = "Locating...",
-    var statusStr: String = "Connecting..."
+    var statusStr: String = "Connecting...",
+    var isSOS: Boolean = false
 )
 
 @SuppressLint("MissingPermission")
@@ -78,14 +85,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private lateinit var btnSettings: Button
     private lateinit var btnSos: androidx.appcompat.widget.AppCompatButton
 
-    // 3D NAVIGATION VARIABLES
     private lateinit var btnNavMode: View
     private lateinit var tvNavMode: TextView
     private var isNavModeActive = false
     private var lastKnownBearing = 0f
     private var lastKnownCompassBearing = 0f
 
-    // Vertical Recycler Variables
     private lateinit var recyclerMapContacts: RecyclerView
     private val mapContactsList = mutableListOf<MapContactSummary>()
     private lateinit var mapContactsAdapter: MapContactsAdapter
@@ -105,8 +110,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private var myName: String = "Me"
     private var myPhotoUri: String = ""
     private var cachedMyBitmap: android.graphics.Bitmap? = null
-    private var lastSosStateForBitmap = false // Tracks if we need to redraw the avatar arrow to RED
+    private var lastSosStateForBitmap = false
     private var isSosActive: Boolean = false
+    private var isRemoteAiActive = false
 
     private val activeFirebaseListeners = mutableListOf<ListenerRegistration>()
 
@@ -118,6 +124,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private val routeCache = mutableMapOf<String, MutableList<LatLng>>()
 
     private var currentlySelectedUid: String? = null
+    private var pendingRemoteControlUid: String? = null
+
+    private val unlockedViaQrUids = mutableSetOf<String>()
 
     private var myArrivalTime = System.currentTimeMillis()
     private var myLastStationaryLatLng: LatLng? = null
@@ -156,6 +165,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         networkCallback = object : ConnectivityManager.NetworkCallback() {
             override fun onAvailable(network: Network) {
                 activity?.runOnUiThread {
+                    if (!isAdded) return@runOnUiThread
                     tvNetworkStatus.text = "ONLINE"
                     tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
                     tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
@@ -163,6 +173,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             }
             override fun onLost(network: Network) {
                 activity?.runOnUiThread {
+                    if (!isAdded) return@runOnUiThread
                     tvNetworkStatus.text = "OFFLINE"
                     tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
                     tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
@@ -176,11 +187,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSos.setOnClickListener { toggleSosProtocol() }
 
         if (!isHidden) {
-            view.post { toggleFullScreenMap(true) }
+            view.post {
+                if (isAdded) toggleFullScreenMap(true)
+            }
         }
     }
 
     private fun dpToPx(dp: Int): Int {
+        if (!isAdded) return 0
         return (dp * resources.displayMetrics.density).toInt()
     }
 
@@ -211,7 +225,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             holder.tvLocation.text = contact.locationName
             holder.tvStatus.text = contact.statusStr
 
-            val isNightMode = isDarkMode()
+            val isNightMode = if (isAdded) isDarkMode() else false
 
             holder.itemView.background = GradientDrawable().apply {
                 shape = GradientDrawable.RECTANGLE
@@ -248,14 +262,13 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         override fun getItemCount() = mapContactsList.size
     }
 
-    // 🚨 CRITICAL FIX RESTORED: Safely escapes if the fragment is not attached!
     private fun toggleFullScreenMap(isMapVisible: Boolean) {
+        val currentActivity = activity ?: return
         if (!isAdded) return
-        val activity = activity ?: return
 
-        val appBar = activity.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.appBarLayout)
-        val toolbar = activity.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.topAppBar)
-        val container = activity.findViewById<View>(R.id.fragment_container)
+        val appBar = currentActivity.findViewById<com.google.android.material.appbar.AppBarLayout>(R.id.appBarLayout)
+        val toolbar = currentActivity.findViewById<com.google.android.material.appbar.MaterialToolbar>(R.id.topAppBar)
+        val container = currentActivity.findViewById<View>(R.id.fragment_container)
 
         if (toolbar == null || container == null || appBar == null) return
 
@@ -380,20 +393,292 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     private fun toggleSosProtocol() {
-        isSosActive = !isSosActive
+        if (isSosActive) {
+            isSosActive = false
+            updateSosDatabaseState()
+            Toast.makeText(requireContext(), "✅ Emergency Cancelled.", Toast.LENGTH_SHORT).show()
+        } else {
+            showSosConfirmationDialog()
+        }
+    }
+
+    private fun showSosConfirmationDialog() {
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_sos_confirmation, null)
+        val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
+        val etCode = dialogView.findViewById<android.widget.EditText>(R.id.etConfirmationCode)
+        val btnGetCode = dialogView.findViewById<TextView>(R.id.btnGetCode)
+        val btnCancel = dialogView.findViewById<androidx.appcompat.widget.AppCompatButton>(R.id.btnCancelSos)
+        val btnVerify = dialogView.findViewById<androidx.appcompat.widget.AppCompatButton>(R.id.btnVerifySos)
+
+        val isNightMode = isDarkMode()
+        val dialogBg = GradientDrawable().apply {
+            cornerRadius = 60f
+            if (isNightMode) {
+                setColor(Color.parseColor("#FA0F172A"))
+                setStroke(2, Color.parseColor("#334155"))
+            } else {
+                setColor(Color.parseColor("#FAFFFFFF"))
+                setStroke(2, Color.parseColor("#CBD5E1"))
+            }
+        }
+        dialogRoot.background = dialogBg
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnGetCode.setOnClickListener {
+            btnGetCode.text = "SENT!"
+            btnGetCode.isEnabled = false
+            btnGetCode.setTextColor(Color.GRAY)
+            Toast.makeText(requireContext(), "Test Code Sent: 123456", Toast.LENGTH_LONG).show()
+        }
+
+        btnCancel.setOnClickListener { dialog.dismiss() }
+
+        btnVerify.setOnClickListener {
+            dialog.dismiss()
+            isSosActive = true
+            updateSosDatabaseState()
+            Toast.makeText(requireContext(), "🚨 PROTOCOL ENGAGED! Remote access granted.", Toast.LENGTH_LONG).show()
+        }
+
+        dialog.show()
+    }
+
+    // ══════════════════════════════════════════════════════
+    //  REMOTE CONTROL PANEL
+    // ══════════════════════════════════════════════════════
+    private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
+        if (!isAdded) return
+
+        if (targetUid != null && targetUid.isNotEmpty()) {
+            currentlySelectedUid = targetUid
+            updateAllTrackingLines()
+            contactMarkersGMap[targetUid]?.let { marker ->
+                gMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(marker.position, 18.5f), 1500, null)
+                marker.showInfoWindow()
+            }
+        }
+
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_remote_control, null)
+
+        val isNight = isDarkMode()
+        val mainBgColor = if (isNight) Color.parseColor("#0A0E1A") else Color.parseColor("#F1F5F9")
+        val strokeColor = if (isNight) Color.parseColor("#252F48") else Color.parseColor("#CBD5E1")
+        val cardBgColor = if (isNight) Color.parseColor("#1C2237") else Color.parseColor("#FFFFFF")
+        val textPrimary = if (isNight) Color.parseColor("#FFFFFF") else Color.parseColor("#0F172A")
+
+        val rootChassis = dialogView.findViewById<MaterialCardView>(R.id.dialogRoot)
+        rootChassis?.setCardBackgroundColor(mainBgColor)
+        rootChassis?.strokeColor = strokeColor
+
+        val cardIds = intArrayOf(
+            R.id.cardProfile, R.id.cardConnectivity, R.id.cardAiDetection,
+            R.id.cardLocation
+        )
+        for (id in cardIds) {
+            dialogView.findViewById<CardView>(id)?.setCardBackgroundColor(cardBgColor)
+        }
+
+        val textPrimaryIds = intArrayOf(
+            R.id.tvTargetName, R.id.tvWifiStatus, R.id.tvMobileDataStatus, R.id.tvLocationStatus,
+            R.id.tvLocationCity, R.id.tvLatitude, R.id.tvLongitude, R.id.tvBluetoothStatus,
+            R.id.tvBatterySaverStatus, R.id.tvRemoteDistance
+        )
+        for (id in textPrimaryIds) {
+            dialogView.findViewById<TextView>(id)?.setTextColor(textPrimary)
+        }
+
+        val tvUserName = dialogView.findViewById<TextView>(R.id.tvTargetName)
+        tvUserName?.text = targetName
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(dialogView)
+            .setCancelable(true)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        setupToggles(dialogView)
+        setupAiSensitivityDropdown(dialogView)
+        setupAiButton(dialogView)
+
+        dialog.show()
+    }
+
+    private fun setupToggles(dialogView: View) {
+        val switchWifi = dialogView.findViewById<SwitchMaterial>(R.id.switchWifi)
+        val tvWifiStatus = dialogView.findViewById<TextView>(R.id.tvWifiStatus)
+        val iconWifi = dialogView.findViewById<View>(R.id.iconWifi)
+        switchWifi?.setOnCheckedChangeListener { _, isOn ->
+            tvWifiStatus?.text = if (isOn) "Connected" else "Disconnected"
+            iconWifi?.alpha = if (isOn) 1f else 0.3f
+        }
+
+        val switchMd = dialogView.findViewById<SwitchMaterial>(R.id.switchData)
+        val tvMdStatus = dialogView.findViewById<TextView>(R.id.tvMobileDataStatus)
+        val iconData = dialogView.findViewById<View>(R.id.iconData)
+        switchMd?.setOnCheckedChangeListener { _, isOn ->
+            tvMdStatus?.text = if (isOn) "4G LTE" else "Off"
+            iconData?.alpha = if (isOn) 1f else 0.3f
+        }
+
+        val switchLoc = dialogView.findViewById<SwitchMaterial>(R.id.switchLocation)
+        val tvLocStatus = dialogView.findViewById<TextView>(R.id.tvLocationStatus)
+        val iconLoc = dialogView.findViewById<View>(R.id.iconLoc)
+        switchLoc?.setOnCheckedChangeListener { _, isOn ->
+            tvLocStatus?.text = if (isOn) "On" else "Off"
+            iconLoc?.alpha = if (isOn) 1f else 0.35f
+        }
+
+        val switchBluetooth = dialogView.findViewById<SwitchMaterial>(R.id.switchBluetooth)
+        val tvBluetoothStatus = dialogView.findViewById<TextView>(R.id.tvBluetoothStatus)
+        val iconBluetooth = dialogView.findViewById<View>(R.id.iconBluetooth)
+        switchBluetooth?.setOnCheckedChangeListener { _, isOn ->
+            tvBluetoothStatus?.text = if (isOn) "On" else "Off"
+            iconBluetooth?.alpha = if (isOn) 1f else 0.3f
+        }
+
+        val switchBatterySaver = dialogView.findViewById<SwitchMaterial>(R.id.switchBatterySaver)
+        val tvBatterySaverStatus = dialogView.findViewById<TextView>(R.id.tvBatterySaverStatus)
+        val iconBatterySaver = dialogView.findViewById<View>(R.id.iconBatterySaver)
+        switchBatterySaver?.setOnCheckedChangeListener { _, isOn ->
+            tvBatterySaverStatus?.text = if (isOn) "On" else "Off"
+            iconBatterySaver?.alpha = if (isOn) 1f else 0.35f
+        }
+
+        dialogView.findViewById<LinearLayout>(R.id.rowWifi)?.setOnClickListener { switchWifi?.toggle() }
+        dialogView.findViewById<LinearLayout>(R.id.rowMobileData)?.setOnClickListener { switchMd?.toggle() }
+        dialogView.findViewById<LinearLayout>(R.id.rowLocation)?.setOnClickListener { switchLoc?.toggle() }
+        dialogView.findViewById<LinearLayout>(R.id.rowBluetooth)?.setOnClickListener { switchBluetooth?.toggle() }
+        dialogView.findViewById<LinearLayout>(R.id.rowBatterySaver)?.setOnClickListener { switchBatterySaver?.toggle() }
+    }
+
+    private fun setupAiSensitivityDropdown(dialogView: View) {
+        val panel = dialogView.findViewById<LinearLayout>(R.id.dropPanelAi)
+        val chevron = dialogView.findViewById<ImageView>(R.id.ivAiChevron)
+        val tvValue = dialogView.findViewById<TextView>(R.id.tvAiSensitivityValue)
+        val trigger = dialogView.findViewById<View>(R.id.btnAiSensitivityDrop)
+
+        val options = listOf(
+            R.id.optAiStrict to Pair(R.id.chkAiStrict, "Strict"),
+            R.id.optAiLenient to Pair(R.id.chkAiLenient, "Lenient")
+        )
+
+        trigger?.setOnClickListener { toggleDropdown(panel, chevron) }
+
+        options.forEach { (optId, pair) ->
+            val (chkId, label) = pair
+            dialogView.findViewById<LinearLayout>(optId)?.setOnClickListener {
+                tvValue?.text = label
+                selectOption(dialogView, options, chkId)
+                collapsePanel(panel, chevron)
+                Toast.makeText(requireContext(), "Command: Setting Sensitivity to $label", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun setupAiButton(dialogView: View) {
+        val btnUseAi = dialogView.findViewById<Button>(R.id.btnUseAiToggle)
+        btnUseAi?.setOnClickListener {
+            isRemoteAiActive = !isRemoteAiActive
+            if (isRemoteAiActive) {
+                btnUseAi.text = "STOP"
+                btnUseAi.setBackgroundColor(Color.parseColor("#EF4444"))
+                Toast.makeText(requireContext(), "AI Detection Stopped", Toast.LENGTH_SHORT).show()
+            } else {
+                btnUseAi.text = "USE AI"
+                btnUseAi.setBackgroundColor(Color.parseColor("#0284C7"))
+                Toast.makeText(requireContext(), "AI Detection Activated", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun toggleDropdown(panel: LinearLayout?, chevron: ImageView?) {
+        if (panel == null || chevron == null) return
+        if (panel.visibility == View.GONE) expandPanel(panel, chevron)
+        else collapsePanel(panel, chevron)
+    }
+
+    private fun expandPanel(panel: LinearLayout, chevron: ImageView) {
+        panel.visibility = View.VISIBLE
+        panel.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        val targetH = panel.measuredHeight
+        panel.layoutParams.height = 0
+        panel.requestLayout()
+
+        ValueAnimator.ofInt(0, targetH).apply {
+            duration = 250
+            addUpdateListener {
+                panel.layoutParams.height = it.animatedValue as Int
+                panel.requestLayout()
+            }
+            start()
+        }
+        rotatChevron(chevron, 0f, 180f)
+    }
+
+    private fun collapsePanel(panel: LinearLayout, chevron: ImageView) {
+        val initH = panel.measuredHeight
+        ValueAnimator.ofInt(initH, 0).apply {
+            duration = 220
+            addUpdateListener {
+                val h = it.animatedValue as Int
+                panel.layoutParams.height = h
+                panel.requestLayout()
+                if (h == 0) panel.visibility = View.GONE
+            }
+            start()
+        }
+        rotatChevron(chevron, 180f, 0f)
+    }
+
+    private fun rotatChevron(view: ImageView, from: Float, to: Float) {
+        val anim = RotateAnimation(from, to, RotateAnimation.RELATIVE_TO_SELF, 0.5f, RotateAnimation.RELATIVE_TO_SELF, 0.5f).apply {
+            duration = 220
+            fillAfter = true
+        }
+        view.startAnimation(anim)
+    }
+
+    private fun selectOption(dialogView: View, options: List<Pair<Int, Pair<Int, String>>>, selectedChkId: Int) {
+        options.forEach { (_, pair) ->
+            val (chkId, _) = pair
+            val chk = dialogView.findViewById<ImageView>(chkId)
+            chk?.visibility = if (chkId == selectedChkId) View.VISIBLE else View.INVISIBLE
+
+            val row = chk?.parent as? LinearLayout
+            val lbl = row?.getChildAt(1) as? TextView
+            if (chkId == selectedChkId) {
+                lbl?.setTextColor(Color.parseColor("#00D8FF"))
+            } else {
+                lbl?.setTextColor(Color.parseColor("#8899BB"))
+            }
+        }
+    }
+
+    private fun updateSosDatabaseState() {
         val userId = auth.currentUser?.uid ?: return
         db.collection("Users").document(userId).set(hashMapOf("isSOS" to isSosActive), SetOptions.merge())
 
-        if (isSosActive) {
-            Toast.makeText(requireContext(), "🚨 EMERGENCY PROTOCOL ENGAGED! Contacts notified.", Toast.LENGTH_LONG).show()
-        } else {
-            Toast.makeText(requireContext(), "✅ Emergency Cancelled.", Toast.LENGTH_SHORT).show()
+        myCurrentLatLng?.let {
+            processLocationUpdate(Location(LocationManager.GPS_PROVIDER).apply {
+                latitude = it.latitude
+                longitude = it.longitude
+                accuracy = 10f
+            })
         }
     }
 
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        view?.post { toggleFullScreenMap(!hidden) }
+        view?.post {
+            if (isAdded) toggleFullScreenMap(!hidden)
+        }
 
         if (hidden) {
             stopLocationTracking()
@@ -407,35 +692,77 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 startLocationTracking(userId)
             }
             rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+
+            checkAndProcessQrIntent()
+
             initLife360Engine()
         }
     }
 
+    private fun applyGlassButton(button: Button, isNightMode: Boolean) {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE;
+            cornerRadius = 1000f;
+            orientation = GradientDrawable.Orientation.TOP_BOTTOM
+        }
+        if (isNightMode) {
+            bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
+            bg.setStroke(4, Color.parseColor("#D4AF37"))
+            button.setTextColor(Color.parseColor("#FFFFFF"))
+        } else {
+            bg.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
+            bg.setStroke(4, Color.parseColor("#2563EB"))
+            button.setTextColor(Color.parseColor("#1E293B"))
+        }
+        button.background = bg
+    }
+
+    // 🚨 PERFECTLY CLEANED UP ADAPTER (No Unresolved References)
     inner class CustomGoogleInfoWindowAdapter : GoogleMap.InfoWindowAdapter {
         override fun getInfoWindow(marker: com.google.android.gms.maps.model.Marker): View? {
             val view = layoutInflater.inflate(R.layout.layout_map_info_window, null)
-            val tvName = view.findViewById<TextView>(R.id.tvInfoName)
-            val tvStatus = view.findViewById<TextView>(R.id.tvInfoStatus)
-            val tvBattery = view.findViewById<TextView>(R.id.tvInfoBattery)
-            val tvDistance = view.findViewById<TextView>(R.id.tvInfoDistance)
+
+            val isNight = isDarkMode()
+            val mainBgColor = if (isNight) Color.parseColor("#0A0E1A") else Color.parseColor("#F1F5F9")
+            val strokeColor = if (isNight) Color.parseColor("#252F48") else Color.parseColor("#CBD5E1")
+            val cardBgColor = if (isNight) Color.parseColor("#1C2237") else Color.parseColor("#FFFFFF")
+            val textPrimary = if (isNight) Color.parseColor("#FFFFFF") else Color.parseColor("#0F172A")
+
+            val rootChassis = view.findViewById<MaterialCardView>(R.id.dialogRoot)
+            rootChassis?.setCardBackgroundColor(mainBgColor)
+            rootChassis?.strokeColor = strokeColor
+
+            val cardIds = intArrayOf(
+                R.id.cardProfile, R.id.cardConnectivity, R.id.cardAiDetection,
+                R.id.cardLocation
+            )
+            for (id in cardIds) {
+                view.findViewById<CardView>(id)?.setCardBackgroundColor(cardBgColor)
+            }
+
+            val textPrimaryIds = intArrayOf(
+                R.id.tvTargetName, R.id.tvLocationStatus, R.id.tvLocationCity,
+                R.id.tvLatitude, R.id.tvLongitude, R.id.tvRemoteDistance
+            )
+            for (id in textPrimaryIds) {
+                view.findViewById<TextView>(id)?.setTextColor(textPrimary)
+            }
 
             try {
                 val data = JSONObject(marker.snippet ?: "{}")
-                tvName.text = data.getString("name")
-                tvStatus.text = data.getString("status")
-                tvDistance.text = "📍 ${data.getString("distance")}"
+
+                val targetName = data.getString("name")
+                view.findViewById<TextView>(R.id.tvTargetName)?.text = targetName
+                view.findViewById<TextView>(R.id.tvLocationStatus)?.text = data.getString("status")
+                view.findViewById<TextView>(R.id.tvRemoteDistance)?.text = "DIST: ${data.getString("distance")}"
 
                 val battery = data.getInt("battery")
-                tvBattery.text = "🔋 $battery%"
-                tvBattery.setTextColor(if (battery <= 20) Color.parseColor("#EF4444") else Color.parseColor("#10B981"))
+                val tvBatt = view.findViewById<TextView>(R.id.tvBattery)
+                tvBatt?.text = "$battery%"
+                if (battery <= 20) tvBatt?.setTextColor(Color.parseColor("#EF4444"))
 
-                if (data.getBoolean("isSOS")) {
-                    tvStatus.text = "🚨 SOS ACTIVE 🚨"
-                    tvStatus.setTextColor(Color.parseColor("#EF4444"))
-                }
             } catch (e: Exception) {
-                tvName.text = marker.title
-                tvStatus.text = marker.snippet
+                view.findViewById<TextView>(R.id.tvTargetName)?.text = marker.title
             }
             return view
         }
@@ -451,12 +778,20 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         return if (meters < 1000) "${meters.toInt()}m" else String.format("%.1fkm", meters / 1000f)
     }
 
-    private fun formatDuration(millis: Long): String {
-        val mins = millis / 60000
-        if (mins < 1) return "Just arrived"
-        val hours = mins / 60
-        if (hours > 0) return "${hours}h ${mins % 60}m"
-        return "${mins}m"
+    private fun formatDetailedTime(millis: Long): String {
+        val totalMins = millis / 60000
+        if (totalMins < 1) return "Just now"
+
+        val days = totalMins / (24 * 60)
+        val hours = (totalMins % (24 * 60)) / 60
+        val mins = totalMins % 60
+
+        val parts = mutableListOf<String>()
+        if (days > 0) parts.add("${days}d")
+        if (hours > 0) parts.add("${hours}h")
+        if (mins > 0 && days == 0L) parts.add("${mins}m")
+
+        return parts.joinToString(" ")
     }
 
     private fun getInitials(name: String): String {
@@ -528,20 +863,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         } catch (e: Exception) { return null }
     }
 
-    private fun applyGlassButton(button: Button, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 1000f; orientation = GradientDrawable.Orientation.TOP_BOTTOM }
-        if (isNightMode) {
-            bg.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
-            bg.setStroke(4, Color.parseColor("#D4AF37"))
-            button.setTextColor(Color.parseColor("#FFFFFF"))
-        } else {
-            bg.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
-            bg.setStroke(4, Color.parseColor("#2563EB"))
-            button.setTextColor(Color.parseColor("#1E293B"))
-        }
-        button.background = bg
-    }
-
     override fun onMapReady(googleMap: GoogleMap) {
         if (gMap != null) return
         gMap = googleMap
@@ -552,7 +873,33 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             try { gMap?.setMapStyle(MapStyleOptions.loadRawResourceStyle(requireContext(), R.raw.map_style_dark)) } catch (e: Exception) {}
         }
 
-        gMapMarker = gMap?.addMarker(MarkerOptions().position(LatLng(0.0, 0.0)).title("Me").anchor(0.5f, 0.5f).flat(true).visible(false))
+        gMapMarker = gMap?.addMarker(MarkerOptions()
+            .position(LatLng(0.0, 0.0))
+            .title("Me")
+            .anchor(0.5f, 0.5f)
+            .infoWindowAnchor(0.5f, 0.5f)
+            .flat(true)
+            .visible(false))
+
+        gMap?.setOnInfoWindowClickListener { marker ->
+            if (marker.title != "Me") {
+                try {
+                    val data = JSONObject(marker.snippet ?: "{}")
+                    val isSOS = data.optBoolean("isSOS", false)
+                    val targetName = data.optString("name", "")
+                    val targetUid = data.optString("uid", "")
+
+                    val isLostDevice = targetName.contains("Lost Device")
+                    val isUnlockedViaQr = unlockedViaQrUids.contains(targetUid)
+
+                    if (isSOS || isLostDevice || isUnlockedViaQr) {
+                        showRemoteControlPanel(targetName, targetUid)
+                    } else {
+                        Toast.makeText(requireContext(), "Access Denied. Device is not in SOS Mode.", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {}
+            }
+        }
 
         gMap?.setOnCameraMoveStartedListener { reason ->
             if (reason == GoogleMap.OnCameraMoveStartedListener.REASON_GESTURE && isNavModeActive) {
@@ -585,7 +932,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         lastRouteFetchTime = 0L
 
         if (!isHidden) {
-            view?.post { toggleFullScreenMap(true) }
+            view?.post { if(isAdded) toggleFullScreenMap(true) }
         }
 
         val networkRequest = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
@@ -606,7 +953,115 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
 
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-        if (!isHidden) initLife360Engine()
+
+        if (!isHidden) {
+            checkAndProcessQrIntent()
+            initLife360Engine()
+        }
+    }
+
+    fun checkAndProcessQrIntent() {
+        val currentActivity = activity ?: return
+        val intent = currentActivity.intent
+        val data: Uri? = intent?.data
+
+        if (data != null && data.scheme == "https" && data.host == "bioguard-efb32.web.app") {
+            val targetUid = data.getQueryParameter("uid")
+            val targetName = data.getQueryParameter("name") ?: "Lost Device"
+
+            if (targetUid != null && targetUid != auth.currentUser?.uid) {
+                unlockedViaQrUids.add(targetUid)
+                autoAddLostDevice(targetUid, targetName)
+                intent.data = null
+            } else if (targetUid == null && targetName != "Lost Device") {
+                findUidAndAddLostDevice(targetName)
+                intent.data = null
+            }
+        }
+    }
+
+    private fun findUidAndAddLostDevice(identifier: String) {
+        db.collection("Users").whereEqualTo("email", identifier).get().addOnSuccessListener { docs ->
+            if (!docs.isEmpty) {
+                val foundUid = docs.documents[0].id
+                unlockedViaQrUids.add(foundUid)
+                autoAddLostDevice(foundUid, identifier)
+            } else {
+                db.collection("Users").whereEqualTo("phoneNumber", identifier).get().addOnSuccessListener { phoneDocs ->
+                    if (!phoneDocs.isEmpty) {
+                        val foundUid = phoneDocs.documents[0].id
+                        unlockedViaQrUids.add(foundUid)
+                        autoAddLostDevice(foundUid, identifier)
+                    } else {
+                        Toast.makeText(requireContext(), "Account not found in database.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+    }
+
+    private fun autoAddLostDevice(uid: String, fallbackName: String) {
+        val userId = auth.currentUser?.uid ?: return
+
+        db.collection("Users").document(userId).get().addOnSuccessListener { currentUserDoc ->
+            val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
+
+            if (existingList.none { it["uid"] == uid }) {
+
+                db.collection("Users").document(uid).get().addOnSuccessListener { targetUserDoc ->
+                    var actualName = fallbackName
+                    var actualNumber = "Tracking Protocol Active"
+                    var actualPhoto = ""
+
+                    if (targetUserDoc.exists()) {
+                        actualName = targetUserDoc.getString("fullName") ?: targetUserDoc.getString("name") ?: fallbackName
+                        actualNumber = targetUserDoc.getString("phoneNumber") ?: targetUserDoc.getString("number") ?: "No Number Provided"
+                        actualPhoto = targetUserDoc.getString("photoUri") ?: ""
+                    }
+
+                    val newContact = mapOf(
+                        "id" to java.util.UUID.randomUUID().toString(),
+                        "name" to "$actualName (Lost Device)",
+                        "number" to actualNumber,
+                        "photoUri" to actualPhoto,
+                        "uid" to uid
+                    )
+                    existingList.add(newContact)
+
+                    db.collection("Users").document(userId).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    Toast.makeText(requireContext(), "✅ Target Acquired! $actualName added to tracking list.", Toast.LENGTH_LONG).show()
+
+                    pendingRemoteControlUid = uid
+                    initLife360Engine()
+
+                }.addOnFailureListener {
+                    val newContact = mapOf(
+                        "id" to java.util.UUID.randomUUID().toString(),
+                        "name" to "$fallbackName (Lost Device)",
+                        "number" to "Tracking Protocol Active",
+                        "photoUri" to "",
+                        "uid" to uid
+                    )
+                    existingList.add(newContact)
+
+                    db.collection("Users").document(userId).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    Toast.makeText(requireContext(), "✅ Target Acquired! Lost Device added to tracking list.", Toast.LENGTH_LONG).show()
+
+                    pendingRemoteControlUid = uid
+                    initLife360Engine()
+                }
+
+            } else {
+                Toast.makeText(requireContext(), "Device is already being tracked.", Toast.LENGTH_SHORT).show()
+
+                if (contactMarkersGMap.containsKey(uid)) {
+                    val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
+                    showRemoteControlPanel(actualName, uid)
+                } else {
+                    pendingRemoteControlUid = uid
+                }
+            }
+        }
     }
 
     override fun onSensorChanged(event: SensorEvent?) {
@@ -628,7 +1083,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     .tilt(65f)
                     .bearing(lastKnownCompassBearing)
                     .build()
-
                 gMap?.moveCamera(CameraUpdateFactory.newCameraPosition(camPos))
             }
         }
@@ -687,21 +1141,25 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
 
         val myDwellMillis = System.currentTimeMillis() - myArrivalTime
-        val myDwellStr = formatDuration(myDwellMillis)
         val currentBattery = getBatteryLevel()
+
+        val timeStr = formatDetailedTime(myDwellMillis)
+        val finalStatus = if (timeStr == "Just now") "Just arrived" else "Stationary for $timeStr"
 
         val myJsonData = JSONObject().apply {
             put("name", "Me")
-            put("status", "Stationary for $myDwellStr")
+            put("status", finalStatus)
             put("distance", "0m")
             put("battery", currentBattery)
             put("isSOS", isSosActive)
         }.toString()
 
+        val safeContext = context ?: return
+
         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             var placeName = "Tracking Location..."
             try {
-                val addresses = Geocoder(requireContext(), Locale.getDefault()).getFromLocation(currentLat, currentLng, 1)
+                val addresses = Geocoder(safeContext, Locale.getDefault()).getFromLocation(currentLat, currentLng, 1)
                 if (!addresses.isNullOrEmpty()) placeName = addresses[0].getAddressLine(0) ?: "Unknown Street"
             } catch (e: Exception) { }
 
@@ -719,13 +1177,15 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             db.collection("Users").document(userId).set(locationData, SetOptions.merge())
 
             withContext(Dispatchers.Main) {
+                if (!isAdded) return@withContext
+
                 if (gMapMarker == null) {
                     gMapMarker = gMap?.addMarker(MarkerOptions().position(currentLatlng).title("Me").anchor(0.5f, 0.5f).flat(true))
                 }
 
                 val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
                 if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
-                    cachedMyBitmap = createMarkerBitmap(requireContext(), myName, myPhotoUri, myArrowColor)
+                    cachedMyBitmap = createMarkerBitmap(safeContext, myName, myPhotoUri, myArrowColor)
                     lastSosStateForBitmap = isSosActive
                 }
 
@@ -741,7 +1201,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
                 mapContactsList.firstOrNull { it.uid == "ME" }?.let {
                     it.locationName = placeName
-                    it.statusStr = "Since ${formatDuration(myDwellMillis)} ago"
+                    it.statusStr = finalStatus
                     mapContactsAdapter.notifyItemChanged(0)
                 }
 
@@ -770,7 +1230,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     override fun onDestroyView() {
         super.onDestroyView()
-        toggleFullScreenMap(false)
+        if (isAdded) toggleFullScreenMap(false)
         gMap?.clear()
         gMap = null
     }
@@ -798,8 +1258,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                             }
                             jsonArray.put(obj)
                         }
-                        requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
-                            .edit().putString("trusted_contacts_json", jsonArray.toString()).apply()
+
+                        val currentActivity = activity
+                        if (currentActivity != null) {
+                            currentActivity.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                                .edit().putString("trusted_contacts_json", jsonArray.toString()).apply()
+                        }
                     }
                 } catch (e: Exception) { e.printStackTrace() }
             }
@@ -813,7 +1277,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
 
-        val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val currentActivity = activity ?: return
+        val prefs = currentActivity.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val jsonStr = prefs.getString("trusted_contacts_json", "[]") ?: "[]"
         val jsonArray = org.json.JSONArray(jsonStr)
 
@@ -870,9 +1335,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     val accuracy = snapshot.getDouble("accuracy") ?: 10.0
                     val battery = snapshot.getLong("battery")?.toInt() ?: 100
                     val isContactSOS = snapshot.getBoolean("isSOS") ?: false
-
                     val remoteBearing = snapshot.getDouble("bearing")?.toFloat() ?: 0f
-
                     val lastUpdatedMillis = snapshot.getTimestamp("lastUpdated")?.toDate()?.time ?: System.currentTimeMillis()
                     val livePhotoUri = snapshot.getString("photoUri") ?: friendPhotoUri
 
@@ -908,10 +1371,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val contactDwellMillis = System.currentTimeMillis() - (contactArrivalTimes[uid] ?: System.currentTimeMillis())
 
         val statusString = if (isOffline) {
-            val mins = timeSinceUpdate / 60000
-            "Last seen ${mins}m ago"
+            val timeStr = formatDetailedTime(timeSinceUpdate)
+            if (timeStr == "Just now") "Last seen just now" else "Last seen $timeStr ago"
         } else {
-            "Since ${formatDuration(contactDwellMillis)} ago"
+            val timeStr = formatDetailedTime(contactDwellMillis)
+            if (timeStr == "Just now") "Just arrived" else "Since $timeStr ago"
         }
 
         var distanceStr = ""
@@ -926,16 +1390,20 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             put("isSOS", isContactSOS)
         }.toString()
 
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+        val safeContext = context ?: return
 
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             val arrowColorHex = if (isContactSOS) "#EF4444" else assignedColorHex
-            val friendBitmap = createMarkerBitmap(requireContext(), name, photoUri, arrowColorHex)
+            val friendBitmap = createMarkerBitmap(safeContext, name, photoUri, arrowColorHex)
 
             withContext(Dispatchers.Main) {
+                if (!isAdded) return@withContext
+
                 val idx = mapContactsList.indexOfFirst { it.uid == uid }
                 if (idx != -1) {
                     mapContactsList[idx].locationName = "Distance: $distanceStr"
                     mapContactsList[idx].statusStr = statusString
+                    mapContactsList[idx].isSOS = isContactSOS
                     mapContactsAdapter.notifyItemChanged(idx)
                 }
 
@@ -954,6 +1422,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                             .title(name)
                             .snippet(finalJsonSnippet)
                             .anchor(0.5f, 0.5f)
+                            .infoWindowAnchor(0.5f, 0.5f)
                             .flat(true)
                             .rotation(remoteBearing)
                         )
@@ -966,7 +1435,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     } else {
                         contactMarkersGMap[uid]?.position = targetLatlng
                         contactMarkersGMap[uid]?.snippet = finalJsonSnippet
-
                         contactMarkersGMap[uid]?.rotation = remoteBearing
 
                         if (currentlySelectedUid == uid) contactMarkersGMap[uid]?.showInfoWindow()
@@ -976,6 +1444,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 }
 
                 updateAllTrackingLines()
+
+                if (pendingRemoteControlUid == uid) {
+                    pendingRemoteControlUid = null
+                    showRemoteControlPanel(name, uid)
+                }
             }
         }
     }
@@ -1003,6 +1476,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     if (roadRoute.size > 2) routeCache[uid] = roadRoute.toMutableList()
 
                     withContext(Dispatchers.Main) {
+                        if (!isAdded) return@withContext
                         contactLinesGMap[uid]?.points = roadRoute
                     }
                 }
