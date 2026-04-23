@@ -89,7 +89,8 @@ interface SecurityDao {
         SecurityLog::class,
         LossPoint::class
     ],
-    version = 6   // bumped: ema_value column added to training_loss
+    version = 6,   // bumped: ema_value column added to training_loss
+    exportSchema = false
 )
 abstract class SecurityDatabase : RoomDatabase() {
     abstract fun dao(): SecurityDao

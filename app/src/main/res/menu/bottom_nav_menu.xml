@@ -20,5 +20,10 @@
         android:icon="@drawable/nav_icon_map"
         android:title="Tracker" />
 
+    <item
+        android:id="@+id/nav_qr"
+        android:icon="@drawable/selector_nav_qr"
+        android:title="Scanner" />
+
 
 </menu>

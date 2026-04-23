@@ -40,6 +40,7 @@ import com.example.aisecurity.ui.map.LocationTrackingService
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
+import com.example.aisecurity.ui.qr.QRScannerFragment // 🚨 IMPORTED
 import com.example.aisecurity.ui.settings.AccountSettingsFragment
 import com.example.aisecurity.ui.settings.SettingsFragment
 import com.google.android.material.appbar.MaterialToolbar
@@ -60,6 +61,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var biometricsFragment: Fragment
     private lateinit var proximityFragment: Fragment
     private lateinit var mapFragment: Fragment
+    private lateinit var qrScannerFragment: Fragment // 🚨 ADDED
     private lateinit var settingsFragment: Fragment
     private lateinit var accountSettingsFragment: Fragment
     private lateinit var bluetoothFragment: Fragment
@@ -133,6 +135,7 @@ class MainActivity : AppCompatActivity() {
             biometricsFragment = BiometricsFragment()
             proximityFragment = ProximityFragment()
             mapFragment = MapFragment()
+            qrScannerFragment = QRScannerFragment() // 🚨 ADDED
             settingsFragment = SettingsFragment()
             accountSettingsFragment = AccountSettingsFragment()
             bluetoothFragment = BluetoothFragment()
@@ -147,6 +150,7 @@ class MainActivity : AppCompatActivity() {
                 add(R.id.fragment_container, bluetoothFragment, "bluetooth").hide(bluetoothFragment)
                 add(R.id.fragment_container, settingsFragment, "settings").hide(settingsFragment)
                 add(R.id.fragment_container, accountSettingsFragment, "account").hide(accountSettingsFragment)
+                add(R.id.fragment_container, qrScannerFragment, "qr").hide(qrScannerFragment) // 🚨 ADDED
                 add(R.id.fragment_container, mapFragment, "map").hide(mapFragment)
                 add(R.id.fragment_container, proximityFragment, "proximity").hide(proximityFragment)
                 add(R.id.fragment_container, biometricsFragment, "biometrics").hide(biometricsFragment)
@@ -160,6 +164,7 @@ class MainActivity : AppCompatActivity() {
             biometricsFragment = supportFragmentManager.findFragmentByTag("biometrics") ?: BiometricsFragment()
             proximityFragment = supportFragmentManager.findFragmentByTag("proximity") ?: ProximityFragment()
             mapFragment = supportFragmentManager.findFragmentByTag("map") ?: MapFragment()
+            qrScannerFragment = supportFragmentManager.findFragmentByTag("qr") ?: QRScannerFragment() // 🚨 ADDED
             settingsFragment = supportFragmentManager.findFragmentByTag("settings") ?: SettingsFragment()
             accountSettingsFragment = supportFragmentManager.findFragmentByTag("account") ?: AccountSettingsFragment()
             bluetoothFragment = supportFragmentManager.findFragmentByTag("bluetooth") ?: BluetoothFragment()
@@ -216,10 +221,11 @@ class MainActivity : AppCompatActivity() {
 
         bottomNav.setOnItemSelectedListener { item ->
             when (item.itemId) {
-                R.id.nav_dashboard -> { switchFragment(dashboardFragment); topAppBar.title = "Command Center" }
-                R.id.nav_biometrics -> { switchFragment(biometricsFragment); topAppBar.title = "Biometrics Engine" }
+                R.id.nav_dashboard -> { switchFragment(dashboardFragment); topAppBar.title = "Dashboard" }
+                R.id.nav_biometrics -> { switchFragment(biometricsFragment); topAppBar.title = "Sentry AI" }
                 R.id.nav_proximity -> { switchFragment(proximityFragment); topAppBar.title = "Proximity Radar" }
                 R.id.nav_map -> { switchFragment(mapFragment); topAppBar.title = "Tracker Map" }
+                R.id.nav_qr -> { switchFragment(qrScannerFragment); topAppBar.title = "Track Lost Phone" }
             }
             true
         }
@@ -246,26 +252,21 @@ class MainActivity : AppCompatActivity() {
             true
         }
 
-        // 🚨 STARTUP QR ROUTER
         val uri = intent?.data
         if (uri != null && uri.scheme == "https" && uri.host == "bioguard-efb32.web.app") {
             bottomNav.selectedItemId = R.id.nav_map
         }
     }
 
-    // 🚨 FIXED: Removed the '?' from Intent to perfectly match Android's requirements
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        setIntent(intent) // Update the intent so MapFragment can read the new data
+        setIntent(intent)
 
         val uri = intent.data
         if (uri != null && uri.scheme == "https" && uri.host == "bioguard-efb32.web.app") {
             Log.d("QR_ROUTER", "Intercepted Deep Link from background! Routing to Map Tab.")
-
-            // Switch to Map Tab immediately
             findViewById<BottomNavigationView>(R.id.bottom_navigation).selectedItemId = R.id.nav_map
 
-            // If Map is already open, force it to process the QR code immediately
             if (activeFragment == mapFragment) {
                 (mapFragment as MapFragment).checkAndProcessQrIntent()
             }
@@ -356,7 +357,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun startLocationService() {
         val serviceIntent = Intent(this, LocationTrackingService::class.java)
-        startForegroundService(serviceIntent)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
     }
 
     fun navigateToFromDashboard(destination: String) {

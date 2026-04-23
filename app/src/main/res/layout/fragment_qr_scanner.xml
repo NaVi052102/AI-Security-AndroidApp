@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="@android:color/transparent">
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+    <LinearLayout
+        android:id="@+id/qrGlassCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@drawable/glass_card"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp">
+
+        <ImageView
+            android:id="@+id/imgCameraIcon"
+            android:layout_width="80dp"
+            android:layout_height="80dp"
+            android:src="@drawable/ic_camera_alt"
+            android:layout_marginBottom="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="SENTRY OVERRIDE"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_primary"
+            android:textSize="16sp"
+            android:letterSpacing="0.05"
+            android:textStyle="bold"
+            android:layout_marginBottom="16dp"/>
+
+        <TextView
+            android:id="@+id/tvQrDesc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="To locate and control this device if it is lost or stolen, find the paired Smartwatch.\n\nOpen the BioGuard app on the watch to display the Sentry Matrix QR Code. Scan it here to instantly regain remote control."
+            android:textSize="14sp"
+            android:textColor="@color/ig_text_primary"
+            android:textAlignment="center"
+            android:lineSpacingExtra="6dp"
+            android:layout_marginBottom="32dp"/>
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnLaunchScanner"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="SCAN QR CODE"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:fontFamily="@font/inter"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
+    </LinearLayout>
+
+    <Space
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"/>
+
+</LinearLayout>
