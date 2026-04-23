@@ -5,6 +5,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.location.Location
@@ -14,13 +15,15 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import android.content.pm.ServiceInfo
 import com.google.firebase.firestore.SetOptions
-import com.example.aisecurity.ai.NuclearLockdownService // 🚨 Added Siren Import
+import com.example.aisecurity.ai.NuclearLockdownService
+import kotlinx.coroutines.*
 
 class LocationTrackingService : Service() {
 
@@ -34,6 +37,9 @@ class LocationTrackingService : Service() {
     private var wifiLock: WifiManager.WifiLock? = null
 
     private val channelId = "BioGuardTracker_V2"
+
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var hardwareSyncJob: Job? = null
 
     @Suppress("DEPRECATION")
     @SuppressLint("MissingPermission")
@@ -78,8 +84,80 @@ class LocationTrackingService : Service() {
             e.printStackTrace()
         }
 
-        // 🚨 Start the Firebase Listener for Remote Control commands
         startRemoteCommandListener()
+        startHardwareStateSyncLoop()
+    }
+
+    // ══════════════════════════════════════════════════════
+    // 🚨 FIXED: REAL-TIME HARDWARE TELEMETRY LOOP
+    // ══════════════════════════════════════════════════════
+    private fun startHardwareStateSyncLoop() {
+        val uid = auth.currentUser?.uid ?: return
+
+        // 🚨 THE FIX: Initialize as null. This forces the loop to run a Firebase Sync
+        // the exact moment the service starts, properly seeding the database!
+        var lastWifi: Boolean? = null
+        var lastData: Boolean? = null
+        var lastLoc: Boolean? = null
+        var lastBt: Boolean? = null
+        var lastSaver: Boolean? = null
+
+        hardwareSyncJob?.cancel()
+        hardwareSyncJob = serviceScope.launch {
+            while (isActive) {
+                try {
+                    val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    val currentWifi = wifiMgr.isWifiEnabled
+
+                    val currentData = Settings.Global.getInt(contentResolver, "mobile_data", 0) == 1
+
+                    val locMgr = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+                    val currentLoc = locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER) || locMgr.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+
+                    val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                    val currentBt = btAdapter?.isEnabled == true
+
+                    val powerMgr = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val currentSaver = powerMgr.isPowerSaveMode
+
+                    if (currentWifi != lastWifi || currentData != lastData || currentLoc != lastLoc || currentBt != lastBt || currentSaver != lastSaver) {
+
+                        val isFirstRun = (lastWifi == null)
+
+                        val stateUpdates = hashMapOf<String, Any>(
+                            "state_wifi" to currentWifi,
+                            "state_mobile_data" to currentData,
+                            "state_location" to currentLoc,
+                            "state_bluetooth" to currentBt,
+                            "state_battery_saver" to currentSaver
+                        )
+
+                        // 🚨 Seed the remote command fields so the Firebase listener has a baseline
+                        if (isFirstRun) {
+                            stateUpdates["cmd_wifi"] = currentWifi
+                            stateUpdates["cmd_mobile_data"] = currentData
+                            stateUpdates["cmd_location"] = currentLoc
+                            stateUpdates["cmd_bluetooth"] = currentBt
+                            stateUpdates["cmd_battery_saver"] = currentSaver
+                            stateUpdates["cmd_siren"] = false
+                            stateUpdates["state_siren"] = false
+                        }
+
+                        db.collection("Users").document(uid).set(stateUpdates, SetOptions.merge())
+
+                        lastWifi = currentWifi
+                        lastData = currentData
+                        lastLoc = currentLoc
+                        lastBt = currentBt
+                        lastSaver = currentSaver
+
+                        Log.d("HARDWARE_SYNC", "Hardware state updated in Firebase.")
+                    }
+                } catch (e: Exception) { e.printStackTrace() }
+
+                delay(3000)
+            }
+        }
     }
 
     private fun startRemoteCommandListener() {
@@ -88,7 +166,6 @@ class LocationTrackingService : Service() {
         db.collection("Users").document(uid).addSnapshotListener { snapshot, error ->
             if (error != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
-            // Compare 'cmd_' (Requested) against 'state_' (Current Reality)
             val cmdLoc = snapshot.getBoolean("cmd_location")
             val stateLoc = snapshot.getBoolean("state_location")
 
@@ -98,39 +175,40 @@ class LocationTrackingService : Service() {
             val cmdBt = snapshot.getBoolean("cmd_bluetooth")
             val stateBt = snapshot.getBoolean("state_bluetooth")
 
-            // Wait, your teammate's UI doesn't have Siren yet, but we are prepping the backend for it!
+            val cmdWifi = snapshot.getBoolean("cmd_wifi")
+            val stateWifi = snapshot.getBoolean("state_wifi")
+
             val cmdSiren = snapshot.getBoolean("cmd_siren")
             val stateSiren = snapshot.getBoolean("state_siren")
 
-            var stateUpdated = false
-            val updates = mutableMapOf<String, Any>()
-
             // 1. TRIGGER LOCATION POLTERGEIST
-            if (cmdLoc != null && cmdLoc != stateLoc) {
+            if (cmdLoc != null && stateLoc != null && cmdLoc != stateLoc) {
                 val ghostIntent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
                 ghostIntent.setPackage(packageName)
                 ghostIntent.putExtra("TARGET_SETTING", "LOCATION")
                 sendBroadcast(ghostIntent)
-
-                updates["state_location"] = cmdLoc
-                stateUpdated = true
             }
 
             // 2. TRIGGER MOBILE DATA POLTERGEIST
-            if (cmdData != null && cmdData != stateData) {
+            if (cmdData != null && stateData != null && cmdData != stateData) {
                 val ghostIntent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
                 ghostIntent.setPackage(packageName)
                 ghostIntent.putExtra("TARGET_SETTING", "DATA")
                 sendBroadcast(ghostIntent)
-
-                updates["state_mobile_data"] = cmdData
-                stateUpdated = true
             }
 
-            // 3. TRIGGER NATIVE BLUETOOTH + POLTERGEIST FALLBACK
-            if (cmdBt != null && cmdBt != stateBt) {
+            // 3. TRIGGER WI-FI POLTERGEIST
+            if (cmdWifi != null && stateWifi != null && cmdWifi != stateWifi) {
+                val ghostIntent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+                ghostIntent.setPackage(packageName)
+                ghostIntent.putExtra("TARGET_SETTING", "WIFI")
+                sendBroadcast(ghostIntent)
+            }
+
+            // 4. TRIGGER NATIVE BLUETOOTH + POLTERGEIST FALLBACK
+            if (cmdBt != null && stateBt != null && cmdBt != stateBt) {
                 try {
-                    val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as android.bluetooth.BluetoothManager).adapter
+                    val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
                     if (cmdBt) btAdapter?.enable() else btAdapter?.disable()
                 } catch (e: Exception) { e.printStackTrace() }
 
@@ -138,25 +216,16 @@ class LocationTrackingService : Service() {
                 ghostIntent.setPackage(packageName)
                 ghostIntent.putExtra("TARGET_SETTING", "BLUETOOTH")
                 sendBroadcast(ghostIntent)
-
-                updates["state_bluetooth"] = cmdBt
-                stateUpdated = true
             }
 
-            // 4. SIREN CONTROL (Pre-built for when you add it to the UI)
-            if (cmdSiren != null && cmdSiren != stateSiren) {
+            // 5. SIREN CONTROL
+            if (cmdSiren != null && stateSiren != null && cmdSiren != stateSiren) {
                 if (cmdSiren) {
                     startService(Intent(this@LocationTrackingService, NuclearLockdownService::class.java))
                 } else {
                     stopService(Intent(this@LocationTrackingService, NuclearLockdownService::class.java))
                 }
-                updates["state_siren"] = cmdSiren
-                stateUpdated = true
-            }
-
-            // 5. CONFIRM TO FIREBASE SO THE TEAMMATE UI CAN SEE IT SUCCEEDED
-            if (stateUpdated) {
-                db.collection("Users").document(uid).set(updates, SetOptions.merge())
+                db.collection("Users").document(uid).set(mapOf("state_siren" to cmdSiren), SetOptions.merge())
             }
         }
     }
@@ -185,6 +254,8 @@ class LocationTrackingService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
+
         try {
             locationManager.removeUpdates(locationListener)
         } catch (e: Exception) { e.printStackTrace() }

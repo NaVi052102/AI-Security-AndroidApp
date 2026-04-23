@@ -8,9 +8,12 @@ import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
 import android.location.Geocoder
+import android.location.Location
+import android.location.LocationListener
 import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.util.Log
@@ -64,6 +67,11 @@ object WatchManager {
 
     private var lastLockTime = 0L
     private const val LOCK_COOLDOWN_MS = 5000L
+
+    // 🚨 REAL-TIME GPS LISTENER VARIABLES
+    private var locationManager: LocationManager? = null
+    private var lastKnownCity = "Tracking Active"
+    private var lastGeocodeTime = 0L
 
     private fun hasPermissions(context: Context): Boolean {
         var accessibilityEnabled = 0
@@ -184,9 +192,10 @@ object WatchManager {
                 startRssiPolling()
                 startBiometricsSync()
                 startSystemStateSync()
+                startLocationSync() // 🚨 START REAL-TIME FAST GPS TRACKING
 
                 scope.launch {
-                    currentContext?.let { sendSystemState(it) } // Guarantee initial connection sync
+                    currentContext?.let { sendSystemState(it) }
                     delay(400)
                     fetchLiveWeatherAndSend()
                     delay(400)
@@ -227,7 +236,6 @@ object WatchManager {
                         "<CMD:BIO_ACTION>" -> handleBioAction(ctx)
                         "<CMD:BIO_USE_AI>" -> handleBioUseAi(ctx)
 
-                        // 🚨 REMOTE CONTROL TRIGGERED BY WATCH
                         "<CMD:WIFI_1>" -> handleSystemToggle(ctx, "WIFI", true)
                         "<CMD:WIFI_0>" -> handleSystemToggle(ctx, "WIFI", false)
                         "<CMD:DATA_1>" -> handleSystemToggle(ctx, "DATA", true)
@@ -261,9 +269,61 @@ object WatchManager {
         }
     }
 
-    // 🚨 EXECUTES COMMANDS LOCALLY ON PHONE & WRITES TO FIREBASE
+    // 🚨 HIGH-SPEED REAL-TIME GPS ENGINE
+    private val locationListener = object : LocationListener {
+        override fun onLocationChanged(location: Location) {
+            // Fires instantly when the Android GPS chip updates (up to 1x per second)
+            val lat = String.format(Locale.US, "%.5f", location.latitude)
+            val lon = String.format(Locale.US, "%.5f", location.longitude)
+
+            val now = System.currentTimeMillis()
+            if (now - lastGeocodeTime > 15000) {
+                // Throttle Geocoding (converting GPS to text) to every 15s to save battery & API limits
+                lastGeocodeTime = now
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        currentContext?.let { ctx ->
+                            val geocoder = Geocoder(ctx, Locale.getDefault())
+                            val addresses = geocoder.getFromLocation(location.latitude, location.longitude, 1)
+                            if (!addresses.isNullOrEmpty()) {
+                                lastKnownCity = addresses[0].locality ?: addresses[0].subAdminArea ?: "Tracking Active"
+                            }
+                        }
+                    } catch (e: Exception) {}
+                }
+            }
+
+            // Blast coordinates to watch instantly
+            val safeAddr = lastKnownCity.replace("<", "").replace(">", "").replace("|", "")
+            sendData("<MYLOC:$lat|$lon|$safeAddr>")
+        }
+        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        override fun onProviderEnabled(provider: String) {}
+        override fun onProviderDisabled(provider: String) {}
+    }
+
+    private fun startLocationSync() {
+        scope.launch(Dispatchers.Main) {
+            try {
+                val context = currentContext ?: return@launch
+                locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
+
+                locationManager?.removeUpdates(locationListener) // Clean up old trackers
+
+                // 🚨 1000ms = 1 Update Per Second. 0f = Update on every tiny movement.
+                if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true) {
+                    locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener)
+                }
+                if (locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true) {
+                    locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 0f, locationListener)
+                }
+            } catch (e: Exception) {
+                Log.e("BLE", "Real-time Location Error: ${e.message}")
+            }
+        }
+    }
+
     private fun handleSystemToggle(context: Context, target: String, state: Boolean) {
-        // 1. Direct hardware toggle attempt (Fastest if allowed)
         try {
             when(target) {
                 "WIFI" -> {
@@ -277,7 +337,6 @@ object WatchManager {
             }
         } catch (e: Exception) { Log.e("BLE", "Direct hardware toggle denied by Android: ${e.message}") }
 
-        // 2. Broadcast for Accessibility Service (Poltergeist Intent)
         try {
             val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
             intent.putExtra("TARGET_SETTING", target)
@@ -286,7 +345,6 @@ object WatchManager {
             context.sendBroadcast(intent)
         } catch (e: Exception) { }
 
-        // 3. Write to Firebase (So your app code can read it if online)
         try {
             val userId = FirebaseAuth.getInstance().currentUser?.uid
             if (userId != null) {
@@ -303,14 +361,12 @@ object WatchManager {
             }
         } catch (e: Exception) { }
 
-        // Trigger an immediate sync back to watch to confirm state
         scope.launch(Dispatchers.IO) {
             delay(1500)
             sendSystemState(context)
         }
     }
 
-    // 🚨 BULLETPROOF STATE READER: Won't crash if Android blocks one sensor
     private fun sendSystemState(ctx: Context) {
         var w = 0; var m = 0; var l = 0; var b = 0; var s = 0
 
@@ -609,7 +665,6 @@ object WatchManager {
         }
     }
 
-    // 🚨 RESTORED MISSING FUNCTIONS
     @SuppressLint("MissingPermission")
     private fun fetchLiveWeatherAndSend() {
         val context = currentContext ?: return
@@ -694,6 +749,7 @@ object WatchManager {
         rssiPollingJob?.cancel()
         bioSyncJob?.cancel()
         systemStateJob?.cancel()
+        locationManager?.removeUpdates(locationListener) // 🚨 Clean up GPS
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()

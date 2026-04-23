@@ -91,3 +91,5 @@ class QRScannerFragment : Fragment() {
         button.background = bg
     }
 }
+
+

@@ -214,21 +214,33 @@ class ProximityFragment : Fragment(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun evaluatePocketMode() {
-        currentPocketState = if (isObjectClose && isEnvironmentDark) {
-            "Concealed (Pocket)"
-        } else if (isObjectClose) {
+        // currentAccel[0] = X axis (Side to side)
+        // currentAccel[1] = Y axis (Top to bottom - Verticality)
+        // currentAccel[2] = Z axis (Front to back - Flatness)
+
+        val zAxis = currentAccel[2]
+        val yAxis = currentAccel[1]
+
+        currentPocketState = if (zAxis <= -7.0f && isObjectClose) {
+            // Gravity is pulling hard on the front of the screen, and proximity is blocked.
             "Face Down"
+        } else if ((yAxis >= 5.0f || yAxis <= -5.0f) && isObjectClose && isEnvironmentDark) {
+            // Phone is standing up vertically (like slipping into a pocket), it's dark, and proximity is blocked.
+            "Concealed (Pocket)"
+        } else if (isObjectClose && isEnvironmentDark) {
+            // It's flat, but dark and covered. Likely sitting in a backpack.
+            "Covered / In Bag"
         } else {
-            "Open / Visible"
+            "Visible"
         }
 
         tvPocketStatus.text = currentPocketState
-        if (currentPocketState.contains("Concealed")) {
-            tvPocketStatus.setTextColor(Color.parseColor("#8B5CF6"))
-        } else if (currentPocketState.contains("Face Down")) {
-            tvPocketStatus.setTextColor(Color.parseColor("#F59E0B"))
-        } else {
-            tvPocketStatus.setTextColor(Color.parseColor("#10B981"))
+
+        when {
+            currentPocketState.contains("Concealed") -> tvPocketStatus.setTextColor(Color.parseColor("#8B5CF6"))
+            currentPocketState.contains("Face Down") -> tvPocketStatus.setTextColor(Color.parseColor("#F59E0B"))
+            currentPocketState.contains("Covered") -> tvPocketStatus.setTextColor(Color.parseColor("#3B82F6"))
+            else -> tvPocketStatus.setTextColor(Color.parseColor("#10B981"))
         }
     }
 
@@ -319,4 +331,6 @@ class RssiChartView @JvmOverloads constructor(context: Context, attrs: Attribute
         canvas.drawPath(fillPath, fillPaint); canvas.drawPath(path, linePaint)
     }
 }
+
+
 

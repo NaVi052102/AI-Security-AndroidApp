@@ -124,7 +124,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private val routeCache = mutableMapOf<String, MutableList<LatLng>>()
 
     private var currentlySelectedUid: String? = null
-    private var pendingRemoteControlUid: String? = null
 
     private val unlockedViaQrUids = mutableSetOf<String>()
 
@@ -503,7 +502,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
-        // 🚨 PASS TARGET UID AND DIALOG TO SETUP REAL-TIME SYNC
         setupToggles(dialogView, targetUid, dialog)
         setupAiSensitivityDropdown(dialogView)
         setupAiButton(dialogView)
@@ -511,7 +509,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         dialog.show()
     }
 
-    // 🚨 NEW LOGIC: Fully Real-Time Firebase Synchronization for Switches
     private fun setupToggles(dialogView: View, targetUid: String?, dialog: AlertDialog) {
         val switchWifi = dialogView.findViewById<SwitchMaterial>(R.id.switchWifi)
         val tvWifiStatus = dialogView.findViewById<TextView>(R.id.tvWifiStatus)
@@ -533,10 +530,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val tvBatterySaverStatus = dialogView.findViewById<TextView>(R.id.tvBatterySaverStatus)
         val iconBatterySaver = dialogView.findViewById<View>(R.id.iconBatterySaver)
 
-        // Flag to prevent recursive infinite loops when reading from Firestore
         var isUpdatingFromFirebase = false
 
-        // 1. REAL-TIME READER: Listen to the target's device state
         if (targetUid != null && targetUid.isNotEmpty()) {
             val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
@@ -557,11 +552,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
                 isUpdatingFromFirebase = false
             }
-            // Kill listener when dialog closes
             dialog.setOnDismissListener { listener.remove() }
         }
 
-        // 2. REAL-TIME SENDER: Helper function to blast commands
         fun sendCommand(commandField: String, state: Boolean) {
             if (!isUpdatingFromFirebase && targetUid != null) {
                 db.collection("Users").document(targetUid).set(hashMapOf(commandField to state), SetOptions.merge())
@@ -859,7 +852,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val path = android.graphics.Path()
             path.moveTo(center, 2 * density)
             path.lineTo(center - (10 * density), 18 * density)
-            path.lineTo(center - (10 * density), 18 * density)
+            path.lineTo(center + (10 * density), 18 * density)
             path.close()
 
             paint.setShadowLayer(4f, 0f, 2f, android.graphics.Color.argb(80, 0, 0, 0))
@@ -1046,6 +1039,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
+    // 🚨 INSTANT DIALOG LOGIC: Bypasses the Map Marker wait sequence
     private fun autoAddLostDevice(uid: String, fallbackName: String) {
         val myUid = auth.currentUser?.uid ?: return
 
@@ -1094,7 +1088,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         db.collection("Users").document(uid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
                     }
 
-                    pendingRemoteControlUid = uid
+                    // 🚨 FORCES INSTANT UI LOAD
+                    showRemoteControlPanel(actualName, uid)
                     initLife360Engine()
 
                 }.addOnFailureListener {
@@ -1110,19 +1105,17 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
                     Toast.makeText(requireContext(), "✅ Target Acquired! Lost Device added to tracking list.", Toast.LENGTH_LONG).show()
 
-                    pendingRemoteControlUid = uid
+                    // 🚨 FORCES INSTANT UI LOAD
+                    showRemoteControlPanel("$fallbackName (Lost Device)", uid)
                     initLife360Engine()
                 }
 
             } else {
                 Toast.makeText(requireContext(), "Device is already being tracked.", Toast.LENGTH_SHORT).show()
 
-                if (contactMarkersGMap.containsKey(uid)) {
-                    val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
-                    showRemoteControlPanel(actualName, uid)
-                } else {
-                    pendingRemoteControlUid = uid
-                }
+                // 🚨 FORCES INSTANT UI LOAD
+                val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
+                showRemoteControlPanel(actualName, uid)
             }
         }
     }
@@ -1507,11 +1500,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 }
 
                 updateAllTrackingLines()
-
-                if (pendingRemoteControlUid == uid) {
-                    pendingRemoteControlUid = null
-                    showRemoteControlPanel(name, uid)
-                }
             }
         }
     }
