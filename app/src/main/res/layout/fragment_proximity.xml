@@ -74,7 +74,7 @@
                 android:orientation="vertical"
                 android:padding="16dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PEAK ELASTIC LIMIT" android:textColor="#F59E0B" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="14.2 m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvPeakDistance" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="-- m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout
@@ -87,7 +87,7 @@
                 android:orientation="vertical"
                 android:padding="16dp">
                 <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="SESSION TIMER" android:textColor="#3B82F6" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="04h 12m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvSessionTimer" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="00h 00m" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="16sp" android:textStyle="bold" />
             </LinearLayout>
         </LinearLayout>
 
@@ -146,7 +146,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="24dp"
+            android:layout_marginBottom="16dp"
             android:background="@drawable/glass_card"
             android:orientation="vertical"
             android:padding="20dp">
@@ -163,6 +163,56 @@
                 android:id="@+id/rssiGraph"
                 android:layout_width="match_parent"
                 android:layout_height="140dp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:background="@drawable/glass_card"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ACCELEROMETER" android:textColor="#8B5CF6" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:id="@+id/tvAccelData" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="X: 0.00\nY: 0.00\nZ: 0.00" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="12sp" android:textStyle="bold" android:textAlignment="center"/>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/glass_card"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="16dp">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="GYROSCOPE" android:textColor="#F97316" android:textSize="10sp" android:textStyle="bold" android:letterSpacing="0.1"/>
+                <TextView android:id="@+id/tvGyroData" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="X: 0.00\nY: 0.00\nZ: 0.00" android:fontFamily="monospace" android:textColor="@color/ig_text_primary" android:textSize="12sp" android:textStyle="bold" android:textAlignment="center"/>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:fontFamily="@font/inter" android:letterSpacing="0.15" android:text="ENVIRONMENT SENSOR" android:textColor="@color/ig_text_secondary" android:textSize="12sp" android:textStyle="bold" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="@font/inter" android:text="Pocket Mode:" android:textColor="@color/ig_text_secondary" android:textSize="14sp" />
+                <TextView android:id="@+id/tvPocketStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:fontFamily="@font/inter" android:text="Scanning..." android:textColor="@color/ig_text_primary" android:textSize="15sp" android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />

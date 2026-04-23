@@ -9,7 +9,10 @@ import android.content.Context
 import android.content.Intent
 import android.location.Geocoder
 import android.location.LocationManager
+import android.net.wifi.WifiManager
 import android.os.Build
+import android.os.PowerManager
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import androidx.lifecycle.MutableLiveData
@@ -18,6 +21,8 @@ import com.example.aisecurity.ai.SecurityDatabase
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
 import java.util.*
 import java.util.concurrent.TimeUnit
@@ -50,6 +55,7 @@ object WatchManager {
 
     private var rssiPollingJob: Job? = null
     private var bioSyncJob: Job? = null
+    private var systemStateJob: Job? = null
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentContext: Context? = null
@@ -58,6 +64,22 @@ object WatchManager {
 
     private var lastLockTime = 0L
     private const val LOCK_COOLDOWN_MS = 5000L
+
+    private fun hasPermissions(context: Context): Boolean {
+        var accessibilityEnabled = 0
+        val service = context.packageName + "/" + "com.example.aisecurity.ai.TouchDynamicsService"
+        try { accessibilityEnabled = Settings.Secure.getInt(context.contentResolver, Settings.Secure.ACCESSIBILITY_ENABLED) } catch (e: Exception) { }
+        val hasAcc = if (accessibilityEnabled == 1) {
+            val settingValue = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+            settingValue?.contains(service, ignoreCase = true) == true
+        } else false
+
+        val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
+        val mode = appOps.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
+        val hasUsage = mode == android.app.AppOpsManager.MODE_ALLOWED
+
+        return hasAcc && hasUsage
+    }
 
     fun connectToTarget(context: Context, macAddress: String) {
         currentContext = context.applicationContext
@@ -161,18 +183,24 @@ object WatchManager {
 
                 startRssiPolling()
                 startBiometricsSync()
+                startSystemStateSync()
 
                 scope.launch {
-                    delay(500)
+                    currentContext?.let { sendSystemState(it) } // Guarantee initial connection sync
+                    delay(400)
                     fetchLiveWeatherAndSend()
-                    delay(500)
+                    delay(400)
                     WatchMediaService.syncCurrentMedia()
-                    delay(500)
+                    delay(400)
 
                     val auth = FirebaseAuth.getInstance()
-                    val identifier = auth.currentUser?.email ?: auth.currentUser?.phoneNumber ?: ""
-                    if (identifier.isNotEmpty()) {
-                        syncUserTracker(identifier)
+                    val user = auth.currentUser
+                    if (user != null) {
+                        val name = user.displayName ?: "Sentry User"
+                        val email = user.email ?: user.phoneNumber ?: ""
+                        syncAccountProfile(name, email)
+                        delay(400)
+                        syncUserTracker(email)
                     }
                 }
             }
@@ -196,10 +224,20 @@ object WatchManager {
                         "<CMD:PLAY>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE)
                         "<CMD:PREV>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_PREVIOUS)
                         "<CMD:NEXT>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_NEXT)
-
                         "<CMD:BIO_ACTION>" -> handleBioAction(ctx)
                         "<CMD:BIO_USE_AI>" -> handleBioUseAi(ctx)
-                        "<CMD:BIO_RESET>" -> handleBioReset(ctx)
+
+                        // 🚨 REMOTE CONTROL TRIGGERED BY WATCH
+                        "<CMD:WIFI_1>" -> handleSystemToggle(ctx, "WIFI", true)
+                        "<CMD:WIFI_0>" -> handleSystemToggle(ctx, "WIFI", false)
+                        "<CMD:DATA_1>" -> handleSystemToggle(ctx, "DATA", true)
+                        "<CMD:DATA_0>" -> handleSystemToggle(ctx, "DATA", false)
+                        "<CMD:LOC_1>" -> handleSystemToggle(ctx, "LOCATION", true)
+                        "<CMD:LOC_0>" -> handleSystemToggle(ctx, "LOCATION", false)
+                        "<CMD:BT_1>" -> handleSystemToggle(ctx, "BLUETOOTH", true)
+                        "<CMD:BT_0>" -> handleSystemToggle(ctx, "BLUETOOTH", false)
+                        "<CMD:BAT_1>" -> handleSystemToggle(ctx, "BATTERY_SAVER", true)
+                        "<CMD:BAT_0>" -> handleSystemToggle(ctx, "BATTERY_SAVER", false)
                     }
                 }
             }
@@ -223,7 +261,85 @@ object WatchManager {
         }
     }
 
+    // 🚨 EXECUTES COMMANDS LOCALLY ON PHONE & WRITES TO FIREBASE
+    private fun handleSystemToggle(context: Context, target: String, state: Boolean) {
+        // 1. Direct hardware toggle attempt (Fastest if allowed)
+        try {
+            when(target) {
+                "WIFI" -> {
+                    val wifiMgr = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                    wifiMgr.isWifiEnabled = state
+                }
+                "BLUETOOTH" -> {
+                    val btAdapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                    if (state) btAdapter?.enable() else btAdapter?.disable()
+                }
+            }
+        } catch (e: Exception) { Log.e("BLE", "Direct hardware toggle denied by Android: ${e.message}") }
+
+        // 2. Broadcast for Accessibility Service (Poltergeist Intent)
+        try {
+            val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+            intent.putExtra("TARGET_SETTING", target)
+            intent.putExtra("TARGET_STATE", state)
+            intent.setPackage(context.packageName)
+            context.sendBroadcast(intent)
+        } catch (e: Exception) { }
+
+        // 3. Write to Firebase (So your app code can read it if online)
+        try {
+            val userId = FirebaseAuth.getInstance().currentUser?.uid
+            if (userId != null) {
+                val dbKey = when(target) {
+                    "WIFI" -> "state_wifi"
+                    "DATA" -> "state_mobile_data"
+                    "LOCATION" -> "state_location"
+                    "BLUETOOTH" -> "state_bluetooth"
+                    "BATTERY_SAVER" -> "state_battery_saver"
+                    else -> "state_unknown"
+                }
+                FirebaseFirestore.getInstance().collection("Users").document(userId)
+                    .set(mapOf(dbKey to state), SetOptions.merge())
+            }
+        } catch (e: Exception) { }
+
+        // Trigger an immediate sync back to watch to confirm state
+        scope.launch(Dispatchers.IO) {
+            delay(1500)
+            sendSystemState(context)
+        }
+    }
+
+    // 🚨 BULLETPROOF STATE READER: Won't crash if Android blocks one sensor
+    private fun sendSystemState(ctx: Context) {
+        var w = 0; var m = 0; var l = 0; var b = 0; var s = 0
+
+        try { val wifiMgr = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager; w = if (wifiMgr.isWifiEnabled) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Wi-Fi check failed") }
+        try { m = if (Settings.Global.getInt(ctx.contentResolver, "mobile_data", 0) == 1) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Data check failed") }
+        try { val locMgr = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager; l = if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Loc check failed") }
+        try { val btAdapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter; b = if (btAdapter?.isEnabled == true) 1 else 0 } catch(e:Exception){ Log.e("BLE", "BT check failed") }
+        try { val powerMgr = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager; s = if (powerMgr.isPowerSaveMode) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Battery check failed") }
+
+        sendData("<SYS:$w|$m|$l|$b|$s>")
+    }
+
+    private fun startSystemStateSync() {
+        systemStateJob?.cancel()
+        systemStateJob = scope.launch(Dispatchers.IO) {
+            delay(3000)
+            while (isActive && bluetoothGatt != null) {
+                currentContext?.let { sendSystemState(it) }
+                delay(3000)
+            }
+        }
+    }
+
     private fun handleBioAction(context: Context) {
+        if (!hasPermissions(context)) {
+            sendNotificationToWatch("Permissions Needed", "Please enable permissions in the phone app first.")
+            return
+        }
+
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
         val isPaused = prefs.getBoolean("training_paused", true)
@@ -254,50 +370,37 @@ object WatchManager {
     private fun handleBioUseAi(context: Context) {
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-        val accumulatedTime = prefs.getLong("accumulated_time", 0L)
-        val sessionStart = prefs.getLong("session_start_time", 0L)
-        var totalTime = accumulatedTime
-
-        if (!prefs.getBoolean("training_paused", true) && sessionStart > 0 && !prefs.getBoolean("ai_ready", false)) {
-            totalTime += (System.currentTimeMillis() - sessionStart)
-        }
-
-        prefs.edit()
-            .putLong("accumulated_time", totalTime)
-            .putLong("session_start_time", 0L)
-            .putBoolean("training_paused", true)
-            .putBoolean("ai_ready", true)
-            .apply()
-
         CoroutineScope(Dispatchers.IO).launch {
             val db = SecurityDatabase.get(context)
-            val data = db.dao().getTrainingData()
-            val classifier = BehavioralAuthClassifier(context)
-            val errors = data.map { classifier.getError(floatArrayOf(it.velocityX, 0.5f, 0.1f, 0.1f)) }
-            val newThreshold = BehavioralAuthClassifier.calculateThreshold(errors)
-            prefs.edit().putFloat("threshold", newThreshold).apply()
-        }
-    }
+            val globalThreshold = prefs.getFloat("threshold", 0.08f)
+            val targetStability = globalThreshold * 1.2f
+            var canUseAi = false
 
-    private fun handleBioReset(context: Context) {
-        CoroutineScope(Dispatchers.IO).launch {
-            val db = SecurityDatabase.get(context)
-            val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            for (app in db.dao().getAllAppStats()) {
+                val appEma = prefs.getFloat("ema_loss_${app.packageName}", 1.0f)
+                val pct = (((1.0f - appEma) / (1.0f - targetStability)).coerceIn(0f, 1f) * 100).toInt()
+                if (pct >= 75) canUseAi = true
+            }
 
-            db.dao().wipeTotalData()
+            if (!canUseAi) {
+                sendNotificationToWatch("AI Not Ready", "Keep training. Apps must reach 75% stability first.")
+                return@launch
+            }
+
+            val accumulatedTime = prefs.getLong("accumulated_time", 0L)
+            val sessionStart = prefs.getLong("session_start_time", 0L)
+            var totalTime = accumulatedTime
+
+            if (!prefs.getBoolean("training_paused", true) && sessionStart > 0 && !prefs.getBoolean("ai_ready", false)) {
+                totalTime += (System.currentTimeMillis() - sessionStart)
+            }
 
             prefs.edit()
-                .putBoolean("ai_ready", false)
-                .putBoolean("training_paused", true)
-                .putInt("current_risk", 0)
-                .putLong("accumulated_time", 0L)
+                .putLong("accumulated_time", totalTime)
                 .putLong("session_start_time", 0L)
-                .remove("threshold")
+                .putBoolean("training_paused", true)
+                .putBoolean("ai_ready", true)
                 .apply()
-
-            LiveLogger.clear()
-            val classifier = BehavioralAuthClassifier(context)
-            classifier.wipeMemory()
         }
     }
 
@@ -340,7 +443,31 @@ object WatchManager {
                     val isReady = prefs.getBoolean("ai_ready", false)
                     val isPaused = prefs.getBoolean("training_paused", true)
                     val risk = prefs.getInt("current_risk", 0)
-                    val swipes = db.dao().getTotalTouchCount()
+
+                    val hasPerms = hasPermissions(context)
+
+                    val allApps = db.dao().getAllAppStats()
+                    val globalThreshold = prefs.getFloat("threshold", 0.08f)
+                    val targetStability = globalThreshold * 1.2f
+
+                    var anyAppAbove75 = false
+                    var sumPct = 0
+                    var coreAppsCount = 0
+
+                    for (app in allApps) {
+                        val appEma = prefs.getFloat("ema_loss_${app.packageName}", 1.0f)
+                        val progressRaw = ((1.0f - appEma) / (1.0f - targetStability)).coerceIn(0f, 1f)
+                        val finalPct = (progressRaw * 100f).toInt()
+                        sumPct += finalPct
+                        coreAppsCount++
+                        if (finalPct >= 75) anyAppAbove75 = true
+                    }
+
+                    val globalUiConfidence = if (coreAppsCount > 0) sumPct / coreAppsCount else 0
+                    val bioScore = if (isReady) risk else globalUiConfidence
+
+                    val canUseAiFlag = if (anyAppAbove75) 1 else 0
+                    val isPermsOnFlag = if (hasPerms) 1 else 0
 
                     var accumulatedTime = prefs.getLong("accumulated_time", 0L)
                     val sessionStart = prefs.getLong("session_start_time", 0L)
@@ -357,8 +484,6 @@ object WatchManager {
                         if (isPaused) "PAUSED" else "TRAINING"
                     }
 
-                    val bioScore = if (isReady) risk else swipes
-
                     val progress = if (isReady) {
                         ((risk / 120f) * 183f).toInt().coerceIn(0, 183)
                     } else {
@@ -374,20 +499,22 @@ object WatchManager {
                         "$d d $h h remaining"
                     }
 
-                    sendData("<BIO:$bioScore|$status|$progress|$timeStr>")
+                    sendData("<BIO:$bioScore|$status|$progress|$timeStr|$canUseAiFlag|$isPermsOnFlag>")
 
                     if (loopCount % 3 == 0) {
                         delay(200)
                         sendData("<BIOAPP:CLEAR>")
                         delay(200)
 
-                        val allApps = db.dao().getAllAppStats()
                         val topApps = allApps.sortedByDescending { it.interactionCount }.take(5)
 
                         for (app in topApps) {
-                            val speed = app.avgVelocity.toInt()
-                            val count = app.interactionCount
-                            sendData("<BIOAPP:${app.packageName}|$speed px/s   $count>")
+                            val appEma = prefs.getFloat("ema_loss_${app.packageName}", 1.0f)
+                            val progressRaw = ((1.0f - appEma) / (1.0f - targetStability)).coerceIn(0f, 1f)
+                            val finalPct = (progressRaw * 100f).toInt()
+
+                            val safeName = app.packageName.split(".").last().take(12)
+                            sendData("<BIOAPP:$safeName|$finalPct%>")
                             delay(200)
                         }
                         sendData("<BIOAPP:END>")
@@ -450,6 +577,21 @@ object WatchManager {
         }
     }
 
+    fun syncAccountProfile(name: String, email: String) {
+        val safeName = name.replace("<", "").replace(">", "").replace("|", "").take(25)
+        val safeEmail = email.replace("<", "").replace(">", "").replace("|", "").take(35)
+        sendData("<ACC:$safeName|$safeEmail>")
+    }
+
+    fun sendProximityTelemetry(rssi: Int, peak: String, sessionTime: String) {
+        sendData("<PRX1:$rssi|$peak|$sessionTime>")
+    }
+
+    fun sendSensorTelemetry(accel: String, gyro: String, pocket: String) {
+        val safePocket = pocket.replace("<", "").replace(">", "").replace("|", "")
+        sendData("<PRX2:$accel|$gyro|$safePocket>")
+    }
+
     fun syncUserTracker(identifier: String) {
         val safeId = identifier.replace("<", "").replace(">", "").replace("|", "").take(50)
         sendData("<TRACK:$safeId>")
@@ -461,13 +603,13 @@ object WatchManager {
                 val uid = user.uid
                 val email = user.email ?: user.phoneNumber ?: "LostDevice"
 
-                // 🚨 FIXED: Now uses your REAL Firebase Hosting URL!
                 val qrUrl = "https://bioguard-efb32.web.app/track?uid=$uid&name=$email"
                 sendData("<QR:$qrUrl>")
             }
         }
     }
 
+    // 🚨 RESTORED MISSING FUNCTIONS
     @SuppressLint("MissingPermission")
     private fun fetchLiveWeatherAndSend() {
         val context = currentContext ?: return
@@ -551,6 +693,7 @@ object WatchManager {
         stopScan()
         rssiPollingJob?.cancel()
         bioSyncJob?.cancel()
+        systemStateJob?.cancel()
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()

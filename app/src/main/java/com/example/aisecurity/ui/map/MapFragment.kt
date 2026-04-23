@@ -450,7 +450,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     // ══════════════════════════════════════════════════════
-    //  REMOTE CONTROL PANEL
+    //  REMOTE CONTROL PANEL (LIVE COMMAND CENTER)
     // ══════════════════════════════════════════════════════
     private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
         if (!isAdded) return
@@ -478,7 +478,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         val cardIds = intArrayOf(
             R.id.cardProfile, R.id.cardConnectivity, R.id.cardAiDetection,
-            R.id.cardLocation
+            R.id.cardLockType, R.id.cardCamera, R.id.cardLoadBalance, R.id.cardLocation
         )
         for (id in cardIds) {
             dialogView.findViewById<CardView>(id)?.setCardBackgroundColor(cardBgColor)
@@ -503,52 +503,99 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
-        setupToggles(dialogView)
+        // 🚨 PASS TARGET UID AND DIALOG TO SETUP REAL-TIME SYNC
+        setupToggles(dialogView, targetUid, dialog)
         setupAiSensitivityDropdown(dialogView)
         setupAiButton(dialogView)
 
         dialog.show()
     }
 
-    private fun setupToggles(dialogView: View) {
+    // 🚨 NEW LOGIC: Fully Real-Time Firebase Synchronization for Switches
+    private fun setupToggles(dialogView: View, targetUid: String?, dialog: AlertDialog) {
         val switchWifi = dialogView.findViewById<SwitchMaterial>(R.id.switchWifi)
         val tvWifiStatus = dialogView.findViewById<TextView>(R.id.tvWifiStatus)
         val iconWifi = dialogView.findViewById<View>(R.id.iconWifi)
-        switchWifi?.setOnCheckedChangeListener { _, isOn ->
-            tvWifiStatus?.text = if (isOn) "Connected" else "Disconnected"
-            iconWifi?.alpha = if (isOn) 1f else 0.3f
-        }
 
         val switchMd = dialogView.findViewById<SwitchMaterial>(R.id.switchData)
         val tvMdStatus = dialogView.findViewById<TextView>(R.id.tvMobileDataStatus)
         val iconData = dialogView.findViewById<View>(R.id.iconData)
-        switchMd?.setOnCheckedChangeListener { _, isOn ->
-            tvMdStatus?.text = if (isOn) "4G LTE" else "Off"
-            iconData?.alpha = if (isOn) 1f else 0.3f
-        }
 
         val switchLoc = dialogView.findViewById<SwitchMaterial>(R.id.switchLocation)
         val tvLocStatus = dialogView.findViewById<TextView>(R.id.tvLocationStatus)
         val iconLoc = dialogView.findViewById<View>(R.id.iconLoc)
-        switchLoc?.setOnCheckedChangeListener { _, isOn ->
-            tvLocStatus?.text = if (isOn) "On" else "Off"
-            iconLoc?.alpha = if (isOn) 1f else 0.35f
-        }
 
         val switchBluetooth = dialogView.findViewById<SwitchMaterial>(R.id.switchBluetooth)
         val tvBluetoothStatus = dialogView.findViewById<TextView>(R.id.tvBluetoothStatus)
         val iconBluetooth = dialogView.findViewById<View>(R.id.iconBluetooth)
-        switchBluetooth?.setOnCheckedChangeListener { _, isOn ->
-            tvBluetoothStatus?.text = if (isOn) "On" else "Off"
-            iconBluetooth?.alpha = if (isOn) 1f else 0.3f
-        }
 
         val switchBatterySaver = dialogView.findViewById<SwitchMaterial>(R.id.switchBatterySaver)
         val tvBatterySaverStatus = dialogView.findViewById<TextView>(R.id.tvBatterySaverStatus)
         val iconBatterySaver = dialogView.findViewById<View>(R.id.iconBatterySaver)
+
+        // Flag to prevent recursive infinite loops when reading from Firestore
+        var isUpdatingFromFirebase = false
+
+        // 1. REAL-TIME READER: Listen to the target's device state
+        if (targetUid != null && targetUid.isNotEmpty()) {
+            val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                isUpdatingFromFirebase = true
+
+                val wifiOn = snapshot.getBoolean("state_wifi") ?: false
+                val btOn = snapshot.getBoolean("state_bluetooth") ?: false
+                val dataOn = snapshot.getBoolean("state_mobile_data") ?: false
+                val locOn = snapshot.getBoolean("state_location") ?: false
+                val saverOn = snapshot.getBoolean("state_battery_saver") ?: false
+
+                if (switchWifi?.isChecked != wifiOn) switchWifi?.isChecked = wifiOn
+                if (switchBluetooth?.isChecked != btOn) switchBluetooth?.isChecked = btOn
+                if (switchMd?.isChecked != dataOn) switchMd?.isChecked = dataOn
+                if (switchLoc?.isChecked != locOn) switchLoc?.isChecked = locOn
+                if (switchBatterySaver?.isChecked != saverOn) switchBatterySaver?.isChecked = saverOn
+
+                isUpdatingFromFirebase = false
+            }
+            // Kill listener when dialog closes
+            dialog.setOnDismissListener { listener.remove() }
+        }
+
+        // 2. REAL-TIME SENDER: Helper function to blast commands
+        fun sendCommand(commandField: String, state: Boolean) {
+            if (!isUpdatingFromFirebase && targetUid != null) {
+                db.collection("Users").document(targetUid).set(hashMapOf(commandField to state), SetOptions.merge())
+            }
+        }
+
+        switchWifi?.setOnCheckedChangeListener { _, isOn ->
+            tvWifiStatus?.text = if (isOn) "Connected" else "Disconnected"
+            iconWifi?.alpha = if (isOn) 1f else 0.3f
+            sendCommand("cmd_wifi", isOn)
+        }
+
+        switchMd?.setOnCheckedChangeListener { _, isOn ->
+            tvMdStatus?.text = if (isOn) "4G LTE" else "Off"
+            iconData?.alpha = if (isOn) 1f else 0.3f
+            sendCommand("cmd_mobile_data", isOn)
+        }
+
+        switchLoc?.setOnCheckedChangeListener { _, isOn ->
+            tvLocStatus?.text = if (isOn) "On" else "Off"
+            iconLoc?.alpha = if (isOn) 1f else 0.35f
+            sendCommand("cmd_location", isOn)
+        }
+
+        switchBluetooth?.setOnCheckedChangeListener { _, isOn ->
+            tvBluetoothStatus?.text = if (isOn) "On" else "Off"
+            iconBluetooth?.alpha = if (isOn) 1f else 0.3f
+            sendCommand("cmd_bluetooth", isOn)
+        }
+
         switchBatterySaver?.setOnCheckedChangeListener { _, isOn ->
             tvBatterySaverStatus?.text = if (isOn) "On" else "Off"
             iconBatterySaver?.alpha = if (isOn) 1f else 0.35f
+            sendCommand("cmd_battery_saver", isOn)
         }
 
         dialogView.findViewById<LinearLayout>(R.id.rowWifi)?.setOnClickListener { switchWifi?.toggle() }
@@ -717,7 +764,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         button.background = bg
     }
 
-    // 🚨 PERFECTLY CLEANED UP ADAPTER (No Unresolved References)
     inner class CustomGoogleInfoWindowAdapter : GoogleMap.InfoWindowAdapter {
         override fun getInfoWindow(marker: com.google.android.gms.maps.model.Marker): View? {
             val view = layoutInflater.inflate(R.layout.layout_map_info_window, null)
@@ -813,7 +859,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val path = android.graphics.Path()
             path.moveTo(center, 2 * density)
             path.lineTo(center - (10 * density), 18 * density)
-            path.lineTo(center + (10 * density), 18 * density)
+            path.lineTo(center - (10 * density), 18 * density)
             path.close()
 
             paint.setShadowLayer(4f, 0f, 2f, android.graphics.Color.argb(80, 0, 0, 0))
@@ -890,9 +936,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     val targetUid = data.optString("uid", "")
 
                     val isLostDevice = targetName.contains("Lost Device")
-                    val isUnlockedViaQr = unlockedViaQrUids.contains(targetUid)
+                    val isTrustedUser = mapContactsList.any { it.uid == targetUid }
 
-                    if (isSOS || isLostDevice || isUnlockedViaQr) {
+                    if (isSOS || isLostDevice || isTrustedUser || unlockedViaQrUids.contains(targetUid)) {
                         showRemoteControlPanel(targetName, targetUid)
                     } else {
                         Toast.makeText(requireContext(), "Access Denied. Device is not in SOS Mode.", Toast.LENGTH_SHORT).show()
@@ -1001,9 +1047,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     }
 
     private fun autoAddLostDevice(uid: String, fallbackName: String) {
-        val userId = auth.currentUser?.uid ?: return
+        val myUid = auth.currentUser?.uid ?: return
 
-        db.collection("Users").document(userId).get().addOnSuccessListener { currentUserDoc ->
+        db.collection("Users").document(myUid).get().addOnSuccessListener { currentUserDoc ->
             val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
 
             if (existingList.none { it["uid"] == uid }) {
@@ -1028,8 +1074,25 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     )
                     existingList.add(newContact)
 
-                    db.collection("Users").document(userId).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
                     Toast.makeText(requireContext(), "✅ Target Acquired! $actualName added to tracking list.", Toast.LENGTH_LONG).show()
+
+                    val theirContacts = targetUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
+                    if (theirContacts.none { it["uid"] == myUid }) {
+                        val myNameSaved = currentUserDoc.getString("fullName") ?: currentUserDoc.getString("name") ?: "Sentry User"
+                        val myPhoneSaved = currentUserDoc.getString("phoneNumber") ?: currentUserDoc.getString("number") ?: ""
+                        val myPhotoSaved = currentUserDoc.getString("photoUri") ?: ""
+
+                        val myContactForThem = mapOf(
+                            "id" to java.util.UUID.randomUUID().toString(),
+                            "name" to myNameSaved,
+                            "number" to myPhoneSaved,
+                            "photoUri" to myPhotoSaved,
+                            "uid" to myUid
+                        )
+                        theirContacts.add(myContactForThem)
+                        db.collection("Users").document(uid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
+                    }
 
                     pendingRemoteControlUid = uid
                     initLife360Engine()
@@ -1044,7 +1107,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     )
                     existingList.add(newContact)
 
-                    db.collection("Users").document(userId).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
                     Toast.makeText(requireContext(), "✅ Target Acquired! Lost Device added to tracking list.", Toast.LENGTH_LONG).show()
 
                     pendingRemoteControlUid = uid
