@@ -2,9 +2,13 @@ package com.example.aisecurity.ui.main
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.Patterns
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -63,22 +67,18 @@ class RegisterActivity : AppCompatActivity() {
         val etOtpCode = findViewById<EditText>(R.id.etOtpCode)
         val tvGoToLogin = findViewById<TextView>(R.id.tvGoToLogin)
 
-        // ==========================================
         // PREVENT BACK BUTTON ESCAPE
-        // ==========================================
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 if (currentState > 0) {
-                    Toast.makeText(this@RegisterActivity, "You must complete verification to continue.", Toast.LENGTH_SHORT).show()
+                    showSentryToast("You must complete verification to continue.", isLong = false)
                 } else {
-                    finish() // Normal back behavior if still on the form
+                    finish()
                 }
             }
         })
 
-        // ==========================================
-        // LOAD SAVED STATE (If App Was Closed)
-        // ==========================================
+        // LOAD SAVED STATE
         val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         currentState = prefs.getInt("reg_state", 0)
 
@@ -95,12 +95,12 @@ class RegisterActivity : AppCompatActivity() {
             } else if (currentState == 2) {
                 layoutOtpVerification.visibility = View.VISIBLE
                 tvRegisterHeader.text = "Phone Verification"
-                sendSmsVerification(pendingFormattedPhone) // Resend fresh code on app restart
+                sendSmsVerification(pendingFormattedPhone)
             }
         }
 
         // ==========================================
-        // STAGE 1: SIGN UP CLICKED
+        // STAGE 1: SIGN UP CLICKED (WITH NEW VALIDATIONS)
         // ==========================================
         btnRegister.setOnClickListener {
             pendingFullName = etName.text.toString().trim()
@@ -109,32 +109,41 @@ class RegisterActivity : AppCompatActivity() {
             val password = etPassword.text.toString().trim()
             val confirmPassword = etConfirmPassword.text.toString().trim()
 
-            if (pendingFullName.isEmpty() || pendingEmail.isEmpty() || rawPhone.isEmpty()) {
-                Toast.makeText(this, "All fields are required!", Toast.LENGTH_LONG).show()
+            // 🚨 STRICT VALIDATION CHECKS
+            if (pendingFullName.length < 3) {
+                showSentryToast("Please enter your full, real name.", isLong = false)
                 return@setOnClickListener
             }
-
-            if (password.length < 6 || password != confirmPassword) {
-                Toast.makeText(this, "Passwords must match and be 6+ chars", Toast.LENGTH_SHORT).show()
+            if (!Patterns.EMAIL_ADDRESS.matcher(pendingEmail).matches()) {
+                showSentryToast("Please enter a valid email format.", isLong = false)
+                return@setOnClickListener
+            }
+            if (rawPhone.length < 7) {
+                showSentryToast("Please enter a valid phone number.", isLong = false)
+                return@setOnClickListener
+            }
+            if (password.length < 6) {
+                showSentryToast("Password must be at least 6 characters.", isLong = false)
+                return@setOnClickListener
+            }
+            if (password != confirmPassword) {
+                showSentryToast("Passwords do not match.", isLong = false)
                 return@setOnClickListener
             }
 
             pendingFormattedPhone = if (rawPhone.startsWith("+")) rawPhone else "+63${rawPhone.dropWhile { it == '0' }}"
 
             btnRegister.isEnabled = false
-            btnRegister.text = "Creating Account..."
+            btnRegister.text = "Deploying Account..."
 
             auth.createUserWithEmailAndPassword(pendingEmail, password).addOnCompleteListener(this) { task ->
                 if (task.isSuccessful) {
                     auth.currentUser?.sendEmailVerification()
-
-                    // Transition to Stage 1 and SAVE
                     updateAndSaveState(1)
-
                 } else {
                     btnRegister.isEnabled = true
                     btnRegister.text = "Sign Up"
-                    Toast.makeText(this, "Error: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                    showSentryToast("Error: ${task.exception?.message}", isLong = true)
                 }
             }
         }
@@ -149,20 +158,17 @@ class RegisterActivity : AppCompatActivity() {
             auth.currentUser?.reload()?.addOnCompleteListener { task ->
                 if (task.isSuccessful) {
                     if (auth.currentUser?.isEmailVerified == true) {
-
-                        // Transition to Stage 2 and SAVE
                         updateAndSaveState(2)
                         sendSmsVerification(pendingFormattedPhone)
-
                     } else {
                         btnCheckEmailVerified.isEnabled = true
                         btnCheckEmailVerified.text = "I Have Clicked The Link"
-                        Toast.makeText(this, "Not verified yet! Please check your spam folder.", Toast.LENGTH_LONG).show()
+                        showSentryToast("Not verified yet! Please check your spam folder.", isLong = true)
                     }
                 } else {
                     btnCheckEmailVerified.isEnabled = true
                     btnCheckEmailVerified.text = "I Have Clicked The Link"
-                    Toast.makeText(this, "Network Error. Try again.", Toast.LENGTH_SHORT).show()
+                    showSentryToast("Network Error. Try again.", isLong = false)
                 }
             }
         }
@@ -174,13 +180,12 @@ class RegisterActivity : AppCompatActivity() {
             val code = etOtpCode.text.toString().trim()
 
             if (code.length < 6) {
-                Toast.makeText(this, "Please enter the 6-digit code", Toast.LENGTH_SHORT).show()
+                showSentryToast("Please enter the 6-digit code", isLong = false)
                 return@setOnClickListener
             }
 
-            // 🚨 CRITICAL FIX: Prevent crash if clicked before SMS Session is ready
             if (storedVerificationId.isEmpty()) {
-                Toast.makeText(this, "Please wait, still requesting SMS session...", Toast.LENGTH_SHORT).show()
+                showSentryToast("Please wait, still requesting SMS session...", isLong = false)
                 return@setOnClickListener
             }
 
@@ -196,23 +201,19 @@ class RegisterActivity : AppCompatActivity() {
                     } else {
                         btnVerifyOtp.isEnabled = true
                         btnVerifyOtp.text = "Verify Security Code"
-                        Toast.makeText(this, "Incorrect Code: ${task.exception?.message}", Toast.LENGTH_LONG).show()
+                        showSentryToast("Incorrect Code: ${task.exception?.message}", isLong = true)
                     }
                 }
             } catch (e: Exception) {
-                // Catch any other unexpected formatting crashes
                 btnVerifyOtp.isEnabled = true
                 btnVerifyOtp.text = "Verify Security Code"
-                Toast.makeText(this, "Verification Error. Try again.", Toast.LENGTH_LONG).show()
+                showSentryToast("Verification Error. Try again.", isLong = true)
             }
         }
 
         tvGoToLogin.setOnClickListener { finish() }
     }
 
-    // ==========================================
-    // HELPER: STATE MANAGER
-    // ==========================================
     private fun updateAndSaveState(newState: Int) {
         currentState = newState
         val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
@@ -242,20 +243,17 @@ class RegisterActivity : AppCompatActivity() {
 
             val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
             prefs.edit()
-                .putInt("reg_state", 0) // Clear the trap!
-                .putBoolean("is_logged_in", true) // This triggers the Auto-Login!
+                .putInt("reg_state", 0)
+                .putBoolean("is_logged_in", true)
                 .apply()
 
-            Toast.makeText(this, "Registration Complete! Welcome.", Toast.LENGTH_LONG).show()
+            showSentryToast("Registration Complete! System Armed.", isLong = true)
             val intent = Intent(this, MainActivity::class.java)
             intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             startActivity(intent)
         }
     }
 
-    // ==========================================
-    // FIREBASE SMS SENDER LOGIC
-    // ==========================================
     private fun sendSmsVerification(phoneNumber: String) {
         val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
             override fun onVerificationCompleted(credential: PhoneAuthCredential) {
@@ -265,7 +263,7 @@ class RegisterActivity : AppCompatActivity() {
             }
 
             override fun onVerificationFailed(e: FirebaseException) {
-                Toast.makeText(this@RegisterActivity, "SMS Failed: ${e.message}", Toast.LENGTH_LONG).show()
+                showSentryToast("SMS Failed: ${e.message}", isLong = true)
             }
 
             override fun onCodeSent(verificationId: String, token: PhoneAuthProvider.ForceResendingToken) {
@@ -280,5 +278,41 @@ class RegisterActivity : AppCompatActivity() {
             .setCallbacks(callbacks)
             .build()
         PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    // 🚨 SENTRY CUSTOM TOAST (Added to Registration)
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(this)
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(this).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(this).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 }

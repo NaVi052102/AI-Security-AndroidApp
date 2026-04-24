@@ -11,7 +11,7 @@
 
     <FrameLayout
         android:layout_width="120dp"
-        android:layout_height="24dp"
+        android:layout_height="36dp"
         android:layout_marginEnd="16dp">
 
         <View
@@ -24,7 +24,11 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:minHeight="36dp"
+            android:maxHeight="36dp"
+            android:scaleY="1.2"
             android:progressTint="#10B981"
+            android:progressBackgroundTint="@android:color/transparent"
             android:max="100"
             android:progress="0" />
 
@@ -34,11 +38,18 @@
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:text="0%"
-            android:textSize="10sp"
+            android:textSize="13sp"
             android:textColor="#FFFFFF"
             android:fontFamily="@font/inter"
             android:textStyle="bold" />
     </FrameLayout>
+
+    <ImageView
+        android:id="@+id/ivAppIcon"
+        android:layout_width="24dp"
+        android:layout_height="24dp"
+        android:layout_marginEnd="12dp"
+        android:scaleType="fitCenter" />
 
     <TextView
         android:id="@+id/tvAppName"

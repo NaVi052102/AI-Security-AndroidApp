@@ -23,6 +23,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.widget.SwitchCompat
@@ -71,13 +74,13 @@ class BluetoothFragment : Fragment() {
                 enableBluetoothLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
             } catch (e: Exception) { Log.e("BLE", "Error enabling Bluetooth", e) }
         } else {
-            Toast.makeText(requireContext(), "Permission needed to enable Bluetooth.", Toast.LENGTH_SHORT).show()
+            showSentryToast("Permission needed to enable Bluetooth.", isLong = false)
         }
     }
 
     private val requestPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
         if (permissions.entries.all { it.value }) startRadarScan()
-        else Toast.makeText(requireContext(), "Permissions required to scan.", Toast.LENGTH_SHORT).show()
+        else showSentryToast("Permissions required to scan.", isLong = false)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -102,7 +105,7 @@ class BluetoothFragment : Fragment() {
 
         val isNotificationAccessGranted = NotificationManagerCompat.getEnabledListenerPackages(requireContext()).contains(requireContext().packageName)
         if (!isNotificationAccessGranted) {
-            Toast.makeText(requireContext(), "Please ALLOW Notification Access for Music Sync!", Toast.LENGTH_LONG).show()
+            showSentryToast("Please ALLOW Notification Access for Music Sync!", isLong = true)
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
 
@@ -119,15 +122,15 @@ class BluetoothFragment : Fragment() {
         updateScanButtonUI(btnScan, isScanning)
 
         deviceAdapter = BleDeviceAdapter { clickedDevice, isAlreadyConnected ->
-            if (!bluetoothAdapter.isEnabled) {
-                Toast.makeText(requireContext(), "Please turn on Bluetooth first!", Toast.LENGTH_SHORT).show()
+            if (!::bluetoothAdapter.isInitialized || !bluetoothAdapter.isEnabled) {
+                showSentryToast("Please turn on Bluetooth first!", isLong = false)
                 return@BleDeviceAdapter
             }
 
             if (isAlreadyConnected) {
                 WatchManager.disconnect()
                 deviceAdapter.setConnectedDevice(null)
-                Toast.makeText(requireContext(), "Watch Disconnected", Toast.LENGTH_SHORT).show()
+                showSentryToast("Watch Disconnected", isLong = false)
             } else {
                 prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
                 stopRadarScan()
@@ -135,9 +138,10 @@ class BluetoothFragment : Fragment() {
                 deviceAdapter.setConnectedDevice(clickedDevice.address)
 
                 try {
-                    Toast.makeText(requireContext(), "Connecting to ${clickedDevice.name ?: "Watch Pro"}...", Toast.LENGTH_SHORT).show()
+                    val name = clickedDevice.name ?: "Watch Pro"
+                    showSentryToast("Connecting to $name...", isLong = false)
                 } catch (e: SecurityException) {
-                    Toast.makeText(requireContext(), "Connecting to Watch Pro...", Toast.LENGTH_SHORT).show()
+                    showSentryToast("Connecting to Watch Pro...", isLong = false)
                 }
                 WatchManager.connectToTarget(requireContext(), clickedDevice.address)
             }
@@ -153,7 +157,7 @@ class BluetoothFragment : Fragment() {
         }
 
         val savedMac = prefs.getString("saved_watch_mac", null)
-        if (savedMac != null && bluetoothAdapter.isEnabled && WatchManager.isConnected.value == true) {
+        if (savedMac != null && ::bluetoothAdapter.isInitialized && bluetoothAdapter.isEnabled && WatchManager.isConnected.value == true) {
             try {
                 val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
                 deviceAdapter.addDevice(savedDevice)
@@ -182,7 +186,7 @@ class BluetoothFragment : Fragment() {
                     }
                 }
             } else if (!isChecked && bluetoothAdapter.isEnabled) {
-                Toast.makeText(requireContext(), "Android requires you to disable this manually.", Toast.LENGTH_LONG).show()
+                showSentryToast("Android requires you to disable this manually.", isLong = true)
                 try {
                     startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
                 } catch (e: Exception) { e.printStackTrace() }
@@ -194,8 +198,8 @@ class BluetoothFragment : Fragment() {
         }
 
         btnScan.setOnClickListener {
-            if (!bluetoothAdapter.isEnabled) {
-                Toast.makeText(requireContext(), "Please turn on Bluetooth first!", Toast.LENGTH_SHORT).show()
+            if (!::bluetoothAdapter.isInitialized || !bluetoothAdapter.isEnabled) {
+                showSentryToast("Please turn on Bluetooth first!", isLong = false)
                 return@setOnClickListener
             }
             if (isScanning) {
@@ -206,6 +210,44 @@ class BluetoothFragment : Fragment() {
                 updateScanButtonUI(btnScan, true)
             }
         }
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(requireContext())
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 
     // ==========================================
@@ -222,25 +264,25 @@ class BluetoothFragment : Fragment() {
         if (isScanning) {
             // --- THE "STOP SCANNING" STATE (Destructive/Active) ---
             if (isNightMode) {
-                btnBackground.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004")) // Deep Crimson Glass
-                btnBackground.setStroke(4, Color.parseColor("#EF4444")) // Vibrant Red Rim
+                btnBackground.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004"))
+                btnBackground.setStroke(4, Color.parseColor("#EF4444"))
                 button.setTextColor(Color.parseColor("#FFFFFF"))
             } else {
-                btnBackground.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2")) // Frosted Red Glass
-                btnBackground.setStroke(4, Color.parseColor("#EF4444")) // Crisp Red Rim
-                button.setTextColor(Color.parseColor("#7F1D1D")) // Deep Crimson Text
+                btnBackground.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2"))
+                btnBackground.setStroke(4, Color.parseColor("#EF4444"))
+                button.setTextColor(Color.parseColor("#7F1D1D"))
             }
             button.text = "STOP SCANNING"
         } else {
             // --- THE "READY TO SCAN" STATE (Primary Action) ---
             if (isNightMode) {
-                btnBackground.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A")) // Deep Glossy Navy
-                btnBackground.setStroke(4, Color.parseColor("#D4AF37")) // Elegant Gold Rim
+                btnBackground.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
+                btnBackground.setStroke(4, Color.parseColor("#D4AF37"))
                 button.setTextColor(Color.parseColor("#FFFFFF"))
             } else {
-                btnBackground.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9")) // Pearlescent White
-                btnBackground.setStroke(4, Color.parseColor("#2563EB")) // Crisp Blue Rim
-                button.setTextColor(Color.parseColor("#1E293B")) // Navy Text
+                btnBackground.colors = intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#F1F5F9"))
+                btnBackground.setStroke(4, Color.parseColor("#2563EB"))
+                button.setTextColor(Color.parseColor("#1E293B"))
             }
             button.text = "SCAN FOR DEVICES"
         }

@@ -385,6 +385,7 @@ class TouchDynamicsService : AccessibilityService() {
 
     private fun updateContext(packageName: String) {
         val appName = getReadableAppName(packageName)
+        getSharedPreferences("app_icons", MODE_PRIVATE).edit().putString(appName, packageName).apply()
         val isNoise = appName.contains("System", ignoreCase = true) || appName.contains("quicksearchbox", ignoreCase = true) || systemNoiseList.contains(packageName)
 
         if (isNoise) {

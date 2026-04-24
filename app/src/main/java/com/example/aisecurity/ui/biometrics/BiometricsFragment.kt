@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.graphics.*
 import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
@@ -39,15 +40,17 @@ class BiometricsFragment : Fragment() {
 
     private val riskHistory = mutableListOf<Float>()
 
+    // 🚨 RAM CACHE for Transition Tracker Icons
+    private val iconCache = mutableMapOf<String, Drawable?>()
+
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
         savedInstanceState: Bundle?
     ): View? = inflater.inflate(R.layout.fragment_biometrics, container, false)
 
-    // 🚨 FIX 1: Ensure it only pops up if the screen is ACTUALLY visible
     override fun onResume() {
         super.onResume()
-        if (isHidden || !isVisible) return // Prevent background pre-loading from triggering it
+        if (isHidden || !isVisible) return
 
         val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         if (!prefs.getBoolean("has_seen_biometrics_tutorial", false)) {
@@ -55,10 +58,9 @@ class BiometricsFragment : Fragment() {
         }
     }
 
-    // 🚨 FIX 2: Catch the event when the user switches tabs to reveal this fragment
     override fun onHiddenChanged(hidden: Boolean) {
         super.onHiddenChanged(hidden)
-        if (!hidden) { // If it just became visible
+        if (!hidden) {
             val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
             if (!prefs.getBoolean("has_seen_biometrics_tutorial", false)) {
                 showTutorialDialog()
@@ -81,8 +83,12 @@ class BiometricsFragment : Fragment() {
         val tvScore         = view.findViewById<TextView>(R.id.tvScore)
         val tvRiskScore     = view.findViewById<TextView>(R.id.tvRiskScore)
         tvStatusLabel       = view.findViewById(R.id.tvStatusLabel)
+
         val tvPreviousApp   = view.findViewById<TextView>(R.id.tvPreviousApp)
+        val ivPreviousApp   = view.findViewById<ImageView>(R.id.ivPreviousApp)
         val tvCurrentApp    = view.findViewById<TextView>(R.id.tvCurrentApp)
+        val ivCurrentApp    = view.findViewById<ImageView>(R.id.ivCurrentApp)
+
         aiLearningGraph     = view.findViewById(R.id.aiLearningGraph)
         tvCurrentLossValue  = view.findViewById(R.id.tvCurrentLossValue)
 
@@ -102,14 +108,30 @@ class BiometricsFragment : Fragment() {
             prefs.edit().putBoolean("training_paused", true).apply()
         }
 
+        // 🚨 UPGRADED OBSERVER: Now binds the visual icons dynamically
         LiveLogger.logData.observe(viewLifecycleOwner) { logText ->
             val lastFlowLine = logText.split("\n").lastOrNull { it.contains("📱 FLOW:") }
             if (lastFlowLine != null) {
                 val flowPart = lastFlowLine.substringAfter("FLOW:").trim()
                 val apps     = flowPart.split("->")
                 if (apps.size == 2) {
-                    tvPreviousApp.text = apps[0].trim()
-                    tvCurrentApp.text  = apps[1].trim()
+                    val prevName = apps[0].trim()
+                    val currName = apps[1].trim()
+
+                    tvPreviousApp.text = prevName
+                    tvCurrentApp.text  = currName
+
+                    val prevIcon = fetchAppIcon(requireContext(), prevName)
+                    if (prevIcon != null) {
+                        ivPreviousApp.setImageDrawable(prevIcon)
+                        ivPreviousApp.visibility = View.VISIBLE
+                    } else { ivPreviousApp.visibility = View.GONE }
+
+                    val currIcon = fetchAppIcon(requireContext(), currName)
+                    if (currIcon != null) {
+                        ivCurrentApp.setImageDrawable(currIcon)
+                        ivCurrentApp.visibility = View.VISIBLE
+                    } else { ivCurrentApp.visibility = View.GONE }
                 }
             }
         }
@@ -259,7 +281,47 @@ class BiometricsFragment : Fragment() {
         }
     }
 
-    // 🚨 UPDATED: The Visual, Comprehensive Tutorial
+    // 🚨 High-Speed OS Icon Fetcher
+    private fun fetchAppIcon(context: Context, appName: String): Drawable? {
+        if (iconCache.containsKey(appName)) return iconCache[appName]
+
+        val pm = context.packageManager
+        val knownPackages = mapOf(
+            "Facebook" to "com.facebook.katana",
+            "Messenger" to "com.facebook.orca",
+            "TikTok" to "com.zhiliaoapp.musically",
+            "Instagram" to "com.instagram.android",
+            "YouTube" to "com.google.android.youtube",
+            "WhatsApp" to "com.whatsapp",
+            "X (Twitter)" to "com.twitter.android",
+            "Mobile Legends" to "com.mobile.legends",
+            "System UI" to "com.android.systemui",
+            "Home Screen" to "com.miui.home"
+        )
+
+        var icon: Drawable? = null
+        if (knownPackages.containsKey(appName)) {
+            try { icon = pm.getApplicationIcon(knownPackages[appName]!!) } catch (e: Exception) {}
+        } else {
+            try {
+                val packages = pm.getInstalledApplications(0)
+                for (appInfo in packages) {
+                    if (pm.getApplicationLabel(appInfo).toString().equals(appName, ignoreCase = true)) {
+                        icon = pm.getApplicationIcon(appInfo)
+                        break
+                    }
+                }
+            } catch (e: Exception) {}
+        }
+
+        if (icon == null) {
+            try { icon = ContextCompat.getDrawable(context, android.R.mipmap.sym_def_app_icon) } catch (e: Exception) {}
+        }
+
+        iconCache[appName] = icon
+        return icon
+    }
+
     private fun showTutorialDialog() {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_biometrics_info, null)
         val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
@@ -292,34 +354,33 @@ class BiometricsFragment : Fragment() {
         tvTitle.setTextColor(textPrimaryColor)
         tvDesc.setTextColor(textSecondaryColor)
 
-        // 🚨 A custom data class to hold our visual tutorial steps
         data class TutorialStep(val title: String, val desc: String, val imageRes: Int)
 
         val steps = listOf(
             TutorialStep(
                 "Welcome to the Neural Engine",
                 "This security system does not rely on static passwords.<br><br>Instead, it uses <b>Edge AI</b> to learn your physical habits. It memorizes the exact velocity, pressure, and timing of your screen touches to mathematically prove you are the owner.",
-                android.R.drawable.ic_dialog_info // Replace with e.g., R.drawable.tut_welcome_shield
+                android.R.drawable.ic_dialog_info
             ),
             TutorialStep(
                 "1. The Neural Mapping Curve",
                 "The graph tracks the AI's learning process in real-time.<br><br>The <b>Raw Loss (Dots)</b> shows the error of your current swipe. The <b>EMA Loss (Blue Line)</b> is the smoothed average. When the blue line drops and flattens out, the AI has successfully memorized your thumb's physics.",
-                android.R.drawable.ic_menu_gallery // Replace with e.g., R.drawable.tut_graph_screenshot
+                android.R.drawable.ic_menu_gallery
             ),
             TutorialStep(
                 "2. App Transition Tracker",
                 "Intruders don't know your phone like you do.<br><br>The system silently watches how fast you switch between apps (e.g., from Home Screen to Messages). If someone takes strange routes or hesitates, the AI instantly flags it as anomalous behavior.",
-                android.R.drawable.ic_menu_sort_by_size // Replace with e.g., R.drawable.tut_transition_screenshot
+                android.R.drawable.ic_menu_sort_by_size
             ),
             TutorialStep(
                 "3. App-Specific Mastery",
                 "Every app has its own dedicated brain.<br><br>You swipe differently in a game than you do in Chrome. The <b>Live App Insights</b> show how close the AI is to mastering each specific app. At 100%, your physical signature for that app is locked in.",
-                android.R.drawable.ic_menu_manage // Replace with e.g., R.drawable.tut_progress_bars
+                android.R.drawable.ic_menu_manage
             ),
             TutorialStep(
                 "4. Activating the Shield",
                 "Once any tracked app reaches <b>75% stability</b>, the <b>USE AI</b> button unlocks.<br><br>Tap it to arm the system. The AI freezes its training and actively hunts for intruders. If an unrecognized thumb swipes the screen, the threat level spikes, and the device will violently lock.",
-                android.R.drawable.ic_lock_lock // Replace with e.g., R.drawable.tut_use_ai_button
+                android.R.drawable.ic_lock_lock
             )
         )
 
@@ -329,7 +390,7 @@ class BiometricsFragment : Fragment() {
             val step = steps[currentStep]
 
             tvTitle.text = step.title
-            ivImage.setImageResource(step.imageRes) // 🚨 Update the image dynamically!
+            ivImage.setImageResource(step.imageRes)
 
             if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.N) {
                 tvDesc.text = Html.fromHtml(step.desc, Html.FROM_HTML_MODE_COMPACT)
@@ -395,7 +456,7 @@ class BiometricsFragment : Fragment() {
                 dialog.dismiss()
                 executeWipeProtocol(db, prefs, classifier)
             } else {
-                Toast.makeText(requireContext(), "Invalid OTP.", Toast.LENGTH_SHORT).show()
+                showSentryToast("Invalid OTP.", isLong = false)
             }
         }
         dialog.show()
@@ -419,7 +480,8 @@ class BiometricsFragment : Fragment() {
                     aiLearningGraph.setData(emptyList(), emptyList())
                     riskHistory.clear()
                     tvCurrentLossValue.text = "EMA: 1.0000"
-                    Toast.makeText(requireContext(), "AI Profile Successfully Reset", Toast.LENGTH_LONG).show()
+
+                    showSentryToast("AI Profile Successfully Reset", isLong = true)
                 }
             }
         }
@@ -507,6 +569,44 @@ class BiometricsFragment : Fragment() {
                 LiveLogger.log("✅ AI Security locked. Edge Model is Secure. Threshold: $newThreshold")
             }
         }
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(requireContext())
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 }
 

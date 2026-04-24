@@ -50,12 +50,11 @@ class AccountSettingsFragment : Fragment() {
                 requireActivity().contentResolver.takePersistableUriPermission(it, takeFlags)
                 currentPhotoUri = it.toString()
 
-                // Freshly picked URIs are safe to use with setImageURI temporarily
                 dialogAvatarImage?.setImageURI(it)
                 dialogAvatarImage?.visibility = View.VISIBLE
                 dialogAvatarInitials?.visibility = View.GONE
             } catch (e: Exception) {
-                Toast.makeText(requireContext(), "Failed to load image", Toast.LENGTH_SHORT).show()
+                showSentryToast("Failed to load image", isLong = false)
             }
         }
     }
@@ -80,6 +79,7 @@ class AccountSettingsFragment : Fragment() {
 
         val btnEditProfile = view.findViewById<Button>(R.id.btnEditProfile)
         val btnChangePhone = view.findViewById<TextView>(R.id.btnChangePhone)
+        val btnChangeEmail = view.findViewById<TextView>(R.id.btnChangeEmail)
         val btnLogout = view.findViewById<Button>(R.id.btnLogout)
 
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -95,31 +95,95 @@ class AccountSettingsFragment : Fragment() {
         }
 
         btnChangePhone.setOnClickListener {
-            AlertDialog.Builder(requireContext())
-                .setTitle("Secure Number Verification")
-                .setMessage("Changing your master phone number requires an SMS One-Time Password (OTP) to prove ownership. Do you wish to proceed to the verification flow?")
-                .setPositiveButton("Proceed") { _, _ ->
-                    Toast.makeText(requireContext(), "Routing to Secure OTP Verification Activity...", Toast.LENGTH_LONG).show()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            showSecureVerificationDialog(
+                title = "Secure Number Verification",
+                message = "Changing your master phone number requires an SMS One-Time Password (OTP) to prove ownership. Do you wish to proceed to the verification flow?",
+                isNightMode = isNightMode
+            ) {
+                showSentryToast("Routing to Secure OTP Verification Activity...", isLong = true)
+            }
+        }
+
+        btnChangeEmail.setOnClickListener {
+            showSecureVerificationDialog(
+                title = "Email Verification",
+                message = "Changing your recovery email address requires us to send a verification link to your current email. Do you wish to proceed?",
+                isNightMode = isNightMode
+            ) {
+                showSentryToast("Sending verification link...", isLong = true)
+            }
         }
 
         btnLogout.setOnClickListener {
-            AlertDialog.Builder(requireContext())
-                .setTitle("Secure Logout")
-                .setMessage("Are you sure you want to log out? AI continuous protection will be suspended.")
-                .setPositiveButton("Log Out") { _, _ ->
-                    val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
-                    prefs.edit().putBoolean("is_logged_in", false).apply()
-                    auth.signOut()
-                    val intent = Intent(requireActivity(), LoginActivity::class.java)
-                    intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                    startActivity(intent)
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
+            showSecureVerificationDialog(
+                title = "Secure Logout",
+                message = "Are you sure you want to log out? AI continuous protection will be suspended.",
+                isNightMode = isNightMode
+            ) {
+                val prefs = requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                prefs.edit().putBoolean("is_logged_in", false).apply()
+
+                com.example.aisecurity.ble.WatchManager.disconnect()
+
+                auth.signOut()
+
+                val intent = Intent(requireActivity(), LoginActivity::class.java)
+                intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                startActivity(intent)
+            }
         }
+    }
+
+    // ==========================================
+    // 🚨 NEW CUSTOM GLASS VERIFICATION DIALOG
+    // ==========================================
+    private fun showSecureVerificationDialog(title: String, message: String, isNightMode: Boolean, onProceed: () -> Unit) {
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_secure_verification, null)
+        val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
+        val tvTitle = dialogView.findViewById<TextView>(R.id.tvVerificationTitle)
+        val tvMessage = dialogView.findViewById<TextView>(R.id.tvVerificationMessage)
+        val btnProceed = dialogView.findViewById<Button>(R.id.btnProceed)
+        val btnCancel = dialogView.findViewById<Button>(R.id.btnCancel)
+
+        tvTitle.text = title
+        tvMessage.text = message
+
+        val dialogBg = GradientDrawable().apply {
+            cornerRadius = 60f
+            if (isNightMode) {
+                setColor(Color.parseColor("#FA0F172A"))
+                setStroke(2, Color.parseColor("#334155"))
+            } else {
+                setColor(Color.parseColor("#FAFFFFFF"))
+                setStroke(2, Color.parseColor("#CBD5E1"))
+            }
+        }
+        dialogRoot.background = dialogBg
+
+        if (title.contains("Logout", ignoreCase = true)) {
+            applyDestructivePrimaryButton(btnProceed, isNightMode)
+            btnProceed.text = "LOG OUT"
+        } else {
+            applyPrimaryButton(btnProceed, isNightMode)
+        }
+
+        applyGhostButton(btnCancel, isNightMode)
+
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(dialogView)
+            .setCancelable(false)
+            .create()
+
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnCancel.setOnClickListener { dialog.dismiss() }
+
+        btnProceed.setOnClickListener {
+            dialog.dismiss()
+            onProceed()
+        }
+
+        dialog.show()
     }
 
     private fun loadUserData(header: TextView, full: TextView, email: TextView, phone: TextView) {
@@ -155,7 +219,6 @@ class AccountSettingsFragment : Fragment() {
     private fun updateMainAvatarUI() {
         if (currentPhotoUri.isNotEmpty()) {
             try {
-                // 🚨 THE FIX: Force an immediate Bitmap decode to catch Security Exceptions instantly
                 val uri = Uri.parse(currentPhotoUri)
                 val inputStream = requireContext().contentResolver.openInputStream(uri)
                 val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
@@ -217,7 +280,6 @@ class AccountSettingsFragment : Fragment() {
 
         if (currentPhotoUri.isNotEmpty()) {
             try {
-                // 🚨 THE FIX: Force an immediate Bitmap decode here too!
                 val uri = Uri.parse(currentPhotoUri)
                 val inputStream = requireContext().contentResolver.openInputStream(uri)
                 val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
@@ -258,7 +320,7 @@ class AccountSettingsFragment : Fragment() {
             val mi = etMI.text.toString().trim().uppercase()
 
             if (fn.isEmpty() || ln.isEmpty()) {
-                Toast.makeText(requireContext(), "First and Last name are required", Toast.LENGTH_SHORT).show()
+                showSentryToast("First and Last name are required", isLong = false)
                 return@setOnClickListener
             }
 
@@ -287,13 +349,13 @@ class AccountSettingsFragment : Fragment() {
                     tvFullName.text = fullConst
                     updateMainAvatarUI()
 
-                    Toast.makeText(requireContext(), "Profile Updated!", Toast.LENGTH_SHORT).show()
+                    showSentryToast("Profile Updated!", isLong = false)
                     dialog.dismiss()
                 }
                 .addOnFailureListener {
                     btnSave.isEnabled = true
                     btnSave.text = "SAVE"
-                    Toast.makeText(requireContext(), "Network Error. Try again.", Toast.LENGTH_SHORT).show()
+                    showSentryToast("Network Error. Try again.", isLong = false)
                 }
         }
         dialog.show()
@@ -332,6 +394,21 @@ class AccountSettingsFragment : Fragment() {
         button.background = bg
     }
 
+    private fun applyDestructivePrimaryButton(button: Button, isNightMode: Boolean) {
+        val bg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 30f
+        }
+        if (isNightMode) {
+            bg.setColor(Color.parseColor("#EF4444"))
+            button.setTextColor(Color.parseColor("#FFFFFF"))
+        } else {
+            bg.setColor(Color.parseColor("#DC2626"))
+            button.setTextColor(Color.parseColor("#FFFFFF"))
+        }
+        button.background = bg
+    }
+
     private fun applyGhostButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -363,5 +440,43 @@ class AccountSettingsFragment : Fragment() {
             button.setTextColor(Color.parseColor("#DC2626"))
         }
         button.background = bg
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(requireContext())
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 }

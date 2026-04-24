@@ -3,19 +3,18 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:background="@drawable/glass_card"
     android:orientation="horizontal"
-    android:padding="16dp"
+    android:gravity="center_vertical"
+    android:background="@drawable/glass_card"
     android:layout_marginBottom="12dp"
-    android:gravity="center_vertical">
+    android:padding="16dp">
 
     <androidx.cardview.widget.CardView
-        android:id="@+id/cardAvatar"
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:layout_marginEnd="16dp"
         app:cardCornerRadius="24dp"
         app:cardElevation="0dp"
+        android:layout_marginEnd="16dp"
         app:cardBackgroundColor="@android:color/transparent">
 
         <TextView
@@ -24,10 +23,9 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:fontFamily="@font/inter"
-            android:textColor="@color/ig_text_primary"
-            android:textSize="18sp"
+            android:textSize="16sp"
             android:textStyle="bold"
-            android:text="JD"/>
+            android:textColor="#FFFFFF"/>
 
         <ImageView
             android:id="@+id/imgContactAvatar"
@@ -50,42 +48,63 @@
             android:fontFamily="@font/inter"
             android:textColor="@color/ig_text_primary"
             android:textSize="16sp"
-            android:textStyle="bold" />
+            android:textStyle="bold"
+            android:maxLines="1"
+            android:ellipsize="end"/>
 
         <TextView
             android:id="@+id/tvContactNumber"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:fontFamily="@font/inter"
             android:textColor="@color/ig_text_secondary"
             android:textSize="13sp"
-            android:letterSpacing="0.05" />
+            android:layout_marginTop="2dp"/>
+
+        <TextView
+            android:id="@+id/tvStatusLabel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:fontFamily="@font/inter"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:visibility="gone"
+            android:textColor="#3B82F6"/>
     </LinearLayout>
 
-    <TextView
-        android:id="@+id/tvEditContact"
+    <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:padding="10dp"
-        android:fontFamily="@font/inter"
-        android:text="EDIT"
-        android:textColor="#3B82F6"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:background="?attr/selectableItemBackgroundBorderless" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <TextView
-        android:id="@+id/tvDeleteContact"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:padding="10dp"
-        android:fontFamily="@font/inter"
-        android:text="DELETE"
-        android:textColor="#EF4444"
-        android:textSize="12sp"
-        android:textStyle="bold"
-        android:background="?attr/selectableItemBackgroundBorderless" />
+        <TextView
+            android:id="@+id/tvEditContact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingHorizontal="12dp"
+            android:paddingVertical="8dp"
+            android:fontFamily="@font/inter"
+            android:text="EDIT"
+            android:textColor="#3B82F6"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+
+        <TextView
+            android:id="@+id/tvDeleteContact"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingStart="4dp"
+            android:paddingEnd="12dp"
+            android:paddingVertical="8dp"
+            android:fontFamily="@font/inter"
+            android:text="REMOVE"
+            android:textColor="#EF4444"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:background="?attr/selectableItemBackgroundBorderless"/>
+    </LinearLayout>
 
 </LinearLayout>

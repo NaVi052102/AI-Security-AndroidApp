@@ -10,6 +10,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
@@ -18,11 +20,12 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanIntentResult
 import com.journeyapps.barcodescanner.ScanOptions
 
+@Suppress("DEPRECATION")
 class QRScannerFragment : Fragment() {
 
     private val barcodeLauncher = registerForActivityResult(ScanContract()) { result: ScanIntentResult ->
         if (result.contents == null) {
-            Toast.makeText(requireContext(), "Scan Cancelled", Toast.LENGTH_SHORT).show()
+            showSentryToast("Scan Cancelled")
         } else {
             val scannedData = result.contents
 
@@ -33,7 +36,7 @@ class QRScannerFragment : Fragment() {
                 }
                 startActivity(intent)
             } else {
-                Toast.makeText(requireContext(), "Invalid Sentry QR Code", Toast.LENGTH_SHORT).show()
+                showSentryToast("Invalid Sentry QR Code")
             }
         }
     }
@@ -56,23 +59,60 @@ class QRScannerFragment : Fragment() {
             imgCameraIcon.setColorFilter(Color.parseColor("#0F172A"))
         }
 
-        // 🚨 Exact button styling from BluetoothFragment
         applyBluetoothButtonTheme(btnScan)
 
         btnScan.setOnClickListener {
             val options = ScanOptions()
             options.setPrompt("Scan Smartwatch QR Code")
             options.setBeepEnabled(true)
-
-            // 🚨 HIGH-SPEED OPTIMIZATION: Tell scanner to ignore barcodes and ONLY look for QRs
             options.setDesiredBarcodeFormats(ScanOptions.QR_CODE)
-
-            // 🚨 FORCE PORTRAIT: Target the custom portrait activity we just built
             options.setCaptureActivity(PortraitCaptureActivity::class.java)
             options.setOrientationLocked(true)
 
             barcodeLauncher.launch(options)
         }
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String) {
+        val toast = Toast(requireContext())
+        toast.duration = Toast.LENGTH_SHORT
+
+        // Build the dark glass pill background
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C")) // Deep Dark Background
+                setStroke(3, Color.parseColor("#3B82F6")) // Sentry Blue Rim
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        // 🚨 INJECTING YOUR EXISTING XML LOGO
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold) // Points directly to your file!
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        // Inject the text
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        // Assemble and display
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 
     private fun isDarkMode(): Boolean {
@@ -84,12 +124,9 @@ class QRScannerFragment : Fragment() {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 1000f
-            // Exact blue gradient used in your Bluetooth button
             colors = intArrayOf(Color.parseColor("#3B82F6"), Color.parseColor("#2563EB"))
         }
         button.setTextColor(Color.WHITE)
         button.background = bg
     }
 }
-
-

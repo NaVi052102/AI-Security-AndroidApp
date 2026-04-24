@@ -273,7 +273,7 @@
                             android:id="@+id/tvRemoteDistance"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="DIST: 8.7 km"
+                            android:text="DISTANCE: 8.7 km"
                             android:textColor="#00D8FF"
                             android:textSize="10sp"
                             android:textStyle="bold" />

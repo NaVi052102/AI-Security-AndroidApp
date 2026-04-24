@@ -43,7 +43,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:fontFamily="@font/inter"
-                    android:text="Bluetooth Shield"
+                    android:text="Bluetooth"
                     android:textColor="@color/ig_text_primary"
                     android:textSize="18sp"
                     android:textStyle="bold" />

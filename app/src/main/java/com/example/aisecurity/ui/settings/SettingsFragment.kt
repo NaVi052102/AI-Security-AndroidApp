@@ -3,6 +3,7 @@ package com.example.aisecurity.ui.settings
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
@@ -10,6 +11,7 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -112,7 +114,9 @@ class SettingsFragment : Fragment() {
 
         switchStealth.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit { putBoolean("protocol_stealth", isChecked) }
-            if (isChecked) Toast.makeText(requireContext(), "Stealth Active: Dial *#8888# to open.", Toast.LENGTH_LONG).show()
+            if (isChecked) {
+                showSentryToast("Stealth Active: Dial *#8888# to open.", isLong = true)
+            }
         }
 
         // ==========================================
@@ -120,7 +124,7 @@ class SettingsFragment : Fragment() {
         // ==========================================
         btnDemoOverlay.setOnClickListener {
             if (!Settings.canDrawOverlays(requireContext())) {
-                Toast.makeText(requireContext(), "Grant 'Display over other apps' to test.", Toast.LENGTH_LONG).show()
+                showSentryToast("Grant 'Display over other apps' to test.", isLong = true)
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = "package:${requireContext().packageName}".toUri() })
                 return@setOnClickListener
             }
@@ -180,7 +184,7 @@ class SettingsFragment : Fragment() {
         btnProceed.setOnClickListener {
             dialog.dismiss()
 
-            // Instantly execute requested test (SDK Version Checks omitted safely per lint standards)
+            // Instantly execute requested test
             if (isOverlay) {
                 val lockIntent = Intent(requireContext(), LockOverlayService::class.java)
                 requireContext().startForegroundService(lockIntent)
@@ -199,6 +203,44 @@ class SettingsFragment : Fragment() {
             1 -> tv.text = "Moderate threshold. Tolerates slight variations in swipe speed and app usage."
             2 -> tv.text = "Maximum security. Locks instantly upon abnormal swipe patterns or unusual app transitions."
         }
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(requireContext())
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 
     // ==========================================

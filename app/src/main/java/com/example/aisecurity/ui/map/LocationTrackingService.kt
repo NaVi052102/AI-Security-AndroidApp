@@ -88,14 +88,9 @@ class LocationTrackingService : Service() {
         startHardwareStateSyncLoop()
     }
 
-    // ══════════════════════════════════════════════════════
-    // 🚨 FIXED: REAL-TIME HARDWARE TELEMETRY LOOP
-    // ══════════════════════════════════════════════════════
     private fun startHardwareStateSyncLoop() {
         val uid = auth.currentUser?.uid ?: return
 
-        // 🚨 THE FIX: Initialize as null. This forces the loop to run a Firebase Sync
-        // the exact moment the service starts, properly seeding the database!
         var lastWifi: Boolean? = null
         var lastData: Boolean? = null
         var lastLoc: Boolean? = null
@@ -132,7 +127,6 @@ class LocationTrackingService : Service() {
                             "state_battery_saver" to currentSaver
                         )
 
-                        // 🚨 Seed the remote command fields so the Firebase listener has a baseline
                         if (isFirstRun) {
                             stateUpdates["cmd_wifi"] = currentWifi
                             stateUpdates["cmd_mobile_data"] = currentData
@@ -239,10 +233,19 @@ class LocationTrackingService : Service() {
             .setOngoing(true)
             .build()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
-        } else {
-            startForeground(1, notification)
+        // 🚨 THE FIX: Catch the Android 12+ Exception to prevent violent app crashes during UI transitions
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+            } else {
+                startForeground(1, notification)
+            }
+        } catch (e: Exception) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && e is android.app.ForegroundServiceStartNotAllowedException) {
+                Log.e("LocationService", "Android 12+ blocked Foreground Service launch during UI transition. Running stealth.")
+            } else {
+                e.printStackTrace()
+            }
         }
 
         return START_REDELIVER_INTENT

@@ -2,7 +2,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     tools:ignore="ProtectedPermissions,SmsUsage,BackgroundLocation,Typos,ForegroundServicePermission,ForegroundServiceLocation,MissingPermission">
-
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <uses-permission android:name="android.permission.BROADCAST_CLOSE_SYSTEM_DIALOGS" tools:ignore="ProtectedPermissions" />
@@ -45,9 +45,11 @@
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
-        android:icon="@mipmap/ic_launcher"
-        android:label="AI Security"
-        android:theme="@style/Theme.MaterialComponents.Light.NoActionBar"
+        android:icon="@drawable/ic_sentry_half_gold"
+        android:roundIcon="@drawable/ic_sentry_half_gold"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.AISecurity"
         tools:targetApi="31">
 
         <meta-data

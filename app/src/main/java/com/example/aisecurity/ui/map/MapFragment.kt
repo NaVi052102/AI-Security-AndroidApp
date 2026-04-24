@@ -395,7 +395,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         if (isSosActive) {
             isSosActive = false
             updateSosDatabaseState()
-            Toast.makeText(requireContext(), "✅ Emergency Cancelled.", Toast.LENGTH_SHORT).show()
+            showSentryToast("✅ Emergency Cancelled.", isLong = false)
         } else {
             showSosConfirmationDialog()
         }
@@ -433,7 +433,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             btnGetCode.text = "SENT!"
             btnGetCode.isEnabled = false
             btnGetCode.setTextColor(Color.GRAY)
-            Toast.makeText(requireContext(), "Test Code Sent: 123456", Toast.LENGTH_LONG).show()
+            showSentryToast("Test Code Sent: 123456", isLong = true)
         }
 
         btnCancel.setOnClickListener { dialog.dismiss() }
@@ -442,7 +442,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             dialog.dismiss()
             isSosActive = true
             updateSosDatabaseState()
-            Toast.makeText(requireContext(), "🚨 PROTOCOL ENGAGED! Remote access granted.", Toast.LENGTH_LONG).show()
+            showSentryToast("🚨 PROTOCOL ENGAGED! Remote access granted.", isLong = true)
         }
 
         dialog.show()
@@ -617,7 +617,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 tvValue?.text = label
                 selectOption(dialogView, options, chkId)
                 collapsePanel(panel, chevron)
-                Toast.makeText(requireContext(), "Command: Setting Sensitivity to $label", Toast.LENGTH_SHORT).show()
+                showSentryToast("Command: Setting Sensitivity to $label", isLong = false)
             }
         }
     }
@@ -629,11 +629,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             if (isRemoteAiActive) {
                 btnUseAi.text = "STOP"
                 btnUseAi.setBackgroundColor(Color.parseColor("#EF4444"))
-                Toast.makeText(requireContext(), "AI Detection Stopped", Toast.LENGTH_SHORT).show()
+                showSentryToast("AI Detection Stopped", isLong = false)
             } else {
                 btnUseAi.text = "USE AI"
                 btnUseAi.setBackgroundColor(Color.parseColor("#0284C7"))
-                Toast.makeText(requireContext(), "AI Detection Activated", Toast.LENGTH_SHORT).show()
+                showSentryToast("AI Detection Activated", isLong = false)
             }
         }
     }
@@ -934,7 +934,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     if (isSOS || isLostDevice || isTrustedUser || unlockedViaQrUids.contains(targetUid)) {
                         showRemoteControlPanel(targetName, targetUid)
                     } else {
-                        Toast.makeText(requireContext(), "Access Denied. Device is not in SOS Mode.", Toast.LENGTH_SHORT).show()
+                        showSentryToast("Access Denied. Device is not in SOS Mode.", isLong = false)
                     }
                 } catch (e: Exception) {}
             }
@@ -1032,7 +1032,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         unlockedViaQrUids.add(foundUid)
                         autoAddLostDevice(foundUid, identifier)
                     } else {
-                        Toast.makeText(requireContext(), "Account not found in database.", Toast.LENGTH_LONG).show()
+                        showSentryToast("Account not found in database.", isLong = true)
                     }
                 }
             }
@@ -1069,7 +1069,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     existingList.add(newContact)
 
                     db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
-                    Toast.makeText(requireContext(), "✅ Target Acquired! $actualName added to tracking list.", Toast.LENGTH_LONG).show()
+                    showSentryToast("$actualName added to tracking list.", isLong = true)
 
                     val theirContacts = targetUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
                     if (theirContacts.none { it["uid"] == myUid }) {
@@ -1103,7 +1103,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     existingList.add(newContact)
 
                     db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
-                    Toast.makeText(requireContext(), "✅ Target Acquired! Lost Device added to tracking list.", Toast.LENGTH_LONG).show()
+                    showSentryToast("✅ Target Acquired! Lost Device added to tracking list.", isLong = true)
 
                     // 🚨 FORCES INSTANT UI LOAD
                     showRemoteControlPanel("$fallbackName (Lost Device)", uid)
@@ -1111,7 +1111,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 }
 
             } else {
-                Toast.makeText(requireContext(), "Device is already being tracked.", Toast.LENGTH_SHORT).show()
+                showSentryToast("Device is already being tracked.", isLong = false)
 
                 // 🚨 FORCES INSTANT UI LOAD
                 val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
@@ -1584,5 +1584,43 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun isDarkMode(): Boolean {
         val currentNightMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
         return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
+    }
+
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
+    private fun showSentryToast(message: String, isLong: Boolean) {
+        val toast = Toast(requireContext())
+        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
+
+        val customLayout = LinearLayout(requireContext()).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            background = GradientDrawable().apply {
+                cornerRadius = 100f
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
+            }
+            setPadding(50, 30, 50, 30)
+        }
+
+        val icon = ImageView(requireContext()).apply {
+            setImageResource(R.drawable.ic_sentry_half_gold)
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
+                setMargins(0, 0, 30, 0)
+            }
+        }
+
+        val textView = TextView(requireContext()).apply {
+            text = message
+            setTextColor(Color.WHITE)
+            textSize = 15f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+        }
+
+        customLayout.addView(icon)
+        customLayout.addView(textView)
+        toast.view = customLayout
+        toast.show()
     }
 }
