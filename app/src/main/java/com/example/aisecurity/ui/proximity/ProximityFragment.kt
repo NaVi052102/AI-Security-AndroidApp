@@ -214,21 +214,14 @@ class ProximityFragment : Fragment(), SensorEventListener {
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
     private fun evaluatePocketMode() {
-        // currentAccel[0] = X axis (Side to side)
-        // currentAccel[1] = Y axis (Top to bottom - Verticality)
-        // currentAccel[2] = Z axis (Front to back - Flatness)
-
         val zAxis = currentAccel[2]
         val yAxis = currentAccel[1]
 
         currentPocketState = if (zAxis <= -7.0f && isObjectClose) {
-            // Gravity is pulling hard on the front of the screen, and proximity is blocked.
             "Face Down"
         } else if ((yAxis >= 5.0f || yAxis <= -5.0f) && isObjectClose && isEnvironmentDark) {
-            // Phone is standing up vertically (like slipping into a pocket), it's dark, and proximity is blocked.
             "Concealed (Pocket)"
         } else if (isObjectClose && isEnvironmentDark) {
-            // It's flat, but dark and covered. Likely sitting in a backpack.
             "Covered / In Bag"
         } else {
             "Visible"
@@ -270,7 +263,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
                         val rssi = rssiHistory.lastOrNull()?.toInt() ?: 0
                         val peakStr = String.format(Locale.US, "%.1f m", historicPeakDistance)
 
-                        // 🚨 CLEANED UP SPACING SO THE WATCH PARSES IT EASILY
                         val accelStr = String.format(Locale.US, "X:%.2f Y:%.2f Z:%.2f", currentAccel[0], currentAccel[1], currentAccel[2])
                         val gyroStr = String.format(Locale.US, "X:%.2f Y:%.2f Z:%.2f", currentGyro[0], currentGyro[1], currentGyro[2])
 
@@ -331,6 +323,3 @@ class RssiChartView @JvmOverloads constructor(context: Context, attrs: Attribute
         canvas.drawPath(fillPath, fillPaint); canvas.drawPath(path, linePaint)
     }
 }
-
-
-

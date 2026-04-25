@@ -3,6 +3,7 @@ package com.example.aisecurity.ui.map
 import android.animation.ValueAnimator
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.hardware.Sensor
@@ -20,6 +21,7 @@ import android.net.NetworkRequest
 import android.net.Uri
 import android.os.BatteryManager
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
@@ -55,6 +57,9 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -62,7 +67,6 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
-import java.util.UUID
 
 data class MapContactSummary(
     val uid: String,
@@ -124,7 +128,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private val routeCache = mutableMapOf<String, MutableList<LatLng>>()
 
     private var currentlySelectedUid: String? = null
-
     private val unlockedViaQrUids = mutableSetOf<String>()
 
     private var myArrivalTime = System.currentTimeMillis()
@@ -186,10 +189,16 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSos.setOnClickListener { toggleSosProtocol() }
 
         if (!isHidden) {
-            view.post {
-                if (isAdded) toggleFullScreenMap(true)
-            }
+            view.post { if (isAdded) toggleFullScreenMap(true) }
         }
+    }
+
+    private fun triggerLocalPoltergeist(target: String) {
+        val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+        intent.putExtra("TARGET_SETTING", target)
+        intent.setPackage(requireContext().packageName)
+        requireContext().sendBroadcast(intent)
+        showSentryToast("Deploying Poltergeist for $target...", isLong = false)
     }
 
     private fun dpToPx(dp: Int): Int {
@@ -448,13 +457,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         dialog.show()
     }
 
-    // ══════════════════════════════════════════════════════
-    //  REMOTE CONTROL PANEL (LIVE COMMAND CENTER)
-    // ══════════════════════════════════════════════════════
     private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
         if (!isAdded) return
 
-        if (targetUid != null && targetUid.isNotEmpty()) {
+        if (targetUid != null && targetUid.isNotEmpty() && targetUid != auth.currentUser?.uid) {
             currentlySelectedUid = targetUid
             updateAllTrackingLines()
             contactMarkersGMap[targetUid]?.let { marker ->
@@ -530,13 +536,61 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val tvBatterySaverStatus = dialogView.findViewById<TextView>(R.id.tvBatterySaverStatus)
         val iconBatterySaver = dialogView.findViewById<View>(R.id.iconBatterySaver)
 
-        var isUpdatingFromFirebase = false
+        val isLocalDevice = (targetUid == auth.currentUser?.uid)
+        var isUpdatingUI = true
 
-        if (targetUid != null && targetUid.isNotEmpty()) {
+        if (isLocalDevice) {
+            val uiUpdateJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
+                while (isActive) {
+                    try {
+                        val resolver = requireContext().contentResolver
+                        val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
+                        val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
+                        val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
+                        val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+                        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
+
+                        isUpdatingUI = true
+
+                        if (switchWifi?.isChecked != wifiOn) {
+                            switchWifi?.isChecked = wifiOn
+                            tvWifiStatus?.text = if (wifiOn) "Connected" else "Disconnected"
+                            iconWifi?.alpha = if (wifiOn) 1f else 0.3f
+                        }
+                        if (switchMd?.isChecked != dataOn) {
+                            switchMd?.isChecked = dataOn
+                            tvMdStatus?.text = if (dataOn) "4G LTE" else "Off"
+                            iconData?.alpha = if (dataOn) 1f else 0.3f
+                        }
+                        if (switchLoc?.isChecked != locOn) {
+                            switchLoc?.isChecked = locOn
+                            tvLocStatus?.text = if (locOn) "On" else "Off"
+                            iconLoc?.alpha = if (locOn) 1f else 0.35f
+                        }
+                        if (switchBluetooth?.isChecked != btOn) {
+                            switchBluetooth?.isChecked = btOn
+                            tvBluetoothStatus?.text = if (btOn) "On" else "Off"
+                            iconBluetooth?.alpha = if (btOn) 1f else 0.3f
+                        }
+                        if (switchBatterySaver?.isChecked != saverOn) {
+                            switchBatterySaver?.isChecked = saverOn
+                            tvBatterySaverStatus?.text = if (saverOn) "On" else "Off"
+                            iconBatterySaver?.alpha = if (saverOn) 1f else 0.35f
+                        }
+
+                        isUpdatingUI = false
+                    } catch (e: Exception) { e.printStackTrace() }
+
+                    delay(1000)
+                }
+            }
+            dialog.setOnDismissListener { uiUpdateJob.cancel() }
+
+        } else if (targetUid != null && targetUid.isNotEmpty()) {
             val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
-                isUpdatingFromFirebase = true
+                isUpdatingUI = true
 
                 val wifiOn = snapshot.getBoolean("state_wifi") ?: false
                 val btOn = snapshot.getBoolean("state_bluetooth") ?: false
@@ -550,46 +604,46 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 if (switchLoc?.isChecked != locOn) switchLoc?.isChecked = locOn
                 if (switchBatterySaver?.isChecked != saverOn) switchBatterySaver?.isChecked = saverOn
 
-                isUpdatingFromFirebase = false
+                tvWifiStatus?.text = if (wifiOn) "Connected" else "Disconnected"
+                iconWifi?.alpha = if (wifiOn) 1f else 0.3f
+                tvMdStatus?.text = if (dataOn) "4G LTE" else "Off"
+                iconData?.alpha = if (dataOn) 1f else 0.3f
+                tvLocStatus?.text = if (locOn) "On" else "Off"
+                iconLoc?.alpha = if (locOn) 1f else 0.35f
+                tvBluetoothStatus?.text = if (btOn) "On" else "Off"
+                iconBluetooth?.alpha = if (btOn) 1f else 0.3f
+                tvBatterySaverStatus?.text = if (saverOn) "On" else "Off"
+                iconBatterySaver?.alpha = if (saverOn) 1f else 0.35f
+
+                isUpdatingUI = false
             }
             dialog.setOnDismissListener { listener.remove() }
         }
 
-        fun sendCommand(commandField: String, state: Boolean) {
-            if (!isUpdatingFromFirebase && targetUid != null) {
-                db.collection("Users").document(targetUid).set(hashMapOf(commandField to state), SetOptions.merge())
+        fun handleToggle(switchView: SwitchMaterial?, stateField: String, targetSetting: String, tvStatus: TextView?, onText: String, offText: String, icon: View?) {
+            switchView?.setOnCheckedChangeListener { _, isOn ->
+                tvStatus?.text = if (isOn) onText else offText
+                icon?.alpha = if (isOn) 1f else 0.3f
+
+                if (!isUpdatingUI) {
+                    if (isLocalDevice) {
+                        triggerLocalPoltergeist(targetSetting)
+                        val myUid = auth.currentUser?.uid
+                        if (myUid != null) {
+                            db.collection("Users").document(myUid).set(hashMapOf(stateField to isOn), SetOptions.merge())
+                        }
+                    } else if (targetUid != null) {
+                        db.collection("Users").document(targetUid).set(hashMapOf(stateField to isOn), SetOptions.merge())
+                    }
+                }
             }
         }
 
-        switchWifi?.setOnCheckedChangeListener { _, isOn ->
-            tvWifiStatus?.text = if (isOn) "Connected" else "Disconnected"
-            iconWifi?.alpha = if (isOn) 1f else 0.3f
-            sendCommand("cmd_wifi", isOn)
-        }
-
-        switchMd?.setOnCheckedChangeListener { _, isOn ->
-            tvMdStatus?.text = if (isOn) "4G LTE" else "Off"
-            iconData?.alpha = if (isOn) 1f else 0.3f
-            sendCommand("cmd_mobile_data", isOn)
-        }
-
-        switchLoc?.setOnCheckedChangeListener { _, isOn ->
-            tvLocStatus?.text = if (isOn) "On" else "Off"
-            iconLoc?.alpha = if (isOn) 1f else 0.35f
-            sendCommand("cmd_location", isOn)
-        }
-
-        switchBluetooth?.setOnCheckedChangeListener { _, isOn ->
-            tvBluetoothStatus?.text = if (isOn) "On" else "Off"
-            iconBluetooth?.alpha = if (isOn) 1f else 0.3f
-            sendCommand("cmd_bluetooth", isOn)
-        }
-
-        switchBatterySaver?.setOnCheckedChangeListener { _, isOn ->
-            tvBatterySaverStatus?.text = if (isOn) "On" else "Off"
-            iconBatterySaver?.alpha = if (isOn) 1f else 0.35f
-            sendCommand("cmd_battery_saver", isOn)
-        }
+        handleToggle(switchWifi, "state_wifi", "WIFI", tvWifiStatus, "Connected", "Disconnected", iconWifi)
+        handleToggle(switchMd, "state_mobile_data", "DATA", tvMdStatus, "4G LTE", "Off", iconData)
+        handleToggle(switchLoc, "state_location", "LOCATION", tvLocStatus, "On", "Off", iconLoc)
+        handleToggle(switchBluetooth, "state_bluetooth", "BLUETOOTH", tvBluetoothStatus, "On", "Off", iconBluetooth)
+        handleToggle(switchBatterySaver, "state_battery_saver", "BATTERY", tvBatterySaverStatus, "On", "Off", iconBatterySaver)
 
         dialogView.findViewById<LinearLayout>(R.id.rowWifi)?.setOnClickListener { switchWifi?.toggle() }
         dialogView.findViewById<LinearLayout>(R.id.rowMobileData)?.setOnClickListener { switchMd?.toggle() }
@@ -734,7 +788,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
 
             checkAndProcessQrIntent()
-
             initLife360Engine()
         }
     }
@@ -921,7 +974,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             .visible(false))
 
         gMap?.setOnInfoWindowClickListener { marker ->
-            if (marker.title != "Me") {
+            if (marker.title == "Me") {
+                val myUid = auth.currentUser?.uid
+                showRemoteControlPanel("My Device", myUid)
+            } else {
                 try {
                     val data = JSONObject(marker.snippet ?: "{}")
                     val isSOS = data.optBoolean("isSOS", false)
@@ -1039,7 +1095,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
-    // 🚨 INSTANT DIALOG LOGIC: Bypasses the Map Marker wait sequence
     private fun autoAddLostDevice(uid: String, fallbackName: String) {
         val myUid = auth.currentUser?.uid ?: return
 
@@ -1088,7 +1143,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         db.collection("Users").document(uid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
                     }
 
-                    // 🚨 FORCES INSTANT UI LOAD
                     showRemoteControlPanel(actualName, uid)
                     initLife360Engine()
 
@@ -1105,7 +1159,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
                     showSentryToast("✅ Target Acquired! Lost Device added to tracking list.", isLong = true)
 
-                    // 🚨 FORCES INSTANT UI LOAD
                     showRemoteControlPanel("$fallbackName (Lost Device)", uid)
                     initLife360Engine()
                 }
@@ -1113,7 +1166,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             } else {
                 showSentryToast("Device is already being tracked.", isLong = false)
 
-                // 🚨 FORCES INSTANT UI LOAD
                 val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
                 showRemoteControlPanel(actualName, uid)
             }
@@ -1167,6 +1219,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         locationManager.removeUpdates(locationListener)
     }
 
+    // Update GPS without uploading the other states (Service handles that now)
     private fun processLocationUpdate(location: Location) {
         if (!isAdded) return
         val currentLat = location.latitude
@@ -1282,13 +1335,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
         try { connectivityManager.unregisterNetworkCallback(networkCallback) } catch (e: Exception) {}
-    }
-
-    override fun onDestroyView() {
-        super.onDestroyView()
-        if (isAdded) toggleFullScreenMap(false)
-        gMap?.clear()
-        gMap = null
     }
 
     private fun initLife360Engine() {
@@ -1586,9 +1632,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         return currentNightMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
     }
 
-    // ==========================================
-    // 🚨 PREMIUM CUSTOM TOAST BUILDER
-    // ==========================================
     private fun showSentryToast(message: String, isLong: Boolean) {
         val toast = Toast(requireContext())
         toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT

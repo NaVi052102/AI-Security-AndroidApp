@@ -1,4 +1,3 @@
-// ... Keep your imports exactly as they are ...
 package com.example.aisecurity.ai
 
 import android.accessibilityservice.AccessibilityService
@@ -25,6 +24,9 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
 import java.util.Locale
 
@@ -43,6 +45,9 @@ class TouchDynamicsService : AccessibilityService() {
     private val classifier by lazy { BehavioralAuthClassifier(this) }
     private val enforcer by lazy { SecurityEnforcer(this) }
     private val db by lazy { SecurityDatabase.get(this) }
+
+    private lateinit var auth: FirebaseAuth
+    private lateinit var firebaseDb: FirebaseFirestore
 
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
@@ -139,8 +144,8 @@ class TouchDynamicsService : AccessibilityService() {
                                 performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                             }
                         }
-                    } else if (target != "AIRPLANE" && target != "LOCK_AND_RECOVER_AIRPLANE") {
-                        launchTeleportingPoltergeist(target)
+                    } else if (target in listOf("DATA", "WIFI", "BLUETOOTH", "LOCATION", "BATTERY")) {
+                        executeUniversalPoltergeist(target)
                     } else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
                         try {
                             val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
@@ -155,6 +160,9 @@ class TouchDynamicsService : AccessibilityService() {
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onServiceConnected() {
         super.onServiceConnected()
+
+        auth = FirebaseAuth.getInstance()
+        firebaseDb = FirebaseFirestore.getInstance()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         val filter = IntentFilter("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
@@ -166,7 +174,383 @@ class TouchDynamicsService : AccessibilityService() {
 
         val userPresentFilter = IntentFilter(Intent.ACTION_USER_PRESENT)
         registerReceiver(osBiometricSyncReceiver, userPresentFilter)
+
         startWatchSyncLoop()
+        startImmortalFirebaseEngine()
+    }
+
+    private fun startImmortalFirebaseEngine() {
+        val myUid = auth.currentUser?.uid ?: return
+
+        serviceScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                if (!isPoltergeistActive) {
+                    try {
+                        val resolver = contentResolver
+                        val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
+                        val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
+                        val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
+                        val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+                        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
+
+                        val updates = hashMapOf<String, Any>(
+                            "state_wifi" to wifiOn,
+                            "state_mobile_data" to dataOn,
+                            "state_bluetooth" to btOn,
+                            "state_location" to locOn,
+                            "state_battery_saver" to saverOn,
+                            "lastHardwareUpdate" to com.google.firebase.Timestamp.now()
+                        )
+                        firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                delay(3000)
+            }
+        }
+
+        firebaseDb.collection("Users").document(myUid).addSnapshotListener { snapshot, e ->
+            if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+            if (isPoltergeistActive) return@addSnapshotListener
+
+            val resolver = contentResolver
+
+            fun checkMirrorState(stateField: String, targetSetting: String, physicalState: Boolean) {
+                val firebaseState = snapshot.getBoolean(stateField)
+                if (firebaseState != null && firebaseState != physicalState) {
+                    LiveLogger.log("👻 POLTERGEIST: Firebase mismatch detected! Aligning $targetSetting to $firebaseState.")
+                    executeUniversalPoltergeist(targetSetting)
+                }
+            }
+
+            try {
+                val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
+                checkMirrorState("state_wifi", "WIFI", wifiOn)
+
+                val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
+                checkMirrorState("state_mobile_data", "DATA", dataOn)
+
+                val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
+                checkMirrorState("state_bluetooth", "BLUETOOTH", btOn)
+
+                val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+                checkMirrorState("state_location", "LOCATION", locOn)
+
+                val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
+                checkMirrorState("state_battery_saver", "BATTERY", saverOn)
+            } catch (ex: Exception) {
+                ex.printStackTrace()
+            }
+        }
+    }
+
+    // =========================================================
+    // 🚨 THE UNIVERSAL POLTERGEIST (100% Android Compatible)
+    // =========================================================
+    private fun executeUniversalPoltergeist(target: String) {
+        if (isPoltergeistActive) return
+        isPoltergeistActive = true
+
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                LiveLogger.log("👻 POLTERGEIST: Attempting Root silent toggle for $target...")
+
+                val rootCommand = when(target) {
+                    "DATA" -> {
+                        val state = Settings.Global.getInt(contentResolver, "mobile_data", 0) == 1
+                        if (state) "svc data disable" else "svc data enable"
+                    }
+                    "WIFI" -> {
+                        val state = Settings.Global.getInt(contentResolver, Settings.Global.WIFI_ON, 0) == 1
+                        if (state) "svc wifi disable" else "svc wifi enable"
+                    }
+                    "BLUETOOTH" -> {
+                        val state = Settings.Global.getInt(contentResolver, Settings.Global.BLUETOOTH_ON, 0) == 1
+                        if (state) "svc bluetooth disable" else "svc bluetooth enable"
+                    }
+                    "LOCATION" -> {
+                        val state = Settings.Secure.getInt(contentResolver, Settings.Secure.LOCATION_MODE, 0) != 0
+                        if (state) "cmd location set-location-enabled false" else "cmd location set-location-enabled true"
+                    }
+                    "BATTERY" -> {
+                        val state = Settings.Global.getInt(contentResolver, "low_power", 0) == 1
+                        if (state) "cmd battery unplug && settings put global low_power 0" else "cmd battery unplug && settings put global low_power 1"
+                    }
+                    else -> ""
+                }
+
+                if (rootCommand.isNotEmpty()) {
+                    val process = Runtime.getRuntime().exec(arrayOf("su", "-c", rootCommand))
+                    if (process.waitFor() == 0) {
+                        LiveLogger.log("👻 POLTERGEIST: Success! $target toggled silently via ROOT.")
+                        isPoltergeistActive = false
+                        return@launch
+                    }
+                }
+            } catch (e: Exception) {
+                LiveLogger.log("⚠️ ROOT attempt failed for $target. Deploying Universal UI Automation...")
+            }
+
+            withContext(Dispatchers.Main) {
+                try {
+                    val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
+                    var usedXiaomiControlCenter = false
+
+                    // 1. Try Xiaomi Control Center Swipe for Data ONLY
+                    if (target == "DATA" && (manufacturer.contains("xiaomi") || manufacturer.contains("poco") || manufacturer.contains("redmi"))) {
+                        val metrics = resources.displayMetrics
+                        val swipePath = Path().apply {
+                            moveTo(metrics.widthPixels * 0.85f, 0f)
+                            lineTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.5f)
+                        }
+                        val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(swipePath, 0, 350)).build()
+                        dispatchGesture(gesture, null, null)
+
+                        delay(1200)
+
+                        var toggled = nukeSettingsSwitch(rootInActiveWindow, listOf("mobile data", "cellular", "datos", "data connection"), isSettingsApp = false)
+                        if (!toggled) {
+                            for (window in windows) {
+                                if (nukeSettingsSwitch(window.root, listOf("mobile data", "cellular", "datos", "data connection"), isSettingsApp = false)) {
+                                    toggled = true
+                                    break
+                                }
+                            }
+                        }
+
+                        if (toggled) {
+                            usedXiaomiControlCenter = true
+                            delay(800)
+                            if (Build.VERSION.SDK_INT >= 31) {
+                                performGlobalAction(15) // GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE
+                            } else {
+                                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+                                performGlobalAction(GLOBAL_ACTION_BACK)
+                            }
+                        } else {
+                            // Xiaomi Safety Net: Close shade and fallback to standard Settings App
+                            try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+                            performGlobalAction(GLOBAL_ACTION_BACK)
+                            delay(500)
+                        }
+                    }
+
+                    // 2. Standard Android Fallback (Settings App)
+                    if (!usedXiaomiControlCenter) {
+                        LiveLogger.log("👻 POLTERGEIST: Opening native Settings App for $target...")
+
+                        val intentList = when (target) {
+                            "WIFI" -> listOf(Settings.ACTION_WIFI_SETTINGS, Settings.ACTION_SETTINGS)
+                            "BLUETOOTH" -> listOf(Settings.ACTION_BLUETOOTH_SETTINGS, Settings.ACTION_SETTINGS)
+                            "LOCATION" -> listOf(Settings.ACTION_LOCATION_SOURCE_SETTINGS, Settings.ACTION_SETTINGS)
+                            "BATTERY" -> listOf(Settings.ACTION_BATTERY_SAVER_SETTINGS, Settings.ACTION_SETTINGS)
+                            "DATA" -> listOf(
+                                "android.settings.DATA_USAGE_SETTINGS", // Universal secret intent
+                                Settings.ACTION_DATA_ROAMING_SETTINGS,
+                                Settings.ACTION_WIRELESS_SETTINGS,
+                                Settings.ACTION_SETTINGS
+                            )
+                            else -> listOf(Settings.ACTION_SETTINGS)
+                        }
+
+                        // Try intents until one works
+                        for (action in intentList) {
+                            try {
+                                val intent = Intent(action).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION) }
+                                startActivity(intent)
+                                break // Success, stop trying intents
+                            } catch (e: Exception) {
+                                continue // Failed, try the next one
+                            }
+                        }
+
+                        delay(1200) // Wait for Settings App to open
+
+                        // FIRST PASS: Search visible screen
+                        var toggled = nukeSettingsSwitch(rootInActiveWindow, emptyList(), isSettingsApp = true)
+                        if (!toggled) {
+                            for (window in windows) {
+                                if (nukeSettingsSwitch(window.root, emptyList(), isSettingsApp = true)) {
+                                    toggled = true
+                                    break
+                                }
+                            }
+                        }
+
+                        // SECOND PASS: If switch is hidden at bottom of screen, scroll down and check again
+                        if (!toggled) {
+                            val scrollableNode = findScrollableNode(rootInActiveWindow)
+                            if (scrollableNode != null) {
+                                scrollableNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                                delay(600) // Wait for scroll animation
+                                toggled = nukeSettingsSwitch(rootInActiveWindow, emptyList(), isSettingsApp = true)
+                            }
+                        }
+
+                        delay(600)
+                        performGlobalAction(GLOBAL_ACTION_BACK) // Close Settings
+                    }
+
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                } finally {
+                    isPoltergeistActive = false
+                }
+            }
+        }
+    }
+
+    private suspend fun nukeSettingsSwitch(rootNode: AccessibilityNodeInfo?, keywords: List<String>, isSettingsApp: Boolean): Boolean {
+        if (rootNode == null) return false
+
+        val allNodes = mutableListOf<AccessibilityNodeInfo>()
+        fun collect(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            allNodes.add(node)
+            for (i in 0 until node.childCount) collect(node.getChild(i))
+        }
+        collect(rootNode)
+
+        if (isSettingsApp) {
+            val switches = allNodes.filter {
+                val cls = it.className?.toString() ?: ""
+                cls.contains("Switch", ignoreCase = true) || cls.contains("ToggleButton", ignoreCase = true) || cls.contains("Checkbox", ignoreCase = true)
+            }
+
+            if (switches.isNotEmpty()) {
+                val masterToggle = switches.first()
+
+                if (masterToggle.isClickable) {
+                    masterToggle.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    return true
+                }
+
+                val parent = masterToggle.parent
+                if (parent != null && parent.isClickable) {
+                    parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                    return true
+                }
+
+                val rect = Rect()
+                masterToggle.getBoundsInScreen(rect)
+                fireHumanTap(rect.centerX().toFloat(), rect.centerY().toFloat())
+                return true
+            }
+        } else {
+            for (node in allNodes) {
+                val t = node.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+                val c = node.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
+
+                if (keywords.any { k -> t.contains(k) || c.contains(k) || t == k }) {
+                    val rect = Rect()
+                    node.getBoundsInScreen(rect)
+
+                    if (rect.centerY() > 50) {
+                        var p: AccessibilityNodeInfo? = node
+                        var levels = 0
+                        var actionFired = false
+
+                        while (p != null && levels < 4) {
+                            if (p.isClickable) {
+                                p.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                actionFired = true
+                                break
+                            }
+                            p = p.parent
+                            levels++
+                        }
+
+                        if (!actionFired) {
+                            fireHumanTap(rect.centerX().toFloat(), rect.centerY().toFloat())
+                        }
+                        return true
+                    }
+                }
+            }
+        }
+        return false
+    }
+
+    private fun findScrollableNode(rootNode: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+        if (rootNode == null) return null
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(rootNode)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.isScrollable) return node
+            for (i in 0 until node.childCount) {
+                node.getChild(i)?.let { queue.add(it) }
+            }
+        }
+        return null
+    }
+
+    private fun fireHumanTap(x: Float, y: Float) {
+        try {
+            val path = Path().apply { moveTo(x - 1f, y - 1f); lineTo(x + 1f, y + 1f) }
+            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 150)).build()
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun triggerScrimSniper() {
+        val now = System.currentTimeMillis()
+        if (now - lastGuillotineTime < 300) return
+        lastGuillotineTime = now
+        LiveLogger.log("🛡️ SCRIM SNIPER: Tapping bottom screen to abort Quick Settings!")
+
+        serviceScope.launch(Dispatchers.Main) {
+            repeat(5) {
+                executeBottomScreenTap()
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+                delay(50)
+            }
+        }
+    }
+
+    private fun executeBottomScreenTap() {
+        try {
+            val metrics = resources.displayMetrics
+            val midX = metrics.widthPixels / 2f
+            val bottomY = metrics.heightPixels * 0.85f
+            val path = Path().apply { moveTo(midX, bottomY); lineTo(midX + 1f, bottomY + 1f) }
+            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 30)).build()
+            dispatchGesture(gesture, null, null)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun executeAntiGravitySwipe() {
+        try {
+            val displayMetrics = resources.displayMetrics
+            val middleX = displayMetrics.widthPixels / 2f
+            val startY = displayMetrics.heightPixels / 2f
+            val path = Path().apply { moveTo(middleX, startY); lineTo(middleX, 0f) }
+            val gestureBuilder = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 50))
+            dispatchGesture(gestureBuilder.build(), null, null)
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun deployAegisShield() {
+        if (isAegisDeployed || windowManager == null) return
+        try {
+            aegisShieldView = View(this).apply { setBackgroundColor(Color.TRANSPARENT); setOnTouchListener { _, _ -> true } }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT, 200,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                PixelFormat.TRANSLUCENT
+            ).apply { gravity = Gravity.TOP }
+            windowManager?.addView(aegisShieldView, params)
+            isAegisDeployed = true
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun removeAegisShield() {
+        if (!isAegisDeployed || windowManager == null || aegisShieldView == null) return
+        try { windowManager?.removeView(aegisShieldView); isAegisDeployed = false } catch (e: Exception) { e.printStackTrace() }
     }
 
     private fun getContextHash(text: String): Float {
@@ -192,7 +576,6 @@ class TouchDynamicsService : AccessibilityService() {
         val interactionCount = stats?.interactionCount ?: 0
         var appSpecificEma = prefs.getFloat("ema_loss_$appName", 1.0f)
 
-        // 🚨 Calculate the exact % this app is currently at
         val progressRaw = ((baselineEma - appSpecificEma) / (baselineEma - targetStability)).coerceIn(0f, 1f)
         val finalPct = (progressRaw * 100f).toInt()
 
@@ -208,9 +591,7 @@ class TouchDynamicsService : AccessibilityService() {
         )
 
         if (isReady) {
-            // 🛡️ AI PROTECTION IS ACTIVE
             if (finalPct >= 75) {
-                // This app is trained! Evaluate intruder risk.
                 val error = classifier.getError(features)
                 val ratio = error / globalThreshold
                 val swipeRisk = if (ratio <= 1.0f) {
@@ -230,15 +611,10 @@ class TouchDynamicsService : AccessibilityService() {
                     LiveLogger.log("⚠️ [THREAT] High Risk in ARMED APP ($appName)! Risk: $swipeRisk%")
                 }
             } else {
-                // 🛑 STRICT SUSPENSION: App is < 75%. The AI completely ignores it.
-                // No silent training. No risk evaluation.
                 LiveLogger.log("🛡️ [IGNORED] $appName is only $finalPct% trained. Intruder detection disabled.")
-
-                // Allow the global risk meter to slightly cool down since they are in a safe/untracked app
                 updateRiskScore(0)
             }
         } else if (!isPaused) {
-            // 🧠 AI IS NOT ARMED (LEARNING MODE IS ACTIVE)
             val rawLoss = classifier.trainAI(features)
             appSpecificEma = BehavioralAuthClassifier.emaStep(appSpecificEma, rawLoss)
             prefs.edit().putFloat("ema_loss_$appName", appSpecificEma).apply()
@@ -292,9 +668,6 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        // =========================================================
-        // 🚨 NEW: THE PHANTOM POWER-OFF INTERCEPTOR
-        // =========================================================
         val textNodes = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
         val isPowerMenu = className.contains("globalactions", true) ||
                 textNodes.contains("power off") ||
@@ -305,11 +678,9 @@ class TouchDynamicsService : AccessibilityService() {
         if (isEnvironmentHostile && isPowerMenu) {
             LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Phantom Power-Off...")
 
-            // 1. Instantly collapse the power menu
             performGlobalAction(GLOBAL_ACTION_BACK)
             try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
 
-            // 2. Deploy the Fake Shutdown Screen to trick the intruder
             try {
                 val phantomIntent = Intent(this, com.example.aisecurity.ui.FakeShutdownActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
@@ -318,7 +689,6 @@ class TouchDynamicsService : AccessibilityService() {
             } catch (e: Exception) { e.printStackTrace() }
             return
         }
-        // =========================================================
 
         if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
             if (className.contains("panel", true) || className.contains("notification", true) ||
@@ -333,8 +703,6 @@ class TouchDynamicsService : AccessibilityService() {
             deployAegisShield()
             if (rawPackageName.contains("systemui") || eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED) {
                 if (!isPoltergeistActive) {
-
-                    // 🚨 THE CRASH FIX: No dummy activities! We use native Android broadcasts to force the status bar closed.
                     try {
                         sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS))
                     } catch (e: Exception) { e.printStackTrace() }
@@ -423,197 +791,6 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    private fun triggerScrimSniper() {
-        val now = System.currentTimeMillis()
-        if (now - lastGuillotineTime < 300) return
-        lastGuillotineTime = now
-        LiveLogger.log("🛡️ SCRIM SNIPER: Tapping bottom screen to abort Quick Settings!")
-
-        serviceScope.launch(Dispatchers.Main) {
-            repeat(5) {
-                executeBottomScreenTap()
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-                delay(50)
-            }
-        }
-    }
-
-    private fun executeBottomScreenTap() {
-        try {
-            val metrics = resources.displayMetrics
-            val midX = metrics.widthPixels / 2f
-            val bottomY = metrics.heightPixels * 0.85f
-            val path = Path().apply { moveTo(midX, bottomY); lineTo(midX + 1f, bottomY + 1f) }
-            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 30)).build()
-            dispatchGesture(gesture, null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun launchTeleportingPoltergeist(target: String) {
-        if (isPoltergeistActive) return
-        isPoltergeistActive = true
-        val missions = if (target == "ALL") listOf("LOCATION", "BLUETOOTH", "DATA") else listOf(target)
-        val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
-
-        serviceScope.launch(Dispatchers.Main) {
-            for (mission in missions) {
-                val initiallyNeedsToggle = try {
-                    when (mission) {
-                        "BLUETOOTH" -> (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == false
-                        "LOCATION" -> !(getSystemService(LOCATION_SERVICE) as LocationManager).isProviderEnabled(LocationManager.GPS_PROVIDER)
-                        else -> true
-                    }
-                } catch (_: Exception) { true }
-
-                if (!initiallyNeedsToggle) continue
-
-                val intentAction = when (mission) {
-                    "BLUETOOTH" -> Settings.ACTION_BLUETOOTH_SETTINGS
-                    "LOCATION" -> Settings.ACTION_LOCATION_SOURCE_SETTINGS
-                    "DATA" -> {
-                        if (manufacturer.contains("realme") || manufacturer.contains("oppo") || manufacturer.contains("oneplus")) {
-                            Settings.ACTION_WIRELESS_SETTINGS
-                        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            Settings.ACTION_DATA_USAGE_SETTINGS
-                        } else {
-                            Settings.ACTION_WIRELESS_SETTINGS
-                        }
-                    }
-                    else -> Settings.ACTION_BLUETOOTH_SETTINGS
-                }
-
-                try {
-                    val settingsIntent = Intent(intentAction).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION) }
-                    startActivity(settingsIntent)
-                    delay(800)
-
-                    var attempts = 0
-                    var tapFiredForData = false
-
-                    while (isPoltergeistActive && attempts < 15) {
-                        val stillNeedsToggle = try {
-                            when (mission) {
-                                "BLUETOOTH" -> (getSystemService(BLUETOOTH_SERVICE) as BluetoothManager).adapter?.isEnabled == false
-                                "LOCATION" -> !(getSystemService(LOCATION_SERVICE) as LocationManager).isProviderEnabled(LocationManager.GPS_PROVIDER)
-                                "DATA" -> !tapFiredForData
-                                else -> false
-                            }
-                        } catch (_: Exception) { !tapFiredForData }
-
-                        if (!stillNeedsToggle) break
-
-                        try {
-                            var firedThisLoop = false
-                            val activeRoot = rootInActiveWindow
-                            if (activeRoot != null) firedThisLoop = nukeSwitch(activeRoot, mission)
-
-                            if (!firedThisLoop) {
-                                for (window in windows) {
-                                    if (nukeSwitch(window.root, mission)) {
-                                        firedThisLoop = true
-                                        break
-                                    }
-                                }
-                            }
-
-                            if (firedThisLoop) { tapFiredForData = true; delay(2000) } else { delay(300) }
-                        } catch (e: Exception) { e.printStackTrace() }
-                        attempts++
-                    }
-                } catch (e: Exception) { e.printStackTrace() }
-            }
-            performGlobalAction(GLOBAL_ACTION_HOME)
-            isPoltergeistActive = false
-        }
-    }
-
-    private fun fireHumanTap(x: Float, y: Float) {
-        try {
-            val path = Path().apply { moveTo(x - 1f, y - 1f); lineTo(x + 1f, y + 1f) }
-            val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 150)).build()
-            dispatchGesture(gesture, null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private suspend fun nukeSwitch(rootNode: AccessibilityNodeInfo?, mission: String): Boolean {
-        if (rootNode == null) return false
-        val keywords = when (mission) {
-            "BLUETOOTH" -> listOf("bluetooth")
-            "LOCATION" -> listOf("location", "gps")
-            "DATA" -> listOf("mobile data", "cellular", "data usage", "sim")
-            else -> emptyList()
-        }
-
-        val allNodes = mutableListOf<AccessibilityNodeInfo>()
-        fun collect(node: AccessibilityNodeInfo?) {
-            if (node == null) return
-            allNodes.add(node)
-            for (i in 0 until node.childCount) collect(node.getChild(i))
-        }
-        collect(rootNode)
-
-        val windowRect = Rect()
-        rootNode.getBoundsInScreen(windowRect)
-        var screenWidth = resources.displayMetrics.widthPixels.toFloat()
-        if (screenWidth <= 0) screenWidth = windowRect.width().toFloat()
-
-        var struck = false
-        for (node in allNodes) {
-            val t = node.text?.toString()?.lowercase(Locale.ROOT) ?: ""
-            val c = node.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
-
-            if (keywords.any { k -> t.contains(k) || c.contains(k) }) {
-                val rect = Rect()
-                node.getBoundsInScreen(rect)
-
-                if (rect.height() < 400 && rect.centerY() > 100) {
-                    val y = rect.centerY().toFloat()
-                    var p: AccessibilityNodeInfo? = node
-                    var levels = 0
-                    while (p != null && levels < 5) { p.performAction(AccessibilityNodeInfo.ACTION_CLICK); p = p.parent; levels++ }
-
-                    if (screenWidth > 0) { delay(100); fireHumanTap(screenWidth * 0.88f, y) } else { fireHumanTap(rect.centerX().toFloat(), y) }
-                    struck = true
-                    break
-                }
-            }
-        }
-        return struck
-    }
-
-    private fun executeAntiGravitySwipe() {
-        try {
-            val displayMetrics = resources.displayMetrics
-            val middleX = displayMetrics.widthPixels / 2f
-            val startY = displayMetrics.heightPixels / 2f
-            val path = Path().apply { moveTo(middleX, startY); lineTo(middleX, 0f) }
-            val gestureBuilder = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-            dispatchGesture(gestureBuilder.build(), null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun deployAegisShield() {
-        if (isAegisDeployed || windowManager == null) return
-        try {
-            aegisShieldView = View(this).apply { setBackgroundColor(Color.TRANSPARENT); setOnTouchListener { _, _ -> true } }
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT, 200,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-            ).apply { gravity = Gravity.TOP }
-            windowManager?.addView(aegisShieldView, params)
-            isAegisDeployed = true
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun removeAegisShield() {
-        if (!isAegisDeployed || windowManager == null || aegisShieldView == null) return
-        try { windowManager?.removeView(aegisShieldView); isAegisDeployed = false } catch (e: Exception) { e.printStackTrace() }
-    }
-
     private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
         val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady = prefs.getBoolean("ai_ready", false)
@@ -645,8 +822,6 @@ class TouchDynamicsService : AccessibilityService() {
         if (isPaused && !isReady) return
         if (System.currentTimeMillis() - lastUnlockTime < 3000) return
 
-        // 🚨 UPGRADED: Only increment the UI swipe counts if we are actively in TRAINING MODE.
-        // If 'isReady' (USE AI) is true, we freeze the stats so they don't inflate endlessly.
         if (!isReady) {
             val oldStats = db.dao().getAppStats(appLabel)
             val newStats = if (oldStats == null) {
