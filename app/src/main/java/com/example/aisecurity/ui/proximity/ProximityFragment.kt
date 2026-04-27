@@ -8,14 +8,17 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.AttributeSet
+import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
 import com.example.aisecurity.ble.WatchManager
+import com.example.aisecurity.ai.SecurityEnforcer
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -57,6 +60,8 @@ class ProximityFragment : Fragment(), SensorEventListener {
     private var telemetrySyncJob: Job? = null
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
+
+    private var isLockdownTriggered = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -128,11 +133,31 @@ class ProximityFragment : Fragment(), SensorEventListener {
                     tvPeakDistance.text = String.format(Locale.US, "%.1f m", historicPeakDistance)
                 }
 
+                val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                val isArmed = prefs.getBoolean("is_proximity_armed", true)
+                val lockThreshold = prefs.getFloat("radar_threshold_meters", 5.0f)
+                val warningThreshold = prefs.getFloat("radar_warning_meters", 2.0f)
+
                 when {
-                    distance <= 3.0f -> tvDistance.setTextColor(Color.parseColor("#10B981"))
-                    distance <= 8.0f -> tvDistance.setTextColor(Color.parseColor("#F59E0B"))
+                    distance <= warningThreshold -> tvDistance.setTextColor(Color.parseColor("#10B981"))
+                    distance < lockThreshold -> tvDistance.setTextColor(Color.parseColor("#F59E0B"))
                     else -> tvDistance.setTextColor(Color.parseColor("#EF4444"))
                 }
+
+                if (isArmed && distance >= lockThreshold) {
+                    if (!isLockdownTriggered) {
+                        isLockdownTriggered = true
+
+                        triggerEmergencyNetworkOverride()
+
+                        val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
+                        SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
+                    }
+                }
+                else if (distance < warningThreshold && isLockdownTriggered) {
+                    isLockdownTriggered = false
+                }
+
             } catch (e: NumberFormatException) {
                 tvDistance.setTextColor(Color.parseColor("#10B981"))
             }
@@ -167,6 +192,38 @@ class ProximityFragment : Fragment(), SensorEventListener {
 
         WatchManager.touchStatus.observe(viewLifecycleOwner) { touch ->
             tvTouchStatus.text = touch.toString()
+        }
+    }
+
+    private fun triggerEmergencyNetworkOverride() {
+        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val wifiCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "svc wifi enable"))
+                val dataCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "svc data enable"))
+                val gpsCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "settings put secure location_mode 3"))
+
+                wifiCmd.waitFor()
+                dataCmd.waitFor()
+                gpsCmd.waitFor()
+
+                val userId = auth.currentUser?.uid
+                if (userId != null) {
+                    val states = hashMapOf(
+                        "state_wifi" to true,
+                        "state_mobile_data" to true,
+                        "state_location" to true,
+                        "isSOS" to true
+                    )
+                    db.collection("Users").document(userId).set(states, SetOptions.merge())
+                }
+
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(requireContext(), "🚨 EMERGENCY: Network & GPS Forced ON", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                Log.e("SilentOverride", "Failed to force network radios: ${e.message}")
+            }
         }
     }
 
@@ -243,9 +300,8 @@ class ProximityFragment : Fragment(), SensorEventListener {
         telemetrySyncJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    val telemetryData = hashMapOf(
-                        "accelerometer" to mapOf("x" to currentAccel[0], "y" to currentAccel[1], "z" to currentAccel[2]),
-                        "gyroscope" to mapOf("x" to currentGyro[0], "y" to currentGyro[1], "z" to currentGyro[2]),
+                    // Removed raw gyroscope and accelerometer from Firebase upload
+                    val telemetryData = hashMapOf<String, Any>(
                         "pocketMode" to currentPocketState,
                         "telemetryUpdated" to com.google.firebase.Timestamp.now()
                     )
