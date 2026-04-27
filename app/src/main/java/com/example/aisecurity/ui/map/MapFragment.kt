@@ -510,9 +510,81 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         setupToggles(dialogView, targetUid, dialog)
         setupAiSensitivityDropdown(dialogView)
+        setupCameraDropdown(dialogView, targetUid) // 🚨 NEW
+        setupLockDropdown(dialogView, targetUid)   // 🚨 NEW
         setupAiButton(dialogView)
 
         dialog.show()
+    }
+
+    private fun setupCameraDropdown(dialogView: View, targetUid: String?) {
+        val panel = dialogView.findViewById<LinearLayout>(R.id.dropPanelCamera)
+        val chevron = dialogView.findViewById<ImageView>(R.id.ivCameraChevron)
+        val tvValue = dialogView.findViewById<TextView>(R.id.tvCameraValue)
+        val trigger = dialogView.findViewById<View>(R.id.btnCameraDrop)
+
+        val options = listOf(
+            R.id.optCameraBack to Pair(R.id.chkCameraBack, "Back"),
+            R.id.optCameraFront to Pair(R.id.chkCameraFront, "Front")
+        )
+
+        trigger?.setOnClickListener { toggleDropdown(panel, chevron) }
+
+        options.forEach { (optId, pair) ->
+            val (chkId, label) = pair
+            dialogView.findViewById<LinearLayout>(optId)?.setOnClickListener {
+                tvValue?.text = label
+                selectOption(dialogView, options, chkId)
+                collapsePanel(panel, chevron)
+
+                // SEND COMMAND TO FIREBASE
+                val uidToCommand = targetUid ?: auth.currentUser?.uid
+                if (uidToCommand != null) {
+                    db.collection("Users").document(uidToCommand).set(
+                        hashMapOf("cmd_take_photo" to label), // Sends "Front" or "Back"
+                        SetOptions.merge()
+                    )
+                    showSentryToast("Command sent: Take $label Photo", isLong = false)
+                }
+            }
+        }
+    }
+
+    private fun setupLockDropdown(dialogView: View, targetUid: String?) {
+        val panel = dialogView.findViewById<LinearLayout>(R.id.dropPanelLock)
+        val chevron = dialogView.findViewById<ImageView>(R.id.ivLockChevron)
+        val tvValue = dialogView.findViewById<TextView>(R.id.tvLockValue)
+        val trigger = dialogView.findViewById<View>(R.id.btnLockDrop)
+
+        val options = listOf(
+            R.id.optLockOrdinary to Pair(R.id.chkLockOrdinary, "Ordinary Lock"),
+            R.id.optLockPersistent to Pair(R.id.chkLockPersistent, "Persistent"),
+            R.id.optLockAggressive to Pair(R.id.chkLockAggressive, "Aggressive")
+        )
+
+        trigger?.setOnClickListener { toggleDropdown(panel, chevron) }
+
+        options.forEach { (optId, pair) ->
+            val (chkId, label) = pair
+            dialogView.findViewById<LinearLayout>(optId)?.setOnClickListener {
+                tvValue?.text = label
+                selectOption(dialogView, options, chkId)
+                collapsePanel(panel, chevron)
+
+                if (label == "Ordinary Lock") {
+                    val uidToCommand = targetUid ?: auth.currentUser?.uid
+                    if (uidToCommand != null) {
+                        db.collection("Users").document(uidToCommand).set(
+                            hashMapOf("cmd_lock_device" to true),
+                            SetOptions.merge()
+                        )
+                        showSentryToast("Command sent: Ordinary Lock", isLong = false)
+                    }
+                } else {
+                    showSentryToast("$label selected (Not active yet)", isLong = false)
+                }
+            }
+        }
     }
 
     private fun setupToggles(dialogView: View, targetUid: String?, dialog: AlertDialog) {
@@ -620,6 +692,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             dialog.setOnDismissListener { listener.remove() }
         }
 
+        // 🚨 PASSING 'STATE_' VARIABLES INSTEAD OF 'CMD_' TO ALLOW DATABASE EDITS
         fun handleToggle(switchView: SwitchMaterial?, stateField: String, targetSetting: String, tvStatus: TextView?, onText: String, offText: String, icon: View?) {
             switchView?.setOnCheckedChangeListener { _, isOn ->
                 tvStatus?.text = if (isOn) onText else offText
@@ -1219,7 +1292,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         locationManager.removeUpdates(locationListener)
     }
 
-    // Update GPS without uploading the other states (Service handles that now)
     private fun processLocationUpdate(location: Location) {
         if (!isAdded) return
         val currentLat = location.latitude

@@ -606,17 +606,20 @@
                                     <TextView
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
-                                        android:text="CAMERA"
+                                        android:text="CAMERA CONTROL"
                                         android:textColor="#5A7090"
                                         android:textSize="9sp"
                                         android:textStyle="bold"
                                         android:layout_marginBottom="7dp" />
 
                                     <LinearLayout
+                                        android:id="@+id/btnCameraDrop"
                                         android:layout_width="match_parent"
                                         android:layout_height="wrap_content"
                                         android:orientation="horizontal"
-                                        android:gravity="center_vertical">
+                                        android:gravity="center_vertical"
+                                        android:clickable="true"
+                                        android:focusable="true">
 
                                         <ImageView
                                             android:layout_width="16dp"
@@ -629,7 +632,7 @@
                                             android:layout_width="0dp"
                                             android:layout_height="wrap_content"
                                             android:layout_weight="1"
-                                            android:text="Rear"
+                                            android:text="Back"
                                             android:textColor="#FFFFFF"
                                             android:textSize="13.5sp"
                                             android:textStyle="bold"
@@ -657,9 +660,9 @@
                                             android:layout_marginTop="9dp"
                                             android:layout_marginBottom="7dp" />
 
-                                        <LinearLayout android:id="@+id/optCameraRear" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkCameraRear" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Rear" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
+                                        <LinearLayout android:id="@+id/optCameraBack" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                            <ImageView android:id="@+id/chkCameraBack" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
+                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
                                         </LinearLayout>
 
                                         <LinearLayout android:id="@+id/optCameraFront" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
@@ -691,17 +694,20 @@
                                     <TextView
                                         android:layout_width="wrap_content"
                                         android:layout_height="wrap_content"
-                                        android:text="LOCK TYPE"
+                                        android:text="LOCK PROTOCOL"
                                         android:textColor="#5A7090"
                                         android:textSize="9sp"
                                         android:textStyle="bold"
                                         android:layout_marginBottom="7dp" />
 
                                     <LinearLayout
+                                        android:id="@+id/btnLockDrop"
                                         android:layout_width="match_parent"
                                         android:layout_height="wrap_content"
                                         android:orientation="horizontal"
-                                        android:gravity="center_vertical">
+                                        android:gravity="center_vertical"
+                                        android:clickable="true"
+                                        android:focusable="true">
 
                                         <ImageView
                                             android:layout_width="16dp"
@@ -714,7 +720,7 @@
                                             android:layout_width="0dp"
                                             android:layout_height="wrap_content"
                                             android:layout_weight="1"
-                                            android:text="PIN"
+                                            android:text="Ordinary Lock"
                                             android:textColor="#FFFFFF"
                                             android:textSize="13.5sp"
                                             android:textStyle="bold"
@@ -742,19 +748,19 @@
                                             android:layout_marginTop="9dp"
                                             android:layout_marginBottom="7dp" />
 
-                                        <LinearLayout android:id="@+id/optLockPin" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockPin" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="PIN" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
+                                        <LinearLayout android:id="@+id/optLockOrdinary" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                            <ImageView android:id="@+id/chkLockOrdinary" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
+                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ordinary Lock" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
                                         </LinearLayout>
 
-                                        <LinearLayout android:id="@+id/optLockPattern" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockPattern" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Pattern" android:textColor="#8899BB" android:textSize="11sp"/>
+                                        <LinearLayout android:id="@+id/optLockPersistent" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                            <ImageView android:id="@+id/chkLockPersistent" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
+                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Persistent" android:textColor="#8899BB" android:textSize="11sp"/>
                                         </LinearLayout>
 
-                                        <LinearLayout android:id="@+id/optLockPassword" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockPassword" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Password" android:textColor="#8899BB" android:textSize="11sp"/>
+                                        <LinearLayout android:id="@+id/optLockAggressive" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                            <ImageView android:id="@+id/chkLockAggressive" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
+                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aggressive" android:textColor="#8899BB" android:textSize="11sp"/>
                                         </LinearLayout>
                                     </LinearLayout>
                                 </LinearLayout>

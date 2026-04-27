@@ -1,6 +1,7 @@
 package com.example.aisecurity.ble
 
 import android.annotation.SuppressLint
+import android.app.KeyguardManager
 import android.bluetooth.*
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
@@ -15,18 +16,23 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.os.VibrationEffect
+import android.os.Vibrator
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import androidx.lifecycle.MutableLiveData
 import com.example.aisecurity.ai.BehavioralAuthClassifier
 import com.example.aisecurity.ai.SecurityDatabase
+import com.example.aisecurity.ai.SecurityEnforcer
+import com.example.aisecurity.ai.SecurityLog // 🚨 IMPORTANT: Ensure this matches your SecurityLog entity package
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
 import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow
@@ -66,9 +72,9 @@ object WatchManager {
     private val distanceFilter = KalmanFilter(processNoise = 0.008, measurementNoise = 0.5)
 
     private var lastLockTime = 0L
+    private var lastWarningTime = 0L
     private const val LOCK_COOLDOWN_MS = 5000L
 
-    // 🚨 REAL-TIME GPS LISTENER VARIABLES
     private var locationManager: LocationManager? = null
     private var lastKnownCity = "Tracking Active"
     private var lastGeocodeTime = 0L
@@ -192,7 +198,7 @@ object WatchManager {
                 startRssiPolling()
                 startBiometricsSync()
                 startSystemStateSync()
-                startLocationSync() // 🚨 START REAL-TIME FAST GPS TRACKING
+                startLocationSync()
 
                 scope.launch {
                     currentContext?.let { sendSystemState(it) }
@@ -269,16 +275,13 @@ object WatchManager {
         }
     }
 
-    // 🚨 HIGH-SPEED REAL-TIME GPS ENGINE
     private val locationListener = object : LocationListener {
         override fun onLocationChanged(location: Location) {
-            // Fires instantly when the Android GPS chip updates (up to 1x per second)
             val lat = String.format(Locale.US, "%.5f", location.latitude)
             val lon = String.format(Locale.US, "%.5f", location.longitude)
 
             val now = System.currentTimeMillis()
             if (now - lastGeocodeTime > 15000) {
-                // Throttle Geocoding (converting GPS to text) to every 15s to save battery & API limits
                 lastGeocodeTime = now
                 scope.launch(Dispatchers.IO) {
                     try {
@@ -293,7 +296,6 @@ object WatchManager {
                 }
             }
 
-            // Blast coordinates to watch instantly
             val safeAddr = lastKnownCity.replace("<", "").replace(">", "").replace("|", "")
             sendData("<MYLOC:$lat|$lon|$safeAddr>")
         }
@@ -308,9 +310,8 @@ object WatchManager {
                 val context = currentContext ?: return@launch
                 locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-                locationManager?.removeUpdates(locationListener) // Clean up old trackers
+                locationManager?.removeUpdates(locationListener)
 
-                // 🚨 1000ms = 1 Update Per Second. 0f = Update on every tiny movement.
                 if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true) {
                     locationManager?.requestLocationUpdates(LocationManager.GPS_PROVIDER, 1000L, 0f, locationListener)
                 }
@@ -584,34 +585,94 @@ object WatchManager {
         }
     }
 
+    // 🚨 UPDATED: Logs to Room Database directly!
     private fun checkDistanceAndLock(context: Context, currentDistanceMeters: Float) {
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
         val isProximityArmed = prefs.getBoolean("is_proximity_armed", true)
         if (!isProximityArmed) return
 
-        val thresholdMeters = prefs.getFloat("radar_threshold_meters", 10.0f)
-        val isAlreadyLocked = prefs.getBoolean("is_system_locked", false)
+        val warningMeters = prefs.getFloat("radar_warning_meters", 2.0f)
+        val thresholdMeters = prefs.getFloat("radar_threshold_meters", 5.0f)
+        val now = System.currentTimeMillis()
 
-        if (currentDistanceMeters > thresholdMeters && !isAlreadyLocked) {
-            val now = System.currentTimeMillis()
-            if (now - lastLockTime < LOCK_COOLDOWN_MS) return
-            lastLockTime = now
+        val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+        var isSystemLocked = prefs.getBoolean("is_system_locked", false)
 
-            LiveLogger.log("🚨 PROXIMITY BREACH: Distance ($currentDistanceMeters m) exceeded threshold ($thresholdMeters m)!")
+        val timeFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
+        val currentTimeStr = timeFormat.format(Date())
 
-            prefs.edit().putBoolean("is_system_locked", true).apply()
+        if (!km.isKeyguardLocked && isSystemLocked) {
+            prefs.edit().putBoolean("is_system_locked", false).commit()
+            isSystemLocked = false
+            LiveLogger.log("✅ OS UNLOCK DETECTED: Resetting Stuck Lock State.")
+        }
 
-            try {
-                val lockIntent = Intent(context, LockOverlayService::class.java)
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    context.startForegroundService(lockIntent)
-                } else {
-                    context.startService(lockIntent)
+        // 1. LOCKDOWN
+        if (currentDistanceMeters >= thresholdMeters) {
+            if (!isSystemLocked) {
+                if (now - lastLockTime < LOCK_COOLDOWN_MS) return
+                lastLockTime = now
+
+                LiveLogger.log("🚨 PROXIMITY BREACH: Distance ($currentDistanceMeters m) hit threshold ($thresholdMeters m)!")
+
+                // 🚨 WRITE RED LOG TO DATABASE
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val db = SecurityDatabase.get(context)
+                        val logEntry = SecurityLog(
+                            timestamp = currentTimeStr,
+                            title = "Proximity Lockdown",
+                            details = "Target breached the $thresholdMeters m safe zone boundary. Current distance: $currentDistanceMeters m. Defense protocols triggered.",
+                            severity = 2 // Red
+                        )
+                        db.securityLogDao().insertLog(logEntry)
+                    } catch (e: Exception) { Log.e("BLE", "Log failed: ${e.message}") }
                 }
-            } catch (e: Exception) {
-                LiveLogger.log("❌ Failed to launch LockOverlayService: ${e.message}")
+
+                try {
+                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(800, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        vibrator.vibrate(800)
+                    }
+                } catch (_: Exception) {}
+
+                SecurityEnforcer(context).lockDevice("Proximity Radar Breach")
             }
+        }
+        // 2. WARNING ZONE
+        else if (currentDistanceMeters >= warningMeters && currentDistanceMeters < thresholdMeters) {
+            if (now - lastWarningTime > 15000) {
+                lastWarningTime = now
+                sendNotificationToWatch("Proximity Warning", "Phone is getting too far! ($currentDistanceMeters m)")
+
+                // 🚨 WRITE ORANGE LOG TO DATABASE
+                scope.launch(Dispatchers.IO) {
+                    try {
+                        val db = SecurityDatabase.get(context)
+                        val logEntry = SecurityLog(
+                            timestamp = currentTimeStr,
+                            title = "Proximity Warning",
+                            details = "Device exceeded warning threshold of $warningMeters m. Current distance: $currentDistanceMeters m.",
+                            severity = 1 // Orange
+                        )
+                        db.securityLogDao().insertLog(logEntry)
+                    } catch (e: Exception) { Log.e("BLE", "Log failed: ${e.message}") }
+                }
+
+                try {
+                    val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
+                    } else {
+                        vibrator.vibrate(300)
+                    }
+                } catch (_: Exception) {}
+            }
+        } else {
+            lastWarningTime = 0L
         }
     }
 
@@ -749,7 +810,7 @@ object WatchManager {
         rssiPollingJob?.cancel()
         bioSyncJob?.cancel()
         systemStateJob?.cancel()
-        locationManager?.removeUpdates(locationListener) // 🚨 Clean up GPS
+        locationManager?.removeUpdates(locationListener)
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()

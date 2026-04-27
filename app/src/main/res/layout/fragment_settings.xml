@@ -84,7 +84,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Off"
+                    android:text="Normal"
                     android:gravity="start"
                     android:textColor="@color/ig_text_secondary"
                     android:textSize="12sp"/>
@@ -92,7 +92,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:text="Lenient"
+                    android:text="Moderate"
                     android:gravity="center"
                     android:textColor="@color/ig_text_secondary"
                     android:textSize="12sp"/>
@@ -105,6 +105,122 @@
                     android:textColor="@color/ig_text_secondary"
                     android:textSize="12sp"/>
             </LinearLayout>
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="PROXIMITY RADAR PROTOCOLS"
+            android:fontFamily="@font/inter"
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"
+            android:layout_marginHorizontal="24dp"
+            android:layout_marginBottom="8dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="24dp"
+            android:background="@drawable/glass_card"
+            android:orientation="vertical"
+            android:padding="20dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Armed Status"
+                        android:textColor="@color/ig_text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Enables distance-based alerts and locking."
+                        android:textColor="@color/ig_text_secondary"
+                        android:textSize="12sp" />
+                </LinearLayout>
+                <androidx.appcompat.widget.SwitchCompat
+                    android:id="@+id/switchProximityArmed"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:checked="true"/>
+            </LinearLayout>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="16dp"
+                android:background="#1A888888" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Warning Threshold"
+                android:textColor="@color/ig_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Watch vibrates and warns user."
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp"/>
+
+            <RadioGroup
+                android:id="@+id/rgWarningDist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <RadioButton android:id="@+id/rbWarn1" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="1m" android:textColor="@color/ig_text_secondary" android:buttonTint="#3B82F6" android:textSize="13sp"/>
+                <RadioButton android:id="@+id/rbWarn2" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="2m" android:textColor="@color/ig_text_secondary" android:buttonTint="#3B82F6" android:textSize="13sp"/>
+                <RadioButton android:id="@+id/rbWarn3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="3m" android:textColor="@color/ig_text_secondary" android:buttonTint="#3B82F6" android:textSize="13sp"/>
+            </RadioGroup>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="16dp"
+                android:background="#1A888888" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Lockdown Threshold"
+                android:textColor="@color/ig_text_primary"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Device executes defense protocols."
+                android:textColor="@color/ig_text_secondary"
+                android:textSize="12sp"
+                android:layout_marginBottom="8dp"/>
+
+            <RadioGroup
+                android:id="@+id/rgLockDist"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+                <RadioButton android:id="@+id/rbLock3" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="3m" android:textColor="@color/ig_text_secondary" android:buttonTint="#EF4444" android:textSize="13sp"/>
+                <RadioButton android:id="@+id/rbLock4" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="4m" android:textColor="@color/ig_text_secondary" android:buttonTint="#EF4444" android:textSize="13sp"/>
+                <RadioButton android:id="@+id/rbLock5" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="5m" android:textColor="@color/ig_text_secondary" android:buttonTint="#EF4444" android:textSize="13sp"/>
+            </RadioGroup>
+
         </LinearLayout>
 
         <TextView
@@ -267,6 +383,17 @@
                     android:textSize="13sp"
                     android:layout_marginTop="8dp"
                     android:buttonTint="#3B82F6"/>
+
+                <RadioButton
+                    android:id="@+id/rbOrdinaryLock"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Ordinary Lock (Standard Android Lock)"
+                    android:textColor="@color/ig_text_secondary"
+                    android:fontFamily="@font/inter"
+                    android:textSize="13sp"
+                    android:layout_marginTop="8dp"
+                    android:buttonTint="#3B82F6"/>
             </RadioGroup>
 
         </LinearLayout>
@@ -346,8 +473,23 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="40dp"
+            android:layout_marginBottom="12dp"
             android:text="TEST SCREEN-OFF ENFORCER"
+            android:fontFamily="@font/inter"
+            android:textSize="13sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
+        <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnDemoOrdinary"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="40dp"
+            android:text="TEST ORDINARY LOCK"
             android:fontFamily="@font/inter"
             android:textSize="13sp"
             android:textColor="#FFFFFF"

@@ -33,7 +33,7 @@ class LogsFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         val recyclerLogs = view.findViewById<RecyclerView>(R.id.recyclerLogs)
-        val btnDeleteSelected = view.findViewById<Button>(R.id.btnDeleteSelected)
+        val btnDeleteSelected = view.findViewById<Button>(R.id.btnDeleteSelected) // 🚨 TYPO FIXED HERE
         val btnClearAll = view.findViewById<Button>(R.id.btnClearAll)
 
         // Inject the Light/Dark mode Glassmorphism designs

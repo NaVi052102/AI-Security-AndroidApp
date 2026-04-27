@@ -28,6 +28,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 
 @SuppressLint("MissingPermission")
@@ -110,6 +112,9 @@ class TouchDynamicsService : AccessibilityService() {
     private var isPoltergeistActive = false
     private var isWatchSyncLoopRunning = false
 
+    private var isBooting = true
+    private val commandCooldowns = mutableMapOf<String, Long>()
+
     private val osBiometricSyncReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_USER_PRESENT) {
@@ -145,6 +150,7 @@ class TouchDynamicsService : AccessibilityService() {
                             }
                         }
                     } else if (target in listOf("DATA", "WIFI", "BLUETOOTH", "LOCATION", "BATTERY")) {
+                        commandCooldowns[target] = System.currentTimeMillis()
                         executeUniversalPoltergeist(target)
                     } else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
                         try {
@@ -183,43 +189,69 @@ class TouchDynamicsService : AccessibilityService() {
         val myUid = auth.currentUser?.uid ?: return
 
         serviceScope.launch(Dispatchers.IO) {
+            try {
+                forceFirebaseSyncToReality(myUid)
+                delay(3000)
+                isBooting = false
+            } catch (e: Exception) { e.printStackTrace() }
+
             while (isActive) {
                 if (!isPoltergeistActive) {
-                    try {
-                        val resolver = contentResolver
-                        val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-                        val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-                        val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
-                        val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-                        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
-
-                        val updates = hashMapOf<String, Any>(
-                            "state_wifi" to wifiOn,
-                            "state_mobile_data" to dataOn,
-                            "state_bluetooth" to btOn,
-                            "state_location" to locOn,
-                            "state_battery_saver" to saverOn,
-                            "lastHardwareUpdate" to com.google.firebase.Timestamp.now()
-                        )
-                        firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
+                    try { forceFirebaseSyncToReality(myUid) } catch (e: Exception) { e.printStackTrace() }
                 }
-                delay(3000)
+                delay(4000)
             }
         }
 
         firebaseDb.collection("Users").document(myUid).addSnapshotListener { snapshot, e ->
             if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-            if (isPoltergeistActive) return@addSnapshotListener
+            if (isPoltergeistActive || isBooting) return@addSnapshotListener
+
+            val cmdLockDevice = snapshot.getBoolean("cmd_lock_device") ?: false
+            if (cmdLockDevice) {
+                LiveLogger.log("🔒 POLTERGEIST: Ordinary Lock Command Received. Locking OS...")
+
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
+                }
+
+                firebaseDb.collection("Users").document(myUid).set(
+                    hashMapOf("cmd_lock_device" to false), SetOptions.merge()
+                )
+            }
+
+            val cmdTakePhoto = snapshot.getString("cmd_take_photo") ?: ""
+            if (cmdTakePhoto.isNotEmpty()) {
+                LiveLogger.log("📸 POLTERGEIST: Photo Command Received -> $cmdTakePhoto Camera")
+
+                try {
+                    val photoIntent = Intent(this@TouchDynamicsService, com.example.aisecurity.ui.HiddenCameraActivity::class.java).apply {
+                        putExtra("CAMERA_TYPE", cmdTakePhoto)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
+                    }
+                    startActivity(photoIntent)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+
+                firebaseDb.collection("Users").document(myUid).set(
+                    hashMapOf("cmd_take_photo" to ""), SetOptions.merge()
+                )
+            }
 
             val resolver = contentResolver
 
             fun checkMirrorState(stateField: String, targetSetting: String, physicalState: Boolean) {
                 val firebaseState = snapshot.getBoolean(stateField)
+
                 if (firebaseState != null && firebaseState != physicalState) {
-                    LiveLogger.log("👻 POLTERGEIST: Firebase mismatch detected! Aligning $targetSetting to $firebaseState.")
+                    val lastAttemptTime = commandCooldowns[targetSetting] ?: 0L
+                    if (System.currentTimeMillis() - lastAttemptTime < 15000) {
+                        return
+                    }
+
+                    LiveLogger.log("👻 POLTERGEIST: Mismatch! Firebase says $firebaseState, Phone is $physicalState. Fixing $targetSetting...")
+                    commandCooldowns[targetSetting] = System.currentTimeMillis()
                     executeUniversalPoltergeist(targetSetting)
                 }
             }
@@ -245,9 +277,26 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    // =========================================================
-    // 🚨 THE UNIVERSAL POLTERGEIST (100% Android Compatible)
-    // =========================================================
+    private fun forceFirebaseSyncToReality(myUid: String? = auth.currentUser?.uid) {
+        if (myUid == null) return
+        val resolver = contentResolver
+        val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
+        val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
+        val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
+        val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
+
+        val updates = hashMapOf<String, Any>(
+            "state_wifi" to wifiOn,
+            "state_mobile_data" to dataOn,
+            "state_bluetooth" to btOn,
+            "state_location" to locOn,
+            "state_battery_saver" to saverOn,
+            "lastHardwareUpdate" to com.google.firebase.Timestamp.now()
+        )
+        firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
+    }
+
     private fun executeUniversalPoltergeist(target: String) {
         if (isPoltergeistActive) return
         isPoltergeistActive = true
@@ -285,6 +334,7 @@ class TouchDynamicsService : AccessibilityService() {
                     if (process.waitFor() == 0) {
                         LiveLogger.log("👻 POLTERGEIST: Success! $target toggled silently via ROOT.")
                         isPoltergeistActive = false
+                        forceFirebaseSyncToReality()
                         return@launch
                     }
                 }
@@ -293,11 +343,11 @@ class TouchDynamicsService : AccessibilityService() {
             }
 
             withContext(Dispatchers.Main) {
+                var toggled = false
                 try {
                     val manufacturer = Build.MANUFACTURER.lowercase(Locale.ROOT)
                     var usedXiaomiControlCenter = false
 
-                    // 1. Try Xiaomi Control Center Swipe for Data ONLY
                     if (target == "DATA" && (manufacturer.contains("xiaomi") || manufacturer.contains("poco") || manufacturer.contains("redmi"))) {
                         val metrics = resources.displayMetrics
                         val swipePath = Path().apply {
@@ -309,7 +359,7 @@ class TouchDynamicsService : AccessibilityService() {
 
                         delay(1200)
 
-                        var toggled = nukeSettingsSwitch(rootInActiveWindow, listOf("mobile data", "cellular", "datos", "data connection"), isSettingsApp = false)
+                        toggled = nukeSettingsSwitch(rootInActiveWindow, listOf("mobile data", "cellular", "datos", "data connection"), isSettingsApp = false)
                         if (!toggled) {
                             for (window in windows) {
                                 if (nukeSettingsSwitch(window.root, listOf("mobile data", "cellular", "datos", "data connection"), isSettingsApp = false)) {
@@ -323,20 +373,18 @@ class TouchDynamicsService : AccessibilityService() {
                             usedXiaomiControlCenter = true
                             delay(800)
                             if (Build.VERSION.SDK_INT >= 31) {
-                                performGlobalAction(15) // GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE
+                                performGlobalAction(15)
                             } else {
                                 try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
                                 performGlobalAction(GLOBAL_ACTION_BACK)
                             }
                         } else {
-                            // Xiaomi Safety Net: Close shade and fallback to standard Settings App
                             try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
                             performGlobalAction(GLOBAL_ACTION_BACK)
                             delay(500)
                         }
                     }
 
-                    // 2. Standard Android Fallback (Settings App)
                     if (!usedXiaomiControlCenter) {
                         LiveLogger.log("👻 POLTERGEIST: Opening native Settings App for $target...")
 
@@ -346,7 +394,7 @@ class TouchDynamicsService : AccessibilityService() {
                             "LOCATION" -> listOf(Settings.ACTION_LOCATION_SOURCE_SETTINGS, Settings.ACTION_SETTINGS)
                             "BATTERY" -> listOf(Settings.ACTION_BATTERY_SAVER_SETTINGS, Settings.ACTION_SETTINGS)
                             "DATA" -> listOf(
-                                "android.settings.DATA_USAGE_SETTINGS", // Universal secret intent
+                                "android.settings.DATA_USAGE_SETTINGS",
                                 Settings.ACTION_DATA_ROAMING_SETTINGS,
                                 Settings.ACTION_WIRELESS_SETTINGS,
                                 Settings.ACTION_SETTINGS
@@ -354,21 +402,17 @@ class TouchDynamicsService : AccessibilityService() {
                             else -> listOf(Settings.ACTION_SETTINGS)
                         }
 
-                        // Try intents until one works
                         for (action in intentList) {
                             try {
                                 val intent = Intent(action).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION) }
                                 startActivity(intent)
-                                break // Success, stop trying intents
-                            } catch (e: Exception) {
-                                continue // Failed, try the next one
-                            }
+                                break
+                            } catch (e: Exception) { continue }
                         }
 
-                        delay(1200) // Wait for Settings App to open
+                        delay(1200)
 
-                        // FIRST PASS: Search visible screen
-                        var toggled = nukeSettingsSwitch(rootInActiveWindow, emptyList(), isSettingsApp = true)
+                        toggled = nukeSettingsSwitch(rootInActiveWindow, emptyList(), isSettingsApp = true)
                         if (!toggled) {
                             for (window in windows) {
                                 if (nukeSettingsSwitch(window.root, emptyList(), isSettingsApp = true)) {
@@ -378,24 +422,30 @@ class TouchDynamicsService : AccessibilityService() {
                             }
                         }
 
-                        // SECOND PASS: If switch is hidden at bottom of screen, scroll down and check again
                         if (!toggled) {
                             val scrollableNode = findScrollableNode(rootInActiveWindow)
                             if (scrollableNode != null) {
                                 scrollableNode.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                                delay(600) // Wait for scroll animation
+                                delay(600)
                                 toggled = nukeSettingsSwitch(rootInActiveWindow, emptyList(), isSettingsApp = true)
                             }
                         }
 
                         delay(600)
-                        performGlobalAction(GLOBAL_ACTION_BACK) // Close Settings
+                        performGlobalAction(GLOBAL_ACTION_BACK)
                     }
 
                 } catch (e: Exception) {
                     e.printStackTrace()
                 } finally {
                     isPoltergeistActive = false
+                    if (!toggled) {
+                        LiveLogger.log("❌ POLTERGEIST: Failed to toggle $target. Overwriting Firebase with Phone Reality.")
+                    }
+                    serviceScope.launch {
+                        delay(1000)
+                        forceFirebaseSyncToReality()
+                    }
                 }
             }
         }
@@ -861,12 +911,43 @@ class TouchDynamicsService : AccessibilityService() {
         checkLock(smoothedRisk)
     }
 
+    // 🚨 UPDATED: Security Sensitivity Integration!
     private fun checkLock(risk: Int) {
-        if (risk >= 100 && !isLockdownCooldown) {
+        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val sensitivity = prefs.getInt("ai_sensitivity", 1) // 0=Normal, 1=Moderate, 2=Strict
+
+        // Map slider to threshold limits
+        val lockThreshold = when (sensitivity) {
+            2 -> 60  // Strict: Locks at 60% risk (highly unforgiving)
+            1 -> 80  // Moderate: Locks at 80% risk (balanced)
+            else -> 100 // Normal: Locks at 100% risk (requires multiple bad swipes)
+        }
+
+        if (risk >= lockThreshold && !isLockdownCooldown) {
             isLockdownCooldown = true
             serviceScope.launch(Dispatchers.Main) {
-                LiveLogger.log("🚨 DEVICE LOCKED: 100% Threat Reached")
-                getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putInt("current_risk", 50).apply()
+                LiveLogger.log("🚨 AI LOCKDOWN: Threat Level ($risk%) hit threshold ($lockThreshold%)!")
+
+                val timeFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
+                val currentTimeStr = timeFormat.format(Date())
+
+                // 🚨 WRITE RED LOG TO DATABASE
+                withContext(Dispatchers.IO) {
+                    try {
+                        val logEntry = com.example.aisecurity.ai.SecurityLog(
+                            timestamp = currentTimeStr,
+                            title = "AI Intruder Lockdown",
+                            details = "Unrecognized touch biometrics detected. Risk ($risk%) exceeded sensitivity threshold ($lockThreshold%). Defense protocol engaged.",
+                            severity = 2 // Red
+                        )
+                        db.securityLogDao().insertLog(logEntry)
+                    } catch (e: Exception) { Log.e("AI_LOCK", "Log failed: ${e.message}") }
+                }
+
+                // Drop risk to 50 so it doesn't instantly re-trigger upon unlock
+                prefs.edit().putInt("current_risk", 50).apply()
+
+                // Route through Enforcer to respect user's specific defense settings
                 enforcer.lockDevice("AI Touch Dynamics Threat Detected")
             }
         }

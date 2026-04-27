@@ -1,6 +1,8 @@
 package com.example.aisecurity.ui.settings
 
 import android.annotation.SuppressLint
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
@@ -25,6 +27,7 @@ import androidx.core.graphics.toColorInt
 import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
+import com.example.aisecurity.SecurityAdminReceiver
 import com.example.aisecurity.ui.LockOverlayService
 import com.example.aisecurity.ai.SecurityEnforcer
 
@@ -38,9 +41,20 @@ class SettingsFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-        // Bind Elements
         val seekAi = view.findViewById<SeekBar>(R.id.seekAiSensitivity)
         val tvAiDesc = view.findViewById<TextView>(R.id.tvAiDesc)
+
+        // Proximity Bindings
+        val switchProximityArmed = view.findViewById<SwitchCompat>(R.id.switchProximityArmed)
+        val rgWarningDist = view.findViewById<RadioGroup>(R.id.rgWarningDist)
+        val rbWarn1 = view.findViewById<RadioButton>(R.id.rbWarn1)
+        val rbWarn2 = view.findViewById<RadioButton>(R.id.rbWarn2)
+        val rbWarn3 = view.findViewById<RadioButton>(R.id.rbWarn3)
+
+        val rgLockDist = view.findViewById<RadioGroup>(R.id.rgLockDist)
+        val rbLock3 = view.findViewById<RadioButton>(R.id.rbLock3)
+        val rbLock4 = view.findViewById<RadioButton>(R.id.rbLock4)
+        val rbLock5 = view.findViewById<RadioButton>(R.id.rbLock5)
 
         val switchSiren = view.findViewById<SwitchCompat>(R.id.switchSiren)
         val switchGps = view.findViewById<SwitchCompat>(R.id.switchGps)
@@ -50,19 +64,21 @@ class SettingsFragment : Fragment() {
         val rgDefenseType = view.findViewById<RadioGroup>(R.id.rgDefenseType)
         val rbOverlay = view.findViewById<RadioButton>(R.id.rbOverlay)
         val rbScreenOff = view.findViewById<RadioButton>(R.id.rbScreenOff)
+        val rbOrdinaryLock = view.findViewById<RadioButton>(R.id.rbOrdinaryLock)
 
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
 
         val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
         val btnDemoEnforcer = view.findViewById<Button>(R.id.btnDemoEnforcer)
+        val btnDemoOrdinary = view.findViewById<Button>(R.id.btnDemoOrdinary)
 
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-        // Setup standard buttons
         applyDangerButton(btnDemoOverlay, isNightMode)
         applyDangerButton(btnDemoEnforcer, isNightMode)
+        applyDangerButton(btnDemoOrdinary, isNightMode)
 
-        // 1. AI SENSITIVITY LOGIC
+        // 1. AI SENSITIVITY (Normal = 0, Moderate = 1, Strict = 2)
         val currentSensitivity = prefs.getInt("ai_sensitivity", 1)
         seekAi.progress = currentSensitivity
         updateAiDesc(currentSensitivity, tvAiDesc)
@@ -76,24 +92,101 @@ class SettingsFragment : Fragment() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // 2. TOGGLE PROTOCOLS LOGIC
+        // 2. PROXIMITY RADAR MUTUAL EXCLUSION
+        switchProximityArmed.isChecked = prefs.getBoolean("is_proximity_armed", true)
+
+        val warnDist = prefs.getFloat("radar_warning_meters", 2.0f)
+        when (warnDist) {
+            1.0f -> rbWarn1.isChecked = true
+            3.0f -> rbWarn3.isChecked = true
+            else -> rbWarn2.isChecked = true
+        }
+
+        val lockDist = prefs.getFloat("radar_threshold_meters", 5.0f)
+        when (lockDist) {
+            3.0f -> rbLock3.isChecked = true
+            4.0f -> rbLock4.isChecked = true
+            else -> rbLock5.isChecked = true
+        }
+
+        if (warnDist == 3.0f) rbLock3.isEnabled = false
+        if (lockDist == 3.0f) rbWarn3.isEnabled = false
+
+        rgWarningDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
+        rgLockDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
+        for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = switchProximityArmed.isChecked
+        for (i in 0 until rgLockDist.childCount) rgLockDist.getChildAt(i).isEnabled = switchProximityArmed.isChecked
+
+        switchProximityArmed.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit { putBoolean("is_proximity_armed", isChecked) }
+            rgWarningDist.alpha = if(isChecked) 1f else 0.5f
+            rgLockDist.alpha = if(isChecked) 1f else 0.5f
+            for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = isChecked
+            for (i in 0 until rgLockDist.childCount) rgLockDist.getChildAt(i).isEnabled = isChecked
+
+            if (isChecked) {
+                if (rbWarn3.isChecked) rbLock3.isEnabled = false
+                if (rbLock3.isChecked) rbWarn3.isEnabled = false
+            }
+        }
+
+        rgWarningDist.setOnCheckedChangeListener { _, checkedId ->
+            if (!switchProximityArmed.isChecked) return@setOnCheckedChangeListener
+            val dist = when (checkedId) {
+                R.id.rbWarn1 -> 1.0f
+                R.id.rbWarn3 -> 3.0f
+                else -> 2.0f
+            }
+            prefs.edit { putFloat("radar_warning_meters", dist) }
+
+            if (dist == 3.0f) {
+                rbLock3.isEnabled = false
+                if (rbLock3.isChecked) {
+                    rbLock4.isChecked = true
+                    showSentryToast("Lockdown shifted to 4m to prevent overlap.", false)
+                }
+            } else {
+                rbLock3.isEnabled = true
+            }
+        }
+
+        rgLockDist.setOnCheckedChangeListener { _, checkedId ->
+            if (!switchProximityArmed.isChecked) return@setOnCheckedChangeListener
+            val dist = when (checkedId) {
+                R.id.rbLock3 -> 3.0f
+                R.id.rbLock4 -> 4.0f
+                else -> 5.0f
+            }
+            prefs.edit { putFloat("radar_threshold_meters", dist) }
+
+            if (dist == 3.0f) {
+                rbWarn3.isEnabled = false
+                if (rbWarn3.isChecked) {
+                    rbWarn2.isChecked = true
+                    showSentryToast("Warning shifted to 2m to prevent overlap.", false)
+                }
+            } else {
+                rbWarn3.isEnabled = true
+            }
+        }
+
+        // 3. TOGGLE PROTOCOLS LOGIC
         switchSiren.isChecked = prefs.getBoolean("protocol_siren", true)
         switchGps.isChecked = prefs.getBoolean("protocol_gps", true)
 
-        // Setup Active Defense RadioGroup
         switchDefense.isChecked = prefs.getBoolean("protocol_defense_active", true)
         rgDefenseType.visibility = if (switchDefense.isChecked) View.VISIBLE else View.GONE
 
         val savedDefenseType = prefs.getString("protocol_defense_type", "OVERLAY")
-        if (savedDefenseType == "SCREEN_OFF") rbScreenOff.isChecked = true else rbOverlay.isChecked = true
+        when (savedDefenseType) {
+            "SCREEN_OFF" -> rbScreenOff.isChecked = true
+            "ORDINARY" -> rbOrdinaryLock.isChecked = true
+            else -> rbOverlay.isChecked = true
+        }
 
-        switchStealth.isChecked = prefs.getBoolean("protocol_stealth", false)
-
-        // Listeners using safe Kotlin KTX edit blocks
         switchSiren.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_siren", isChecked) } }
         switchGps.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_gps", isChecked) } }
 
-        // Link to Trusted Contacts
         tvManageContactsLink.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@SettingsFragment)
@@ -108,7 +201,17 @@ class SettingsFragment : Fragment() {
         }
 
         rgDefenseType.setOnCheckedChangeListener { _, checkedId ->
-            val type = if (checkedId == R.id.rbScreenOff) "SCREEN_OFF" else "OVERLAY"
+            val type = when (checkedId) {
+                R.id.rbScreenOff -> "SCREEN_OFF"
+                R.id.rbOrdinaryLock -> {
+                    if (!isDeviceAdminActive()) {
+                        requestDeviceAdmin()
+                        showSentryToast("Please activate Device Administrator to enable this lock.", true)
+                    }
+                    "ORDINARY"
+                }
+                else -> "OVERLAY"
+            }
             prefs.edit { putString("protocol_defense_type", type) }
         }
 
@@ -120,7 +223,7 @@ class SettingsFragment : Fragment() {
         }
 
         // ==========================================
-        // 3. FLAWLESS MODAL TEST TRIGGERS
+        // 4. DYNAMIC MODAL TEST TRIGGERS
         // ==========================================
         btnDemoOverlay.setOnClickListener {
             if (!Settings.canDrawOverlays(requireContext())) {
@@ -128,18 +231,42 @@ class SettingsFragment : Fragment() {
                 startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = "package:${requireContext().packageName}".toUri() })
                 return@setOnClickListener
             }
-            showTestWarningDialog(isOverlay = true, isNightMode = isNightMode)
+            showTestWarningDialog("OVERLAY", isNightMode)
         }
 
         btnDemoEnforcer.setOnClickListener {
-            showTestWarningDialog(isOverlay = false, isNightMode = isNightMode)
+            showTestWarningDialog("SCREEN_OFF", isNightMode)
+        }
+
+        btnDemoOrdinary.setOnClickListener {
+            if (!isDeviceAdminActive()) {
+                requestDeviceAdmin()
+                showSentryToast("Action Blocked: Please enable Device Administrator first.", true)
+                return@setOnClickListener
+            }
+            showTestWarningDialog("ORDINARY", isNightMode)
         }
 
         return view
     }
 
+    private fun isDeviceAdminActive(): Boolean {
+        val dpm = requireContext().getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val adminComponent = ComponentName(requireContext(), SecurityAdminReceiver::class.java)
+        return dpm.isAdminActive(adminComponent)
+    }
+
+    private fun requestDeviceAdmin() {
+        val adminComponent = ComponentName(requireContext(), SecurityAdminReceiver::class.java)
+        val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
+            putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Sentry requires this permission to instantly lock the screen during a proximity breach or AI lockdown.")
+        }
+        startActivity(intent)
+    }
+
     @SuppressLint("SetTextI18n")
-    private fun showTestWarningDialog(isOverlay: Boolean, isNightMode: Boolean) {
+    private fun showTestWarningDialog(testType: String, isNightMode: Boolean) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_lockdown_test, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
         val tvMessage = dialogView.findViewById<TextView>(R.id.tvDialogMessage)
@@ -147,16 +274,21 @@ class SettingsFragment : Fragment() {
         val btnProceed = dialogView.findViewById<Button>(R.id.btnProceed)
         val btnCancel = dialogView.findViewById<Button>(R.id.btnCancel)
 
-        // Set Dynamic Warning & Exit Instructions
-        if (isOverlay) {
-            tvMessage.text = "You are about to deploy the active Red Screen Overlay. This is a persistent graphical block designed to completely disable intruder interaction."
-            tvBypassInstructions.text = "Use your registered Biometrics (Fingerprint/Face) or enter your Master PIN into the secure prompt to dismiss the overlay and regain control."
-        } else {
-            tvMessage.text = "You are about to test the Screen-Off Enforcer. This protocol instantly cuts power to the display to neutralize unauthorized access and tracking."
-            tvBypassInstructions.text = "Simply press your phone's physical power button to wake the screen, and unlock the device using your standard Android lock screen mechanism."
+        when (testType) {
+            "OVERLAY" -> {
+                tvMessage.text = "You are about to deploy the active Red Screen Overlay. This is a persistent graphical block designed to completely disable intruder interaction."
+                tvBypassInstructions.text = "Use your registered Biometrics (Fingerprint/Face) or enter your Master PIN into the secure prompt to dismiss the overlay and regain control."
+            }
+            "SCREEN_OFF" -> {
+                tvMessage.text = "You are about to test the Screen-Off Enforcer. This protocol instantly cuts power to the display to neutralize unauthorized access and tracking."
+                tvBypassInstructions.text = "Simply press your phone's physical power button to wake the screen, and unlock the device using your standard Android lock screen mechanism."
+            }
+            "ORDINARY" -> {
+                tvMessage.text = "You are about to test the Ordinary Lock. This will trigger your standard Android lock screen securely."
+                tvBypassInstructions.text = "Simply press your phone's physical power button to wake the screen, and unlock using your standard PIN/Pattern."
+            }
         }
 
-        // Apply Glassmorphism
         val dialogBg = GradientDrawable().apply {
             cornerRadius = 60f
             if (isNightMode) {
@@ -183,31 +315,22 @@ class SettingsFragment : Fragment() {
 
         btnProceed.setOnClickListener {
             dialog.dismiss()
-
-            // Instantly execute requested test
-            if (isOverlay) {
-                val lockIntent = Intent(requireContext(), LockOverlayService::class.java)
-                requireContext().startForegroundService(lockIntent)
-            } else {
-                SecurityEnforcer(requireContext()).lockDevice("Threat Simulation Demo")
-            }
+            SecurityEnforcer(requireContext()).lockDevice("Threat Simulation Demo", testType)
         }
 
         dialog.show()
     }
 
+    // 🚨 UPDATED: Explicit description showing locking thresholds based on the slider
     @SuppressLint("SetTextI18n")
     private fun updateAiDesc(progress: Int, tv: TextView) {
         when (progress) {
-            0 -> tv.text = "AI Disabled. App will only lock upon manual trigger or Bluetooth disconnect."
-            1 -> tv.text = "Moderate threshold. Tolerates slight variations in swipe speed and app usage."
-            2 -> tv.text = "Maximum security. Locks instantly upon abnormal swipe patterns or unusual app transitions."
+            0 -> tv.text = "Normal threshold. Highly tolerant of variations. Locks at 100% Risk."
+            1 -> tv.text = "Moderate threshold. Balanced security for daily use. Locks at 80% Risk."
+            2 -> tv.text = "Strict security. Highly sensitive to abnormal swipes. Locks at 60% Risk."
         }
     }
 
-    // ==========================================
-    // 🚨 PREMIUM CUSTOM TOAST BUILDER
-    // ==========================================
     private fun showSentryToast(message: String, isLong: Boolean) {
         val toast = Toast(requireContext())
         toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
@@ -243,9 +366,6 @@ class SettingsFragment : Fragment() {
         toast.show()
     }
 
-    // ==========================================
-    // THE GLASSMORPHISM ENGINE
-    // ==========================================
     private fun applyDangerButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
