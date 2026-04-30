@@ -260,15 +260,26 @@ class MainActivity : AppCompatActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+
+        // 1. Forcefully update the Activity's memory with the new Intent
         setIntent(intent)
 
-        val uri = intent.data
-        if (uri != null && uri.scheme == "https" && uri.host == "bioguard-efb32.web.app") {
-            Log.d("QR_ROUTER", "Intercepted Deep Link from background! Routing to Map Tab.")
-            findViewById<BottomNavigationView>(R.id.bottom_navigation).selectedItemId = R.id.nav_map
+        // 2. 🚨 FIX: Extract the URI from the newly set Activity Intent, NOT the raw incoming intent parameter.
+        // This guarantees we are reading the processed data.
+        val newUri = getIntent().data
 
-            if (activeFragment == mapFragment) {
-                (mapFragment as MapFragment).checkAndProcessQrIntent()
+        if (newUri != null && newUri.scheme == "https" && newUri.host == "bioguard-efb32.web.app") {
+            Log.d("QR_ROUTER", "Intercepted Deep Link from background! Routing to Map Tab.")
+
+            val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
+            bottomNav.selectedItemId = R.id.nav_map
+
+            // 3. 🚨 FIX: Ensure the fragment has completely finished loading into the foreground
+            // before we try to inject the new data into it.
+            bottomNav.post {
+                if (activeFragment == mapFragment) {
+                    (mapFragment as MapFragment).checkAndProcessQrIntent()
+                }
             }
         }
     }

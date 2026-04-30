@@ -23,16 +23,20 @@ import com.journeyapps.barcodescanner.ScanOptions
 @Suppress("DEPRECATION")
 class QRScannerFragment : Fragment() {
 
+// In QRScannerFragment.kt
+
     private val barcodeLauncher = registerForActivityResult(ScanContract()) { result: ScanIntentResult ->
         if (result.contents == null) {
             showSentryToast("Scan Cancelled")
         } else {
             val scannedData = result.contents
 
-            if (scannedData.startsWith("https://bioguard-efb32.web.app/track")) {
+            // Accept ANY link from the bioguard domain
+            if (scannedData.startsWith("https://bioguard-efb32.web.app")) {
+
                 val intent = Intent(requireContext(), MainActivity::class.java).apply {
                     action = Intent.ACTION_VIEW
-                    data = Uri.parse(scannedData)
+                    data = Uri.parse(scannedData) // No need to append /track anymore
                 }
                 startActivity(intent)
             } else {
@@ -73,34 +77,28 @@ class QRScannerFragment : Fragment() {
         }
     }
 
-    // ==========================================
-    // 🚨 PREMIUM CUSTOM TOAST BUILDER
-    // ==========================================
     private fun showSentryToast(message: String) {
         val toast = Toast(requireContext())
         toast.duration = Toast.LENGTH_SHORT
 
-        // Build the dark glass pill background
         val customLayout = LinearLayout(requireContext()).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = android.view.Gravity.CENTER_VERTICAL
             background = GradientDrawable().apply {
                 cornerRadius = 100f
-                setColor(Color.parseColor("#12151C")) // Deep Dark Background
-                setStroke(3, Color.parseColor("#3B82F6")) // Sentry Blue Rim
+                setColor(Color.parseColor("#12151C"))
+                setStroke(3, Color.parseColor("#3B82F6"))
             }
             setPadding(50, 30, 50, 30)
         }
 
-        // 🚨 INJECTING YOUR EXISTING XML LOGO
         val icon = ImageView(requireContext()).apply {
-            setImageResource(R.drawable.ic_sentry_half_gold) // Points directly to your file!
+            setImageResource(R.drawable.ic_sentry_half_gold)
             layoutParams = LinearLayout.LayoutParams(60, 75).apply {
                 setMargins(0, 0, 30, 0)
             }
         }
 
-        // Inject the text
         val textView = TextView(requireContext()).apply {
             text = message
             setTextColor(Color.WHITE)
@@ -108,7 +106,6 @@ class QRScannerFragment : Fragment() {
             typeface = android.graphics.Typeface.DEFAULT_BOLD
         }
 
-        // Assemble and display
         customLayout.addView(icon)
         customLayout.addView(textView)
         toast.view = customLayout

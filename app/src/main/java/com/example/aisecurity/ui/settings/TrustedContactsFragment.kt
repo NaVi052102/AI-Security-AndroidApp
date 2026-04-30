@@ -28,18 +28,23 @@ import com.example.aisecurity.R
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.UUID
 
-// 🚨 DATA MODEL UPDATED: Added a status field to track mutual consent
 data class TrustedContact(
     val id: String,
     var name: String,
-    val number: String, // Made val so it can't be changed after creation
+    val number: String,
     var photoUri: String = "",
     var uid: String = "",
-    var status: String = "ACCEPTED" // PENDING, ACCEPTED, or SMS_ONLY
+    var status: String = "ACCEPTED"
 )
 
 class TrustedContactsFragment : Fragment() {
@@ -106,7 +111,7 @@ class TrustedContactsFragment : Fragment() {
         adapter = ContactsAdapter(
             contacts = contactsList,
             onEditClick = { contact -> showAddEditDialog(contact) },
-            onDeleteClick = { contact -> showDeleteConfirmation(contact, isNightMode) } // 🚨 Updated to show confirmation
+            onDeleteClick = { contact -> showDeleteConfirmation(contact, isNightMode) }
         )
         recyclerContacts.layoutManager = LinearLayoutManager(requireContext())
         recyclerContacts.adapter = adapter
@@ -115,9 +120,6 @@ class TrustedContactsFragment : Fragment() {
         btnAddContact.setOnClickListener { showAddEditDialog(null) }
     }
 
-    // ==========================================
-    // 🚨 NEW: DELETE CONFIRMATION DIALOG
-    // ==========================================
     private fun showDeleteConfirmation(contact: TrustedContact, isNightMode: Boolean) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_secure_verification, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
@@ -141,7 +143,6 @@ class TrustedContactsFragment : Fragment() {
         }
         dialogRoot.background = dialogBg
 
-        // Destructive button styling
         val proceedBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 30f
@@ -270,7 +271,6 @@ class TrustedContactsFragment : Fragment() {
             tvTitle.text = "EDIT CONTACT"
             etName.setText(existingContact.name)
 
-            // 🚨 LOCK THE PHONE NUMBER FIELD SO IT CANT BE EDITED
             etNumber.isEnabled = false
             etNumber.alpha = 0.5f
             tvCountryCode.isEnabled = false
@@ -323,7 +323,6 @@ class TrustedContactsFragment : Fragment() {
                 btnSave.isEnabled = false
                 btnSave.text = "VERIFYING..."
 
-                // 🚨 If Editing, we skip database verification and just update the name locally.
                 if (existingContact != null) {
                     existingContact.name = name
                     saveContacts()
@@ -332,7 +331,6 @@ class TrustedContactsFragment : Fragment() {
                     return@setOnClickListener
                 }
 
-                // 🚨 Otherwise, it's a NEW ADDITION: Proceed with full validation
                 var cleanNumber = rawNumber.replace(Regex("[^0-9]"), "")
                 if (code == "+63" && cleanNumber.startsWith("0")) cleanNumber = cleanNumber.substring(1)
 
@@ -353,20 +351,18 @@ class TrustedContactsFragment : Fragment() {
                         if (!documents.isEmpty) {
                             val userDoc = documents.documents[0]
                             linkedUid = userDoc.id
-                            contactStatus = "PENDING" // 🚨 Set status to pending instead of forcing it
+                            contactStatus = "PENDING"
 
                             val remotePhoto = userDoc.getString("photoUri") ?: ""
                             if (remotePhoto.isNotEmpty()) fetchedPhotoUri = remotePhoto
 
                             showSentryToast("Waiting for $name to accept.", isLong = true)
 
-                            // 🚨 PUSH THE INVITE TO THE TARGET USER
                             val myUid = auth.currentUser?.uid
                             if (myUid != null && linkedUid.isNotEmpty() && myUid != linkedUid) {
                                 db.collection("Users").document(linkedUid).get().addOnSuccessListener { theirDoc ->
                                     val theirContacts = theirDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
 
-                                    // If we aren't in their list at all, send an invite
                                     if (theirContacts.none { it["uid"] == myUid }) {
                                         db.collection("Users").document(myUid).get().addOnSuccessListener { myDoc ->
                                             val myName = myDoc.getString("fullName") ?: myDoc.getString("name") ?: "Sentry User"
@@ -379,7 +375,7 @@ class TrustedContactsFragment : Fragment() {
                                                 "number" to myPhone,
                                                 "photoUri" to myPhoto,
                                                 "uid" to myUid,
-                                                "status" to "PENDING_RECEIVED" // Tag so their UI knows it's an inbound request
+                                                "status" to "PENDING_RECEIVED"
                                             )
 
                                             theirContacts.add(myContactForThem)
@@ -392,7 +388,6 @@ class TrustedContactsFragment : Fragment() {
                             showSentryToast("Not on app. Saved as SMS-Only.", isLong = true)
                         }
 
-                        // Add to our local list
                         contactsList.add(TrustedContact(UUID.randomUUID().toString(), name, uiFormattedNumber, fetchedPhotoUri, linkedUid, contactStatus))
 
                         saveContacts()
@@ -556,15 +551,33 @@ class TrustedContactsFragment : Fragment() {
         }
     }
 
+    // 🚨 UPDATED: The Mutual Deletion Logic
     private fun removeContact(contact: TrustedContact) {
+        // 1. Remove from local list and update OUR database
         contactsList.remove(contact)
         saveContacts()
         adapter.notifyDataSetChanged()
+
+        // 2. 🚨 TWO-WAY DELETE: Remove OURSELVES from THEIR database
+        val myUid = auth.currentUser?.uid
+        val theirUid = contact.uid
+
+        if (myUid != null && theirUid.isNotEmpty()) {
+            db.collection("Users").document(theirUid).get().addOnSuccessListener { theirDoc ->
+                if (theirDoc.exists()) {
+                    val theirContacts = theirDoc.get("trustedContacts") as? MutableList<Map<String, Any>> ?: mutableListOf()
+
+                    // Filter out our profile from their list
+                    val updatedContacts = theirContacts.filter { it["uid"] != myUid }
+
+                    // Push the updated list back to their Firebase document
+                    db.collection("Users").document(theirUid)
+                        .set(mapOf("trustedContacts" to updatedContacts), SetOptions.merge())
+                }
+            }
+        }
     }
 
-    // ==========================================
-    // 🚨 ADAPTER UPDATED: Handles PENDING UI States
-    // ==========================================
     inner class ContactsAdapter(
         private val contacts: List<TrustedContact>,
         private val onEditClick: (TrustedContact) -> Unit,
@@ -576,7 +589,7 @@ class TrustedContactsFragment : Fragment() {
             val tvNumber: TextView = view.findViewById(R.id.tvContactNumber)
             val tvEdit: TextView = view.findViewById(R.id.tvEditContact)
             val tvDelete: TextView = view.findViewById(R.id.tvDeleteContact)
-            val tvStatus: TextView = view.findViewById(R.id.tvStatusLabel) // You'll need to add this to the item XML
+            val tvStatus: TextView = view.findViewById(R.id.tvStatusLabel)
 
             val tvInitials: TextView = view.findViewById(R.id.tvContactInitials)
             val imgAvatar: ImageView = view.findViewById(R.id.imgContactAvatar)
@@ -590,18 +603,17 @@ class TrustedContactsFragment : Fragment() {
         override fun onBindViewHolder(holder: ContactViewHolder, position: Int) {
             val contact = contacts[position]
 
-            // Render Status Badges
             when (contact.status) {
                 "PENDING" -> {
                     holder.tvName.text = "${contact.name} ⏳"
                     holder.tvName.alpha = 0.5f
                 }
                 "PENDING_RECEIVED" -> {
-                    holder.tvName.text = "${contact.name} 🔔"
+                    holder.tvName.text = "${contact.name} \uD83D\uDD14"
                 }
                 else -> {
                     if (contact.uid.isNotEmpty()) {
-                        holder.tvName.text = "${contact.name} \uD83D\uDFE2" // Green Dot
+                        holder.tvName.text = "${contact.name} \uD83D\uDFE2"
                     } else {
                         holder.tvName.text = contact.name
                     }
@@ -614,24 +626,46 @@ class TrustedContactsFragment : Fragment() {
             val isNightMode = (holder.itemView.context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
             applyAvatarBackground(holder.tvInitials, isNightMode)
 
+            // 🚨 UPDATED: Uses HttpURLConnection for reliable loading
             if (contact.photoUri.isNotEmpty()) {
-                try {
-                    val uri = Uri.parse(contact.photoUri)
-                    val inputStream = holder.itemView.context.contentResolver.openInputStream(uri)
-                    val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                holder.imgAvatar.visibility = View.VISIBLE
+                holder.tvInitials.visibility = View.GONE
 
-                    if (bitmap != null) {
-                        holder.imgAvatar.setImageBitmap(bitmap)
-                        holder.imgAvatar.visibility = View.VISIBLE
-                        holder.tvInitials.visibility = View.GONE
-                    } else {
-                        throw Exception("Cannot load local URI")
+                val imageUrl = contact.photoUri
+                holder.imgAvatar.tag = imageUrl
+
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val bitmap = if (imageUrl.startsWith("http")) {
+                            val connection = URL(imageUrl).openConnection() as HttpURLConnection
+                            connection.doInput = true
+                            connection.connect()
+                            android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                        } else {
+                            holder.itemView.context.contentResolver.openInputStream(Uri.parse(imageUrl))?.use {
+                                android.graphics.BitmapFactory.decodeStream(it)
+                            }
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            if (bitmap != null && holder.imgAvatar.tag == imageUrl) {
+                                holder.imgAvatar.setImageBitmap(bitmap)
+                                val roundedDrawable = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(holder.itemView.resources, bitmap)
+                                roundedDrawable.isCircular = true
+                                holder.imgAvatar.setImageDrawable(roundedDrawable)
+                            } else if (bitmap == null) {
+                                holder.imgAvatar.visibility = View.GONE
+                                holder.tvInitials.visibility = View.VISIBLE
+                                holder.tvInitials.text = getInitials(contact.name)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            holder.imgAvatar.visibility = View.GONE
+                            holder.tvInitials.visibility = View.VISIBLE
+                            holder.tvInitials.text = getInitials(contact.name)
+                        }
                     }
-                    inputStream?.close()
-                } catch (e: Exception) {
-                    holder.imgAvatar.visibility = View.GONE
-                    holder.tvInitials.visibility = View.VISIBLE
-                    holder.tvInitials.text = getInitials(contact.name)
                 }
             } else {
                 holder.imgAvatar.visibility = View.GONE
@@ -639,7 +673,6 @@ class TrustedContactsFragment : Fragment() {
                 holder.tvInitials.text = getInitials(contact.name)
             }
 
-            // If the request is inbound, change "EDIT" to "ACCEPT"
             if (contact.status == "PENDING_RECEIVED") {
                 holder.tvEdit.text = "ACCEPT"
                 holder.tvEdit.setTextColor(Color.parseColor("#10B981"))
@@ -648,8 +681,29 @@ class TrustedContactsFragment : Fragment() {
                     saveContacts()
                     notifyItemChanged(position)
 
-                    // Note: In a full app, you would also push an update to the OTHER user's database
-                    // changing their "PENDING" tag to "ACCEPTED" so they know you accepted.
+                    val myUid = auth.currentUser?.uid
+                    val theirUid = contact.uid
+
+                    if (myUid != null && theirUid.isNotEmpty()) {
+                        db.collection("Users").document(theirUid).get().addOnSuccessListener { theirDoc ->
+                            val theirContacts = theirDoc.get("trustedContacts") as? MutableList<MutableMap<String, Any>> ?: mutableListOf()
+
+                            var databaseUpdated = false
+
+                            for (c in theirContacts) {
+                                if (c["uid"] == myUid) {
+                                    c["status"] = "ACCEPTED"
+                                    databaseUpdated = true
+                                    break
+                                }
+                            }
+
+                            if (databaseUpdated) {
+                                db.collection("Users").document(theirUid)
+                                    .set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
+                            }
+                        }
+                    }
                     showSentryToast("Invite Accepted! You are now mutually connected.", isLong = false)
                 }
             } else {

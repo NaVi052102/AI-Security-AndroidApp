@@ -24,6 +24,12 @@ import com.example.aisecurity.ui.main.LoginActivity
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.storage.FirebaseStorage
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URL
 
 class AccountSettingsFragment : Fragment() {
 
@@ -35,27 +41,16 @@ class AccountSettingsFragment : Fragment() {
     private var currentMI = ""
     private var currentPhotoUri = ""
 
-    // Main UI Avatar
     private lateinit var mainAvatarImage: ImageView
     private lateinit var mainAvatarInitials: TextView
 
-    // Modal Elements
     private var dialogAvatarImage: ImageView? = null
     private var dialogAvatarInitials: TextView? = null
 
-    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
-        uri?.let {
-            try {
-                val takeFlags: Int = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                requireActivity().contentResolver.takePersistableUriPermission(it, takeFlags)
-                currentPhotoUri = it.toString()
-
-                dialogAvatarImage?.setImageURI(it)
-                dialogAvatarImage?.visibility = View.VISIBLE
-                dialogAvatarInitials?.visibility = View.GONE
-            } catch (e: Exception) {
-                showSentryToast("Failed to load image", isLong = false)
-            }
+    // 🚨 Opens gallery and triggers upload
+    private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri != null) {
+            uploadPhotoToFirebase(uri)
         }
     }
 
@@ -124,7 +119,6 @@ class AccountSettingsFragment : Fragment() {
                 prefs.edit().putBoolean("is_logged_in", false).apply()
 
                 com.example.aisecurity.ble.WatchManager.disconnect()
-
                 auth.signOut()
 
                 val intent = Intent(requireActivity(), LoginActivity::class.java)
@@ -134,9 +128,41 @@ class AccountSettingsFragment : Fragment() {
         }
     }
 
-    // ==========================================
-    // 🚨 NEW CUSTOM GLASS VERIFICATION DIALOG
-    // ==========================================
+    // 🚨 Uploads to Firebase Storage & saves link to Firestore
+    private fun uploadPhotoToFirebase(fileUri: Uri) {
+        val uid = auth.currentUser?.uid ?: return
+        showSentryToast("Uploading photo...", isLong = true)
+
+        val storageRef = FirebaseStorage.getInstance().reference.child("profile_pictures/$uid.jpg")
+
+        storageRef.putFile(fileUri)
+            .addOnSuccessListener {
+                storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
+                    currentPhotoUri = downloadUri.toString()
+
+                    // Instantly update database so MapFragment catches it
+                    db.collection("Users").document(uid)
+                        .set(hashMapOf("photoUri" to currentPhotoUri), SetOptions.merge())
+
+                    CoroutineScope(Dispatchers.IO).launch {
+                        try {
+                            val bitmap = android.graphics.BitmapFactory.decodeStream(URL(currentPhotoUri).openStream())
+                            withContext(Dispatchers.Main) {
+                                dialogAvatarImage?.setImageBitmap(bitmap)
+                                dialogAvatarImage?.visibility = View.VISIBLE
+                                dialogAvatarInitials?.visibility = View.GONE
+                                updateMainAvatarUI() // Update background UI too
+                                showSentryToast("Photo uploaded successfully!", isLong = false)
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                }
+            }
+            .addOnFailureListener {
+                showSentryToast("Failed to upload photo.", isLong = false)
+            }
+    }
+
     private fun showSecureVerificationDialog(title: String, message: String, isNightMode: Boolean, onProceed: () -> Unit) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_secure_verification, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
@@ -166,7 +192,6 @@ class AccountSettingsFragment : Fragment() {
         } else {
             applyPrimaryButton(btnProceed, isNightMode)
         }
-
         applyGhostButton(btnCancel, isNightMode)
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -177,12 +202,10 @@ class AccountSettingsFragment : Fragment() {
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
         btnCancel.setOnClickListener { dialog.dismiss() }
-
         btnProceed.setOnClickListener {
             dialog.dismiss()
             onProceed()
         }
-
         dialog.show()
     }
 
@@ -218,23 +241,31 @@ class AccountSettingsFragment : Fragment() {
 
     private fun updateMainAvatarUI() {
         if (currentPhotoUri.isNotEmpty()) {
-            try {
-                val uri = Uri.parse(currentPhotoUri)
-                val inputStream = requireContext().contentResolver.openInputStream(uri)
-                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-
-                if (bitmap != null) {
-                    mainAvatarImage.setImageBitmap(bitmap)
-                    mainAvatarImage.visibility = View.VISIBLE
-                    mainAvatarInitials.visibility = View.GONE
-                } else {
-                    throw Exception("Bitmap decode failed")
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val bitmap = if (currentPhotoUri.startsWith("http")) {
+                        android.graphics.BitmapFactory.decodeStream(URL(currentPhotoUri).openStream())
+                    } else {
+                        requireContext().contentResolver.openInputStream(Uri.parse(currentPhotoUri))?.use {
+                            android.graphics.BitmapFactory.decodeStream(it)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (bitmap != null && isAdded) {
+                            mainAvatarImage.setImageBitmap(bitmap)
+                            mainAvatarImage.visibility = View.VISIBLE
+                            mainAvatarInitials.visibility = View.GONE
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        if (isAdded) {
+                            mainAvatarImage.visibility = View.GONE
+                            mainAvatarInitials.visibility = View.VISIBLE
+                            mainAvatarInitials.text = getInitials(currentFirstName, currentLastName)
+                        }
+                    }
                 }
-            } catch (e: Exception) {
-                mainAvatarImage.visibility = View.GONE
-                mainAvatarInitials.visibility = View.VISIBLE
-                mainAvatarInitials.text = getInitials(currentFirstName, currentLastName)
             }
         } else {
             mainAvatarImage.visibility = View.GONE
@@ -279,30 +310,36 @@ class AccountSettingsFragment : Fragment() {
         etMI.setText(currentMI)
 
         if (currentPhotoUri.isNotEmpty()) {
-            try {
-                val uri = Uri.parse(currentPhotoUri)
-                val inputStream = requireContext().contentResolver.openInputStream(uri)
-                val bitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                inputStream?.close()
-
-                if (bitmap != null) {
-                    dialogAvatarImage?.setImageBitmap(bitmap)
-                    dialogAvatarImage?.visibility = View.VISIBLE
-                    dialogAvatarInitials?.visibility = View.GONE
-                } else {
-                    throw Exception("Bitmap decode failed")
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val bitmap = if (currentPhotoUri.startsWith("http")) {
+                        android.graphics.BitmapFactory.decodeStream(URL(currentPhotoUri).openStream())
+                    } else {
+                        requireContext().contentResolver.openInputStream(Uri.parse(currentPhotoUri))?.use {
+                            android.graphics.BitmapFactory.decodeStream(it)
+                        }
+                    }
+                    withContext(Dispatchers.Main) {
+                        if (bitmap != null) {
+                            dialogAvatarImage?.setImageBitmap(bitmap)
+                            dialogAvatarImage?.visibility = View.VISIBLE
+                            dialogAvatarInitials?.visibility = View.GONE
+                        }
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        dialogAvatarImage?.visibility = View.GONE
+                        dialogAvatarInitials?.visibility = View.VISIBLE
+                        dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
+                    }
                 }
-            } catch (e: Exception) {
-                dialogAvatarImage?.visibility = View.GONE
-                dialogAvatarInitials?.visibility = View.VISIBLE
-                dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
             }
         } else {
             dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
         }
 
         cardDialogAvatar.setOnClickListener {
-            pickImageLauncher.launch(arrayOf("image/*"))
+            pickImageLauncher.launch("image/*")
         }
 
         val dialog = AlertDialog.Builder(requireContext())
@@ -442,9 +479,6 @@ class AccountSettingsFragment : Fragment() {
         button.background = bg
     }
 
-    // ==========================================
-    // 🚨 PREMIUM CUSTOM TOAST BUILDER
-    // ==========================================
     private fun showSentryToast(message: String, isLong: Boolean) {
         val toast = Toast(requireContext())
         toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT

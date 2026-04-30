@@ -84,7 +84,9 @@
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data android:scheme="https" android:host="bioguard-efb32.web.app" android:pathPrefix="/track" />
+
+                <!-- 🚨 REMOVED pathPrefix="/track" -->
+                <data android:scheme="https" android:host="bioguard-efb32.web.app" />
             </intent-filter>
         </activity>
 
@@ -177,7 +179,7 @@
             </intent-filter>
         </service>
 
-
+        <service android:name=".ui.map.RemoteCommandService" android:exported="false" />
         <service
             android:name=".ble.WatchNotificationService"
             android:label="Sentry Notification Sync"

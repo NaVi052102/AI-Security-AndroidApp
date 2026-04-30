@@ -4,23 +4,38 @@
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginBottom="12dp"
-    android:background="@drawable/bg_rounded_dialog"
     android:clickable="true"
     android:focusable="true"
     android:foreground="?attr/selectableItemBackground"
     android:orientation="horizontal"
     android:padding="16dp"
     android:gravity="center_vertical">
-    <TextView
-        android:id="@+id/tvMapContactAvatar"
+
+    <!-- 🚨 NEW: CardView Wrapper to hold both Initials and the actual Image -->
+    <androidx.cardview.widget.CardView
         android:layout_width="48dp"
         android:layout_height="48dp"
-        android:fontFamily="@font/inter"
-        android:gravity="center"
-        android:text="IS"
-        android:textColor="#FFFFFF"
-        android:textSize="16sp"
-        android:textStyle="bold" />
+        app:cardCornerRadius="24dp"
+        app:cardElevation="0dp"
+        app:cardBackgroundColor="@android:color/transparent">
+
+        <TextView
+            android:id="@+id/tvMapContactAvatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:textColor="#FFFFFF"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <ImageView
+            android:id="@+id/imgMapContactAvatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+    </androidx.cardview.widget.CardView>
 
     <LinearLayout
         android:layout_width="0dp"
@@ -34,7 +49,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter"
-            android:text="User Name"
             android:textColor="@color/ig_text_primary"
             android:textSize="15sp"
             android:textStyle="bold" />
@@ -45,7 +59,6 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
             android:fontFamily="@font/inter"
-            android:text="Distance: 8.7km"
             android:textColor="@color/ig_text_secondary"
             android:textSize="12sp" />
     </LinearLayout>
@@ -63,10 +76,8 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:fontFamily="@font/inter"
-            android:text="Stationary"
             android:textColor="#3B82F6"
             android:textSize="11sp"
             android:textStyle="bold" />
     </LinearLayout>
-
 </LinearLayout>

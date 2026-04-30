@@ -53,7 +53,8 @@ dependencies {
 
     // Add the Firebase Bill of Materials (BoM)
     implementation(platform("com.google.firebase:firebase-bom:32.8.0"))
-
+    implementation("com.google.firebase:firebase-storage-ktx:20.3.0")
+    implementation("com.google.firebase:firebase-storage-ktx")
     // Add Firebase Authentication
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")

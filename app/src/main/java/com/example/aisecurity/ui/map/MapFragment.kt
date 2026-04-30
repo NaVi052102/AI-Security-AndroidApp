@@ -68,13 +68,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
+// 🚨 Added photoUri to the data class
 data class MapContactSummary(
     val uid: String,
     val name: String,
     val colorHex: String,
     var locationName: String = "Locating...",
     var statusStr: String = "Connecting...",
-    var isSOS: Boolean = false
+    var isSOS: Boolean = false,
+    var photoUri: String = ""
 )
 
 @SuppressLint("MissingPermission")
@@ -215,6 +217,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     inner class MapContactsAdapter : RecyclerView.Adapter<MapContactsAdapter.ViewHolder>() {
         inner class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
             val tvAvatar: TextView = view.findViewById(R.id.tvMapContactAvatar)
+            val imgAvatar: ImageView? = view.findViewById(R.id.imgMapContactAvatar) // Ensure this is in XML
             val tvName: TextView = view.findViewById(R.id.tvMapContactName)
             val tvLocation: TextView = view.findViewById(R.id.tvMapContactLocation)
             val tvStatus: TextView = view.findViewById(R.id.tvMapContactStatus)
@@ -229,7 +232,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val contact = mapContactsList[position]
 
             holder.tvName.text = contact.name
-            holder.tvAvatar.text = getInitials(contact.name)
             holder.tvLocation.text = contact.locationName
             holder.tvStatus.text = contact.statusStr
 
@@ -250,6 +252,49 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             holder.tvAvatar.background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
                 setColor(Color.parseColor(contact.colorHex))
+            }
+
+            // 🚨 Load Image using Coroutines and HttpURLConnection
+            if (contact.photoUri.isNotEmpty() && holder.imgAvatar != null) {
+                holder.imgAvatar.visibility = View.VISIBLE
+                holder.tvAvatar.visibility = View.GONE
+                val imageUrl = contact.photoUri
+                holder.imgAvatar.tag = imageUrl
+
+                viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                    try {
+                        val bitmap = if (imageUrl.startsWith("http")) {
+                            val connection = URL(imageUrl).openConnection() as HttpURLConnection
+                            connection.doInput = true
+                            connection.connect()
+                            android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                        } else {
+                            holder.itemView.context.contentResolver.openInputStream(Uri.parse(imageUrl))?.use {
+                                android.graphics.BitmapFactory.decodeStream(it)
+                            }
+                        }
+
+                        withContext(Dispatchers.Main) {
+                            if (bitmap != null && holder.imgAvatar.tag == imageUrl) {
+                                holder.imgAvatar.setImageBitmap(bitmap)
+                                // Make it a circle programmatically if scaleType centerCrop isn't enough
+                                val roundedDrawable = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(resources, bitmap)
+                                roundedDrawable.isCircular = true
+                                holder.imgAvatar.setImageDrawable(roundedDrawable)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        withContext(Dispatchers.Main) {
+                            holder.imgAvatar.visibility = View.GONE
+                            holder.tvAvatar.visibility = View.VISIBLE
+                            holder.tvAvatar.text = getInitials(contact.name)
+                        }
+                    }
+                }
+            } else {
+                holder.imgAvatar?.visibility = View.GONE
+                holder.tvAvatar.visibility = View.VISIBLE
+                holder.tvAvatar.text = getInitials(contact.name)
             }
 
             holder.itemView.setOnClickListener {
@@ -413,7 +458,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun showSosConfirmationDialog() {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_sos_confirmation, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
-        val etCode = dialogView.findViewById<android.widget.EditText>(R.id.etConfirmationCode)
         val btnGetCode = dialogView.findViewById<TextView>(R.id.btnGetCode)
         val btnCancel = dialogView.findViewById<androidx.appcompat.widget.AppCompatButton>(R.id.btnCancelSos)
         val btnVerify = dialogView.findViewById<androidx.appcompat.widget.AppCompatButton>(R.id.btnVerifySos)
@@ -457,6 +501,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         dialog.show()
     }
 
+    // 🚨 UPDATED: A fully dynamic, personalized remote control panel for EACH user!
     private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
         if (!isAdded) return
 
@@ -508,11 +553,117 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
+        // Find Dynamic XML Views
+        val ivAvatar = dialogView.findViewById<ImageView>(R.id.ivAvatar)
+        val tvBattery = dialogView.findViewById<TextView>(R.id.tvBattery)
+        val tvLocationCity = dialogView.findViewById<TextView>(R.id.tvLocationCity)
+        val tvLatitude = dialogView.findViewById<TextView>(R.id.tvLatitude)
+        val tvLongitude = dialogView.findViewById<TextView>(R.id.tvLongitude)
+        val tvRemoteDistance = dialogView.findViewById<TextView>(R.id.tvRemoteDistance)
+
+        // Setup the physical toggles and listeners
         setupToggles(dialogView, targetUid, dialog)
         setupAiSensitivityDropdown(dialogView)
-        setupCameraDropdown(dialogView, targetUid) // 🚨 NEW
-        setupLockDropdown(dialogView, targetUid)   // 🚨 NEW
+        setupCameraDropdown(dialogView, targetUid)
+        setupLockDropdown(dialogView, targetUid)
         setupAiButton(dialogView)
+
+        val isLocalDevice = (targetUid == auth.currentUser?.uid)
+
+        // 🚨 DYNAMIC DATA HYDRATION: Connect the UI directly to the specific user's database stream
+        if (targetUid != null && !isLocalDevice) {
+            val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
+                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
+
+                val lat = snapshot.getDouble("currentLat") ?: 0.0
+                val lng = snapshot.getDouble("currentLng") ?: 0.0
+                val battery = snapshot.getLong("battery")?.toInt() ?: 100
+                val placeName = snapshot.getString("placeName") ?: "Unknown Location"
+                val photoUri = snapshot.getString("photoUri") ?: ""
+
+                // Hydrate Telemetry
+                tvBattery?.text = "$battery%"
+                tvLocationCity?.text = placeName
+                tvLatitude?.text = String.format(Locale.US, "%.4f° N", lat)
+                tvLongitude?.text = String.format(Locale.US, "%.4f° E", lng)
+
+                // Hydrate Distance
+                myCurrentLatLng?.let { myPos ->
+                    val dist = distanceBetween(myPos.latitude, myPos.longitude, lat, lng)
+                    tvRemoteDistance?.text = formatDistance(dist)
+                }
+
+                // Hydrate Custom Avatar
+                if (photoUri.isNotEmpty() && ivAvatar != null) {
+                    val currentTag = ivAvatar.tag as? String
+                    if (currentTag != photoUri) {
+                        ivAvatar.tag = photoUri
+                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val bitmap = if (photoUri.startsWith("http")) {
+                                    val connection = URL(photoUri).openConnection() as HttpURLConnection
+                                    connection.doInput = true
+                                    connection.connect()
+                                    android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                                } else {
+                                    requireContext().contentResolver.openInputStream(Uri.parse(photoUri))?.use {
+                                        android.graphics.BitmapFactory.decodeStream(it)
+                                    }
+                                }
+                                withContext(Dispatchers.Main) {
+                                    if (bitmap != null && ivAvatar.tag == photoUri) {
+                                        val roundedDrawable = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(resources, bitmap)
+                                        roundedDrawable.isCircular = true
+                                        ivAvatar.setImageDrawable(roundedDrawable)
+                                        ivAvatar.setPadding(0, 0, 0, 0) // Remove default padding for custom image
+                                    }
+                                }
+                            } catch (e: Exception) { e.printStackTrace() }
+                        }
+                    }
+                }
+            }
+            dialog.setOnDismissListener { listener.remove() }
+
+        } else if (isLocalDevice) {
+            // Local Device UI Update (Self)
+            tvBattery?.text = "${getBatteryLevel()}%"
+            tvLocationCity?.text = mapContactsList.find { it.uid == "ME" }?.locationName ?: "Locating..."
+            myCurrentLatLng?.let {
+                tvLatitude?.text = String.format(Locale.US, "%.4f° N", it.latitude)
+                tvLongitude?.text = String.format(Locale.US, "%.4f° E", it.longitude)
+            }
+            tvRemoteDistance?.text = "0m"
+
+            if (myPhotoUri.isNotEmpty() && ivAvatar != null) {
+                val currentTag = ivAvatar.tag as? String
+                if (currentTag != myPhotoUri) {
+                    ivAvatar.tag = myPhotoUri
+                    viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+                        try {
+                            val bitmap = if (myPhotoUri.startsWith("http")) {
+                                val connection = URL(myPhotoUri).openConnection() as HttpURLConnection
+                                connection.doInput = true
+                                connection.connect()
+                                android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                            } else {
+                                requireContext().contentResolver.openInputStream(Uri.parse(myPhotoUri))?.use {
+                                    android.graphics.BitmapFactory.decodeStream(it)
+                                }
+                            }
+                            withContext(Dispatchers.Main) {
+                                if (bitmap != null && ivAvatar.tag == myPhotoUri) {
+                                    val roundedDrawable = androidx.core.graphics.drawable.RoundedBitmapDrawableFactory.create(resources, bitmap)
+                                    roundedDrawable.isCircular = true
+                                    ivAvatar.setImageDrawable(roundedDrawable)
+                                    ivAvatar.setPadding(0, 0, 0, 0)
+                                }
+                            }
+                        } catch (e: Exception) { e.printStackTrace() }
+                    }
+                }
+            }
+        }
 
         dialog.show()
     }
@@ -537,11 +688,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 selectOption(dialogView, options, chkId)
                 collapsePanel(panel, chevron)
 
-                // SEND COMMAND TO FIREBASE
                 val uidToCommand = targetUid ?: auth.currentUser?.uid
                 if (uidToCommand != null) {
                     db.collection("Users").document(uidToCommand).set(
-                        hashMapOf("cmd_take_photo" to label), // Sends "Front" or "Back"
+                        hashMapOf("cmd_take_photo" to label),
                         SetOptions.merge()
                     )
                     showSentryToast("Command sent: Take $label Photo", isLong = false)
@@ -689,10 +839,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
                 isUpdatingUI = false
             }
-            dialog.setOnDismissListener { listener.remove() }
+            // (Note: The snapshot listener for the main layout variables is handled earlier and attached to dialog dismiss)
         }
 
-        // 🚨 PASSING 'STATE_' VARIABLES INSTEAD OF 'CMD_' TO ALLOW DATABASE EDITS
         fun handleToggle(switchView: SwitchMaterial?, stateField: String, targetSetting: String, tvStatus: TextView?, onText: String, offText: String, icon: View?) {
             switchView?.setOnCheckedChangeListener { _, isOn ->
                 tvStatus?.text = if (isOn) onText else offText
@@ -865,6 +1014,227 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
+    // 🚨 RESTORED: Needed for interface implementation
+    override fun onSensorChanged(event: SensorEvent?) {
+        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+            val rotationMatrix = FloatArray(9)
+            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+            val orientation = FloatArray(3)
+            SensorManager.getOrientation(rotationMatrix, orientation)
+
+            val azimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
+            lastKnownCompassBearing = (azimuth + 360) % 360
+
+            gMapMarker?.rotation = lastKnownCompassBearing
+
+            if (isNavModeActive && myCurrentLatLng != null) {
+                val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
+                    .target(myCurrentLatLng!!)
+                    .zoom(19.5f)
+                    .tilt(65f)
+                    .bearing(lastKnownCompassBearing)
+                    .build()
+                gMap?.moveCamera(CameraUpdateFactory.newCameraPosition(camPos))
+            }
+        }
+    }
+
+    // 🚨 RESTORED: Needed for interface implementation
+    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+
+    // 🚨 RESTORED: Needed to handle GPS listener
+    private val locationListener = LocationListener { location ->
+        processLocationUpdate(location)
+    }
+
+    // 🚨 RESTORED: Needed to start the GPS
+    private fun startLocationTracking(userId: String) {
+        try {
+            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, locationListener)
+            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener)
+
+            val lastLoc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
+                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
+            lastLoc?.let { processLocationUpdate(it) }
+        } catch (e: SecurityException) {
+            e.printStackTrace()
+        }
+    }
+
+    // 🚨 UPDATED: Snapshot listener properly watches for photo changes AND starts Remote Service
+    override fun onResume() {
+        super.onResume()
+        lastRouteFetchTime = 0L
+
+        if (!isHidden) {
+            view?.post { if(isAdded) toggleFullScreenMap(true) }
+        }
+
+        val networkRequest = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
+        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
+
+        val userId = auth.currentUser?.uid
+        if (userId != null) {
+
+            // 🚨 START THE REMOTE COMMAND LISTENER SERVICE HERE
+            val serviceIntent = Intent(requireContext(), RemoteCommandService::class.java)
+            requireContext().startService(serviceIntent)
+
+            val myRegistration = db.collection("Users").document(userId).addSnapshotListener { doc, e ->
+                if (e != null || doc == null || !doc.exists()) return@addSnapshotListener
+
+                if (isAdded) {
+                    myName = doc.getString("fullName") ?: "Me"
+
+                    val newPhotoUri = doc.getString("photoUri") ?: ""
+                    if (newPhotoUri != myPhotoUri) {
+                        myPhotoUri = newPhotoUri
+                        cachedMyBitmap = null // Bust the cache
+
+                        // 🚨 FORCE REDRAW immediately bypassing the stationary GPS wait
+                        myCurrentLatLng?.let {
+                            val dummyLoc = Location(LocationManager.GPS_PROVIDER).apply {
+                                latitude = it.latitude
+                                longitude = it.longitude
+                                accuracy = 10f
+                                speed = 0f
+                            }
+                            processLocationUpdate(dummyLoc)
+                        }
+                    }
+
+                    if (isFirstLocationUpdate) startLocationTracking(userId)
+                }
+            }
+            activeFirebaseListeners.add(myRegistration)
+        }
+
+        rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
+
+        if (!isHidden) {
+            checkAndProcessQrIntent()
+            initLife360Engine()
+        }
+    }
+
+    // 🚨 RESTORED: QR Intent processing
+    fun checkAndProcessQrIntent() {
+        val currentActivity = activity ?: return
+        val intent = currentActivity.intent
+        val data: Uri? = intent?.data
+
+        if (data != null && data.scheme == "https" && data.host == "bioguard-efb32.web.app") {
+            val targetUid = data.getQueryParameter("uid")
+            val targetName = data.getQueryParameter("name") ?: "Lost Device"
+
+            if (targetUid != null && targetUid != auth.currentUser?.uid) {
+                unlockedViaQrUids.add(targetUid)
+                autoAddLostDevice(targetUid, targetName)
+                intent.data = null
+            } else if (targetUid == null && targetName != "Lost Device") {
+                findUidAndAddLostDevice(targetName)
+                intent.data = null
+            }
+        }
+    }
+
+    // 🚨 RESTORED: User search
+    private fun findUidAndAddLostDevice(identifier: String) {
+        db.collection("Users").whereEqualTo("email", identifier).get().addOnSuccessListener { docs ->
+            if (!docs.isEmpty) {
+                val foundUid = docs.documents[0].id
+                unlockedViaQrUids.add(foundUid)
+                autoAddLostDevice(foundUid, identifier)
+            } else {
+                db.collection("Users").whereEqualTo("phoneNumber", identifier).get().addOnSuccessListener { phoneDocs ->
+                    if (!phoneDocs.isEmpty) {
+                        val foundUid = phoneDocs.documents[0].id
+                        unlockedViaQrUids.add(foundUid)
+                        autoAddLostDevice(foundUid, identifier)
+                    } else {
+                        showSentryToast("Account not found in database.", isLong = true)
+                    }
+                }
+            }
+        }
+    }
+
+    // 🚨 RESTORED: Auto Add logic
+    private fun autoAddLostDevice(uid: String, fallbackName: String) {
+        val myUid = auth.currentUser?.uid ?: return
+
+        db.collection("Users").document(myUid).get().addOnSuccessListener { currentUserDoc ->
+            val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
+
+            if (existingList.none { it["uid"] == uid }) {
+                db.collection("Users").document(uid).get().addOnSuccessListener { targetUserDoc ->
+                    var actualName = fallbackName
+                    var actualNumber = "Tracking Protocol Active"
+                    var actualPhoto = ""
+
+                    if (targetUserDoc.exists()) {
+                        actualName = targetUserDoc.getString("fullName") ?: targetUserDoc.getString("name") ?: fallbackName
+                        actualNumber = targetUserDoc.getString("phoneNumber") ?: targetUserDoc.getString("number") ?: "No Number Provided"
+                        actualPhoto = targetUserDoc.getString("photoUri") ?: ""
+                    }
+
+                    val newContact = mapOf(
+                        "id" to java.util.UUID.randomUUID().toString(),
+                        "name" to "$actualName (Lost Device)",
+                        "number" to actualNumber,
+                        "photoUri" to actualPhoto,
+                        "uid" to uid
+                    )
+                    existingList.add(newContact)
+
+                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    showSentryToast("$actualName added to tracking list.", isLong = true)
+
+                    val theirContacts = targetUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
+                    if (theirContacts.none { it["uid"] == myUid }) {
+                        val myNameSaved = currentUserDoc.getString("fullName") ?: currentUserDoc.getString("name") ?: "Sentry User"
+                        val myPhoneSaved = currentUserDoc.getString("phoneNumber") ?: currentUserDoc.getString("number") ?: ""
+                        val myPhotoSaved = currentUserDoc.getString("photoUri") ?: ""
+
+                        val myContactForThem = mapOf(
+                            "id" to java.util.UUID.randomUUID().toString(),
+                            "name" to myNameSaved,
+                            "number" to myPhoneSaved,
+                            "photoUri" to myPhotoSaved,
+                            "uid" to myUid
+                        )
+                        theirContacts.add(myContactForThem)
+                        db.collection("Users").document(uid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
+                    }
+
+                    showRemoteControlPanel(actualName, uid)
+                    initLife360Engine()
+
+                }.addOnFailureListener {
+                    val newContact = mapOf(
+                        "id" to java.util.UUID.randomUUID().toString(),
+                        "name" to "$fallbackName (Lost Device)",
+                        "number" to "Tracking Protocol Active",
+                        "photoUri" to "",
+                        "uid" to uid
+                    )
+                    existingList.add(newContact)
+
+                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
+                    showSentryToast("✅ Target Acquired! Lost Device added to tracking list.", isLong = true)
+
+                    showRemoteControlPanel("$fallbackName (Lost Device)", uid)
+                    initLife360Engine()
+                }
+
+            } else {
+                showSentryToast("Device is already being tracked.", isLong = false)
+                val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
+                showRemoteControlPanel(actualName, uid)
+            }
+        }
+    }
+
     private fun applyGlassButton(button: Button, isNightMode: Boolean) {
         val bg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE;
@@ -963,6 +1333,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         return name.trim().split("\\s+".toRegex()).mapNotNull { it.firstOrNull()?.uppercase() }.take(2).joinToString("")
     }
 
+    // 🚨 UPDATED: Handles HTTP web links natively inside the coroutine block
     private fun createMarkerBitmap(context: Context, name: String, photoUri: String, arrowColorHex: String): android.graphics.Bitmap? {
         try {
             val density = context.resources.displayMetrics.density
@@ -992,12 +1363,22 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
             val innerRadius = radius - (3 * density)
             var imageDrawn = false
+
             if (photoUri.isNotEmpty()) {
                 try {
-                    val uri = Uri.parse(photoUri)
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    val rawBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
-                    inputStream?.close()
+                    val rawBitmap = if (photoUri.startsWith("http")) {
+                        val connection = URL(photoUri).openConnection() as HttpURLConnection
+                        connection.doInput = true
+                        connection.connect()
+                        android.graphics.BitmapFactory.decodeStream(connection.inputStream)
+                    } else {
+                        val uri = Uri.parse(photoUri)
+                        val inputStream = context.contentResolver.openInputStream(uri)
+                        val bmp = android.graphics.BitmapFactory.decodeStream(inputStream)
+                        inputStream?.close()
+                        bmp
+                    }
+
                     if (rawBitmap != null) {
                         val scaledBitmap = android.graphics.Bitmap.createScaledBitmap(rawBitmap, (innerRadius * 2).toInt(), (innerRadius * 2).toInt(), true)
                         val shader = android.graphics.BitmapShader(scaledBitmap, android.graphics.Shader.TileMode.CLAMP, android.graphics.Shader.TileMode.CLAMP)
@@ -1095,199 +1476,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         updateAllTrackingLines()
     }
 
-    override fun onResume() {
-        super.onResume()
-        lastRouteFetchTime = 0L
-
-        if (!isHidden) {
-            view?.post { if(isAdded) toggleFullScreenMap(true) }
-        }
-
-        val networkRequest = NetworkRequest.Builder().addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET).build()
-        connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
-
-        val userId = auth.currentUser?.uid
-        if (userId != null) {
-            db.collection("Users").document(userId).get().addOnSuccessListener { doc ->
-                if (doc != null && doc.exists() && isAdded) {
-                    myName = doc.getString("fullName") ?: "Me"
-                    myPhotoUri = doc.getString("photoUri") ?: ""
-
-                    startLocationTracking(userId)
-                } else {
-                    startLocationTracking(userId)
-                }
-            }.addOnFailureListener { startLocationTracking(userId) }
-        }
-
-        rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-
-        if (!isHidden) {
-            checkAndProcessQrIntent()
-            initLife360Engine()
-        }
-    }
-
-    fun checkAndProcessQrIntent() {
-        val currentActivity = activity ?: return
-        val intent = currentActivity.intent
-        val data: Uri? = intent?.data
-
-        if (data != null && data.scheme == "https" && data.host == "bioguard-efb32.web.app") {
-            val targetUid = data.getQueryParameter("uid")
-            val targetName = data.getQueryParameter("name") ?: "Lost Device"
-
-            if (targetUid != null && targetUid != auth.currentUser?.uid) {
-                unlockedViaQrUids.add(targetUid)
-                autoAddLostDevice(targetUid, targetName)
-                intent.data = null
-            } else if (targetUid == null && targetName != "Lost Device") {
-                findUidAndAddLostDevice(targetName)
-                intent.data = null
-            }
-        }
-    }
-
-    private fun findUidAndAddLostDevice(identifier: String) {
-        db.collection("Users").whereEqualTo("email", identifier).get().addOnSuccessListener { docs ->
-            if (!docs.isEmpty) {
-                val foundUid = docs.documents[0].id
-                unlockedViaQrUids.add(foundUid)
-                autoAddLostDevice(foundUid, identifier)
-            } else {
-                db.collection("Users").whereEqualTo("phoneNumber", identifier).get().addOnSuccessListener { phoneDocs ->
-                    if (!phoneDocs.isEmpty) {
-                        val foundUid = phoneDocs.documents[0].id
-                        unlockedViaQrUids.add(foundUid)
-                        autoAddLostDevice(foundUid, identifier)
-                    } else {
-                        showSentryToast("Account not found in database.", isLong = true)
-                    }
-                }
-            }
-        }
-    }
-
-    private fun autoAddLostDevice(uid: String, fallbackName: String) {
-        val myUid = auth.currentUser?.uid ?: return
-
-        db.collection("Users").document(myUid).get().addOnSuccessListener { currentUserDoc ->
-            val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
-
-            if (existingList.none { it["uid"] == uid }) {
-
-                db.collection("Users").document(uid).get().addOnSuccessListener { targetUserDoc ->
-                    var actualName = fallbackName
-                    var actualNumber = "Tracking Protocol Active"
-                    var actualPhoto = ""
-
-                    if (targetUserDoc.exists()) {
-                        actualName = targetUserDoc.getString("fullName") ?: targetUserDoc.getString("name") ?: fallbackName
-                        actualNumber = targetUserDoc.getString("phoneNumber") ?: targetUserDoc.getString("number") ?: "No Number Provided"
-                        actualPhoto = targetUserDoc.getString("photoUri") ?: ""
-                    }
-
-                    val newContact = mapOf(
-                        "id" to java.util.UUID.randomUUID().toString(),
-                        "name" to "$actualName (Lost Device)",
-                        "number" to actualNumber,
-                        "photoUri" to actualPhoto,
-                        "uid" to uid
-                    )
-                    existingList.add(newContact)
-
-                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
-                    showSentryToast("$actualName added to tracking list.", isLong = true)
-
-                    val theirContacts = targetUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
-                    if (theirContacts.none { it["uid"] == myUid }) {
-                        val myNameSaved = currentUserDoc.getString("fullName") ?: currentUserDoc.getString("name") ?: "Sentry User"
-                        val myPhoneSaved = currentUserDoc.getString("phoneNumber") ?: currentUserDoc.getString("number") ?: ""
-                        val myPhotoSaved = currentUserDoc.getString("photoUri") ?: ""
-
-                        val myContactForThem = mapOf(
-                            "id" to java.util.UUID.randomUUID().toString(),
-                            "name" to myNameSaved,
-                            "number" to myPhoneSaved,
-                            "photoUri" to myPhotoSaved,
-                            "uid" to myUid
-                        )
-                        theirContacts.add(myContactForThem)
-                        db.collection("Users").document(uid).set(mapOf("trustedContacts" to theirContacts), SetOptions.merge())
-                    }
-
-                    showRemoteControlPanel(actualName, uid)
-                    initLife360Engine()
-
-                }.addOnFailureListener {
-                    val newContact = mapOf(
-                        "id" to java.util.UUID.randomUUID().toString(),
-                        "name" to "$fallbackName (Lost Device)",
-                        "number" to "Tracking Protocol Active",
-                        "photoUri" to "",
-                        "uid" to uid
-                    )
-                    existingList.add(newContact)
-
-                    db.collection("Users").document(myUid).set(mapOf("trustedContacts" to existingList), SetOptions.merge())
-                    showSentryToast("✅ Target Acquired! Lost Device added to tracking list.", isLong = true)
-
-                    showRemoteControlPanel("$fallbackName (Lost Device)", uid)
-                    initLife360Engine()
-                }
-
-            } else {
-                showSentryToast("Device is already being tracked.", isLong = false)
-
-                val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
-                showRemoteControlPanel(actualName, uid)
-            }
-        }
-    }
-
-    override fun onSensorChanged(event: SensorEvent?) {
-        if (event?.sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
-            val rotationMatrix = FloatArray(9)
-            SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
-            val orientation = FloatArray(3)
-            SensorManager.getOrientation(rotationMatrix, orientation)
-
-            val azimuth = Math.toDegrees(orientation[0].toDouble()).toFloat()
-            lastKnownCompassBearing = (azimuth + 360) % 360
-
-            gMapMarker?.rotation = lastKnownCompassBearing
-
-            if (isNavModeActive && myCurrentLatLng != null) {
-                val camPos = com.google.android.gms.maps.model.CameraPosition.Builder()
-                    .target(myCurrentLatLng!!)
-                    .zoom(19.5f)
-                    .tilt(65f)
-                    .bearing(lastKnownCompassBearing)
-                    .build()
-                gMap?.moveCamera(CameraUpdateFactory.newCameraPosition(camPos))
-            }
-        }
-    }
-
-    override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
-
-    private val locationListener = LocationListener { location ->
-        processLocationUpdate(location)
-    }
-
-    private fun startLocationTracking(userId: String) {
-        try {
-            locationManager.requestLocationUpdates(LocationManager.GPS_PROVIDER, 2000L, 0f, locationListener)
-            locationManager.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 2000L, 0f, locationListener)
-
-            val lastLoc = locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER)
-                ?: locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER)
-            lastLoc?.let { processLocationUpdate(it) }
-        } catch (e: SecurityException) {
-            e.printStackTrace()
-        }
-    }
-
     private fun stopLocationTracking() {
         locationManager.removeUpdates(locationListener)
     }
@@ -1357,6 +1545,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             )
             db.collection("Users").document(userId).set(locationData, SetOptions.merge())
 
+            // 🚨 GENERATE MARKER BITMAP ON IO THREAD
+            val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
+            val newBitmap = if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
+                createMarkerBitmap(safeContext, myName, myPhotoUri, myArrowColor)
+            } else {
+                cachedMyBitmap
+            }
+
             withContext(Dispatchers.Main) {
                 if (!isAdded) return@withContext
 
@@ -1364,12 +1560,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     gMapMarker = gMap?.addMarker(MarkerOptions().position(currentLatlng).title("Me").anchor(0.5f, 0.5f).flat(true))
                 }
 
-                val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
-                if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
-                    cachedMyBitmap = createMarkerBitmap(safeContext, myName, myPhotoUri, myArrowColor)
-                    lastSosStateForBitmap = isSosActive
-                }
-
+                cachedMyBitmap = newBitmap
+                lastSosStateForBitmap = isSosActive
                 cachedMyBitmap?.let {
                     gMapMarker?.setIcon(BitmapDescriptorFactory.fromBitmap(it))
                 }
@@ -1383,6 +1575,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 mapContactsList.firstOrNull { it.uid == "ME" }?.let {
                     it.locationName = placeName
                     it.statusStr = finalStatus
+                    it.photoUri = myPhotoUri
                     mapContactsAdapter.notifyItemChanged(0)
                 }
 
@@ -1429,6 +1622,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                                 put("number", c["number"] ?: "")
                                 put("photoUri", c["photoUri"] ?: "")
                                 put("uid", c["uid"] ?: "")
+                                put("status", c["status"] ?: "ACCEPTED")
                             }
                             jsonArray.put(obj)
                         }
@@ -1458,8 +1652,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         val validUids = mutableListOf<String>()
         for (i in 0 until jsonArray.length()) {
-            val uid = jsonArray.getJSONObject(i).optString("uid", "")
-            if (uid.isNotEmpty()) validUids.add(uid)
+            val obj = jsonArray.getJSONObject(i)
+            val uid = obj.optString("uid", "")
+            val status = obj.optString("status", "ACCEPTED")
+            if (uid.isNotEmpty() && status == "ACCEPTED") validUids.add(uid)
         }
 
         val uidsToRemove = contactMarkersGMap.keys.filter { it !in validUids }
@@ -1482,7 +1678,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         mapContactsList.add(MapContactSummary(
             "ME", "Me", "#3B82F6",
             oldMe?.locationName ?: "Locating...",
-            oldMe?.statusStr ?: "Connecting..."
+            oldMe?.statusStr ?: "Connecting...",
+            false,
+            myPhotoUri
         ))
 
         for (i in 0 until jsonArray.length()) {
@@ -1490,15 +1688,18 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val uid = obj.optString("uid", "")
             val name = obj.optString("name", "")
             val friendPhotoUri = obj.optString("photoUri", "")
+            val status = obj.optString("status", "ACCEPTED")
 
-            if (uid.isNotEmpty()) {
+            if (uid.isNotEmpty() && status == "ACCEPTED") {
                 val oldFriend = oldContacts[uid]
                 val assignedColorHex = beautifulColors[(i + 1) % beautifulColors.size]
 
                 mapContactsList.add(MapContactSummary(
                     uid, name, assignedColorHex,
                     oldFriend?.locationName ?: "Connecting...",
-                    oldFriend?.statusStr ?: "Awaiting GPS..."
+                    oldFriend?.statusStr ?: "Awaiting GPS...",
+                    false,
+                    friendPhotoUri
                 ))
 
                 val registration = db.collection("Users").document(uid).addSnapshotListener { snapshot, e ->
@@ -1511,6 +1712,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     val isContactSOS = snapshot.getBoolean("isSOS") ?: false
                     val remoteBearing = snapshot.getDouble("bearing")?.toFloat() ?: 0f
                     val lastUpdatedMillis = snapshot.getTimestamp("lastUpdated")?.toDate()?.time ?: System.currentTimeMillis()
+
+                    // 🚨 FIXED: Prioritize the LIVE photo link directly from their root document instead of the cached array photo
                     val livePhotoUri = snapshot.getString("photoUri") ?: friendPhotoUri
 
                     if (lat != null && lng != null && isAdded) {
@@ -1578,6 +1781,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     mapContactsList[idx].locationName = "Distance: $distanceStr"
                     mapContactsList[idx].statusStr = statusString
                     mapContactsList[idx].isSOS = isContactSOS
+                    mapContactsList[idx].photoUri = photoUri // 🚨 Pass updated photo back to list
                     mapContactsAdapter.notifyItemChanged(idx)
                 }
 

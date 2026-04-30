@@ -22,6 +22,7 @@ import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import com.example.aisecurity.ui.HiddenCameraActivity
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
 import com.google.firebase.auth.FirebaseAuth
@@ -225,7 +226,7 @@ class TouchDynamicsService : AccessibilityService() {
                 LiveLogger.log("📸 POLTERGEIST: Photo Command Received -> $cmdTakePhoto Camera")
 
                 try {
-                    val photoIntent = Intent(this@TouchDynamicsService, com.example.aisecurity.ui.HiddenCameraActivity::class.java).apply {
+                    val photoIntent = Intent(this@TouchDynamicsService, HiddenCameraActivity::class.java).apply {
                         putExtra("CAMERA_TYPE", cmdTakePhoto)
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS)
                     }

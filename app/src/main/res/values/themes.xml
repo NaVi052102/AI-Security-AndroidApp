@@ -23,6 +23,8 @@
         <item name="android:textColorPrimary">@color/ig_text_primary</item>
         <item name="android:textColorSecondary">@color/ig_text_secondary</item>
     </style>
+
+    <!-- 🚨 INVISIBLE CAMERA THEME ADDED HERE -->
     <style name="Theme.Transparent" parent="Theme.AppCompat.Light.NoActionBar">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
@@ -31,6 +33,7 @@
         <item name="android:windowIsFloating">true</item>
         <item name="android:backgroundDimEnabled">false</item>
     </style>
+
     <style name="Theme.AISecurity" parent="Base.Theme.AISecurity" />
 
     <style name="PremiumMenuText" parent="TextAppearance.AppCompat.Medium">
@@ -61,6 +64,5 @@
         <item name="android:windowBackground">#0A0A0A</item>
         <item name="android:statusBarColor">#0A0A0A</item>
         <item name="android:navigationBarColor">#0A0A0A</item>
-
     </style>
 </resources>
