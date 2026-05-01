@@ -27,14 +27,7 @@ import com.example.aisecurity.ai.BehavioralAuthClassifier
 import com.example.aisecurity.ai.SecurityDatabase
 import com.example.aisecurity.ui.AppUsageAdapter
 import com.example.aisecurity.ui.LiveLogger
-import com.google.firebase.FirebaseException
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.auth.PhoneAuthCredential
-import com.google.firebase.auth.PhoneAuthOptions
-import com.google.firebase.auth.PhoneAuthProvider
-import com.google.firebase.firestore.FirebaseFirestore
 import kotlinx.coroutines.*
-import java.util.concurrent.TimeUnit
 import kotlin.math.max
 
 class BiometricsFragment : Fragment() {
@@ -49,9 +42,6 @@ class BiometricsFragment : Fragment() {
 
     // 🚨 RAM CACHE for Transition Tracker Icons
     private val iconCache = mutableMapOf<String, Drawable?>()
-
-    // Variable to hold the active SMS session ID
-    private var storedVerificationId: String = ""
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -118,6 +108,7 @@ class BiometricsFragment : Fragment() {
             prefs.edit().putBoolean("training_paused", true).apply()
         }
 
+        // 🚨 UPGRADED OBSERVER: Now binds the visual icons dynamically
         LiveLogger.logData.observe(viewLifecycleOwner) { logText ->
             val lastFlowLine = logText.split("\n").lastOrNull { it.contains("📱 FLOW:") }
             if (lastFlowLine != null) {
@@ -290,6 +281,7 @@ class BiometricsFragment : Fragment() {
         }
     }
 
+    // 🚨 High-Speed OS Icon Fetcher
     private fun fetchAppIcon(context: Context, appName: String): Drawable? {
         if (iconCache.containsKey(appName)) return iconCache[appName]
 
@@ -396,6 +388,7 @@ class BiometricsFragment : Fragment() {
 
         fun updateUI() {
             val step = steps[currentStep]
+
             tvTitle.text = step.title
             ivImage.setImageResource(step.imageRes)
 
@@ -412,9 +405,18 @@ class BiometricsFragment : Fragment() {
             btnNext.text = if (currentStep == steps.size - 1) "GOT IT" else "NEXT"
         }
 
-        btnBack.setOnClickListener { if (currentStep > 0) { currentStep--; updateUI() } }
+        btnBack.setOnClickListener {
+            if (currentStep > 0) {
+                currentStep--
+                updateUI()
+            }
+        }
+
         btnNext.setOnClickListener {
-            if (currentStep < steps.size - 1) { currentStep++; updateUI() } else {
+            if (currentStep < steps.size - 1) {
+                currentStep++
+                updateUI()
+            } else {
                 requireActivity().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
                     .edit().putBoolean("has_seen_biometrics_tutorial", true).apply()
                 dialog.dismiss()
@@ -442,145 +444,22 @@ class BiometricsFragment : Fragment() {
         return mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
-    // ==========================================
-    // 🚨 OTP FIREBASE RESET INTEGRATION (AUTO-SEND)
-    // ==========================================
     private fun showResetVerificationDialog(db: SecurityDatabase, prefs: SharedPreferences, classifier: BehavioralAuthClassifier) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_verify_reset, null)
         val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
-        val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
-        val etVerificationCode = dialogView.findViewById<EditText>(R.id.etVerificationCode)
-        val btnGetCode = dialogView.findViewById<TextView>(R.id.btnGetCode)
-        val btnCancel = dialogView.findViewById<Button>(R.id.btnCancel)
-        val btnVerify = dialogView.findViewById<Button>(R.id.btnVerify)
-
-        val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-
-        val dialogBg = GradientDrawable().apply {
-            cornerRadius = 60f
-            if (isNightMode) {
-                setColor(Color.parseColor("#FA0F172A"))
-                setStroke(2, Color.parseColor("#334155"))
+        dialogView.findViewById<Button>(R.id.btnCancel).setOnClickListener { dialog.dismiss() }
+        dialogView.findViewById<Button>(R.id.btnVerify).setOnClickListener {
+            val code = dialogView.findViewById<EditText>(R.id.etVerificationCode).text.toString().trim()
+            if (code == "123456") {
+                dialog.dismiss()
+                executeWipeProtocol(db, prefs, classifier)
             } else {
-                setColor(Color.parseColor("#FAFFFFFF"))
-                setStroke(2, Color.parseColor("#CBD5E1"))
-            }
-        }
-        dialogRoot?.background = dialogBg
-
-        val auth = FirebaseAuth.getInstance()
-        val firestore = FirebaseFirestore.getInstance()
-        var userPhone = ""
-
-        // Helper function to handle the OTP request so we can call it automatically
-        fun requestOtp(phone: String) {
-            btnGetCode?.text = "SENDING..."
-            btnGetCode?.isEnabled = false
-
-            val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
-                override fun onVerificationCompleted(credential: PhoneAuthCredential) {
-                    verifyAndWipe(credential, dialog, db, prefs, classifier, btnVerify!!)
-                }
-
-                override fun onVerificationFailed(e: FirebaseException) {
-                    showSentryToast("SMS Failed: ${e.message}", isLong = true)
-                    btnGetCode?.isEnabled = true
-                    btnGetCode?.text = "RETRY"
-                }
-
-                override fun onCodeSent(verificationId: String, token: PhoneAuthProvider.ForceResendingToken) {
-                    storedVerificationId = verificationId
-                    showSentryToast("OTP Sent securely to $phone", isLong = false)
-                    btnGetCode?.text = "RESEND"
-                    btnGetCode?.isEnabled = true
-                }
-            }
-
-            val options = PhoneAuthOptions.newBuilder(auth)
-                .setPhoneNumber(phone)
-                .setTimeout(60L, TimeUnit.SECONDS)
-                .setActivity(requireActivity())
-                .setCallbacks(callbacks)
-                .build()
-            PhoneAuthProvider.verifyPhoneNumber(options)
-        }
-
-        // Fetch user's actual phone number directly from Firestore and AUTO-SEND
-        auth.currentUser?.uid?.let { uid ->
-            firestore.collection("Users").document(uid).get().addOnSuccessListener { doc ->
-                userPhone = doc.getString("phoneNumber") ?: ""
-
-                if (userPhone.isNotEmpty()) {
-                    requestOtp(userPhone)
-                } else {
-                    showSentryToast("Error: Could not fetch registered phone number.", isLong = true)
-                    btnGetCode?.text = "ERROR"
-                }
-            }.addOnFailureListener {
-                showSentryToast("Error communicating with servers.", isLong = true)
-            }
-        }
-
-        // Keep the button functional in case they need to resend
-        btnGetCode?.setOnClickListener {
-            if (userPhone.isNotEmpty()) {
-                requestOtp(userPhone)
-            } else {
-                showSentryToast("Error: Could not fetch registered phone number.", isLong = true)
-            }
-        }
-
-        btnCancel?.setOnClickListener { dialog.dismiss() }
-
-        btnVerify?.setOnClickListener {
-            val code = etVerificationCode?.text.toString().trim()
-            if (code.length < 6) {
-                showSentryToast("Enter the full 6-digit code.", isLong = false)
-                return@setOnClickListener
-            }
-            if (storedVerificationId.isEmpty()) {
-                showSentryToast("Please wait for the OTP to be sent.", isLong = false)
-                return@setOnClickListener
-            }
-
-            btnVerify.isEnabled = false
-            btnVerify.text = "VERIFYING..."
-
-            try {
-                val credential = PhoneAuthProvider.getCredential(storedVerificationId, code)
-                verifyAndWipe(credential, dialog, db, prefs, classifier, btnVerify)
-            } catch (e: Exception) {
-                btnVerify.isEnabled = true
-                btnVerify.text = "VERIFY"
-                showSentryToast("Verification Error. Try again.", isLong = true)
+                showSentryToast("Invalid OTP.", isLong = false)
             }
         }
         dialog.show()
-    }
-
-    private fun verifyAndWipe(
-        credential: PhoneAuthCredential,
-        dialog: AlertDialog?,
-        db: SecurityDatabase,
-        prefs: SharedPreferences,
-        classifier: BehavioralAuthClassifier,
-        btnVerify: Button
-    ) {
-        val user = FirebaseAuth.getInstance().currentUser
-        if (user != null) {
-            user.reauthenticate(credential).addOnCompleteListener { task ->
-                if (task.isSuccessful) {
-                    dialog?.dismiss()
-                    executeWipeProtocol(db, prefs, classifier)
-                } else {
-                    btnVerify.isEnabled = true
-                    btnVerify.text = "VERIFY"
-                    showSentryToast("Incorrect Code: ${task.exception?.message}", isLong = true)
-                }
-            }
-        }
     }
 
     private fun executeWipeProtocol(db: SecurityDatabase, prefs: SharedPreferences, classifier: BehavioralAuthClassifier) {
@@ -692,6 +571,9 @@ class BiometricsFragment : Fragment() {
         }
     }
 
+    // ==========================================
+    // 🚨 PREMIUM CUSTOM TOAST BUILDER
+    // ==========================================
     private fun showSentryToast(message: String, isLong: Boolean) {
         val toast = Toast(requireContext())
         toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
