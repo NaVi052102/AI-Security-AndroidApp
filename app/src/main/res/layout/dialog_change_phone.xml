@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/dialogRoot"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:layout_margin="16dp">
+
+    <!-- ========================================== -->
+    <!-- PHASE 1: VERIFY CURRENT NUMBER             -->
+    <!-- ========================================== -->
+    <LinearLayout
+        android:id="@+id/layoutPhase1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:letterSpacing="0.15"
+            android:text="VERIFY CURRENT NUMBER"
+            android:textColor="#EF4444"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:id="@+id/tvOldPhoneDesc"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:text="To protect your account, please verify your current phone number first."
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="24dp"/>
+
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginBottom="24dp"
+            app:cardBackgroundColor="#1E293B"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <EditText
+                    android:id="@+id/etOldCode"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@null"
+                    android:fontFamily="monospace"
+                    android:hint="123456"
+                    android:textColorHint="#475569"
+                    android:inputType="number"
+                    android:maxLength="6"
+                    android:gravity="center"
+                    android:letterSpacing="0.3"
+                    android:paddingHorizontal="16dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="20sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnGetOldCode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:text="SEND"
+                    android:textColor="#3B82F6"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingHorizontal="16dp"
+                    android:layout_gravity="end"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </FrameLayout>
+        </androidx.cardview.widget.CardView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnCancelOld"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:fontFamily="@font/inter"
+                android:text="CANCEL"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#94A3B8"
+                android:background="@null"/>
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnVerifyOld"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/inter"
+                android:text="VERIFY"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#10B981"
+                android:background="@null"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- ========================================== -->
+    <!-- PHASE 2: ENTER NEW NUMBER                  -->
+    <!-- ========================================== -->
+    <LinearLayout
+        android:id="@+id/layoutPhase2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:letterSpacing="0.15"
+            android:text="NEW SECURE NUMBER"
+            android:textColor="#3B82F6"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:fontFamily="@font/inter"
+            android:gravity="center"
+            android:text="Enter your new mobile number to link it to your Sentry AI account."
+            android:textColor="@color/ig_text_secondary"
+            android:textSize="12sp"
+            android:layout_marginBottom="24dp"/>
+
+        <!-- Phone Input -->
+        <androidx.cardview.widget.CardView
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginBottom="12dp"
+            app:cardBackgroundColor="#1E293B"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <FrameLayout
+                android:layout_width="match_parent"
+                android:layout_height="match_parent">
+
+                <EditText
+                    android:id="@+id/etNewPhone"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:background="@null"
+                    android:fontFamily="monospace"
+                    android:hint="9123456789"
+                    android:textColorHint="#475569"
+                    android:inputType="phone"
+                    android:gravity="center_vertical"
+                    android:paddingHorizontal="16dp"
+                    android:textColor="#FFFFFF"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnGetNewCode"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:text="SEND"
+                    android:textColor="#3B82F6"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:gravity="center"
+                    android:paddingHorizontal="16dp"
+                    android:layout_gravity="end"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true" />
+            </FrameLayout>
+        </androidx.cardview.widget.CardView>
+
+        <!-- New OTP Input -->
+        <androidx.cardview.widget.CardView
+            android:id="@+id/cardNewOtp"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginBottom="24dp"
+            android:visibility="gone"
+            app:cardBackgroundColor="#1E293B"
+            app:cardCornerRadius="12dp"
+            app:cardElevation="0dp">
+
+            <EditText
+                android:id="@+id/etNewCode"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:background="@null"
+                android:fontFamily="monospace"
+                android:hint="123456"
+                android:textColorHint="#475569"
+                android:inputType="number"
+                android:maxLength="6"
+                android:gravity="center"
+                android:letterSpacing="0.3"
+                android:paddingHorizontal="16dp"
+                android:textColor="#FFFFFF"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+        </androidx.cardview.widget.CardView>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:weightSum="2">
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnCancelNew"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:fontFamily="@font/inter"
+                android:text="CANCEL"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#94A3B8"
+                android:background="@null"/>
+
+            <androidx.appcompat.widget.AppCompatButton
+                android:id="@+id/btnUpdatePhone"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:fontFamily="@font/inter"
+                android:text="UPDATE"
+                android:textSize="12sp"
+                android:textStyle="bold"
+                android:textColor="#3B82F6"
+                android:background="@null"/>
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

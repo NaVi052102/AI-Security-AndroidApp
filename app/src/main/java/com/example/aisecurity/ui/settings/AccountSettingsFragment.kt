@@ -21,7 +21,11 @@ import androidx.cardview.widget.CardView
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
 import com.example.aisecurity.ui.main.LoginActivity
+import com.google.firebase.FirebaseException
 import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.PhoneAuthCredential
+import com.google.firebase.auth.PhoneAuthOptions
+import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
@@ -30,6 +34,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.net.URL
+import java.util.concurrent.TimeUnit
 
 class AccountSettingsFragment : Fragment() {
 
@@ -40,6 +45,7 @@ class AccountSettingsFragment : Fragment() {
     private var currentLastName = ""
     private var currentMI = ""
     private var currentPhotoUri = ""
+    private var currentPhone = ""
 
     private lateinit var mainAvatarImage: ImageView
     private lateinit var mainAvatarInitials: TextView
@@ -47,11 +53,8 @@ class AccountSettingsFragment : Fragment() {
     private var dialogAvatarImage: ImageView? = null
     private var dialogAvatarInitials: TextView? = null
 
-    // 🚨 Opens gallery and triggers upload
     private val pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
-        if (uri != null) {
-            uploadPhotoToFirebase(uri)
-        }
+        if (uri != null) uploadPhotoToFirebase(uri)
     }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View? {
@@ -85,18 +88,14 @@ class AccountSettingsFragment : Fragment() {
 
         loadUserData(tvNameHeader, tvFullName, tvEmail, tvPhone)
 
-        btnEditProfile.setOnClickListener {
-            showEditProfileDialog(tvNameHeader, tvFullName)
-        }
+        btnEditProfile.setOnClickListener { showEditProfileDialog(tvNameHeader, tvFullName) }
 
         btnChangePhone.setOnClickListener {
-            showSecureVerificationDialog(
-                title = "Secure Number Verification",
-                message = "Changing your master phone number requires an SMS One-Time Password (OTP) to prove ownership. Do you wish to proceed to the verification flow?",
-                isNightMode = isNightMode
-            ) {
-                showSentryToast("Routing to Secure OTP Verification Activity...", isLong = true)
+            if (currentPhone.isEmpty() || currentPhone == "--") {
+                showSentryToast("No phone number linked. Please edit profile first.", false)
+                return@setOnClickListener
             }
+            showChangePhoneDialog(tvPhone, isNightMode)
         }
 
         btnChangeEmail.setOnClickListener {
@@ -104,9 +103,7 @@ class AccountSettingsFragment : Fragment() {
                 title = "Email Verification",
                 message = "Changing your recovery email address requires us to send a verification link to your current email. Do you wish to proceed?",
                 isNightMode = isNightMode
-            ) {
-                showSentryToast("Sending verification link...", isLong = true)
-            }
+            ) { showSentryToast("Sending verification link...", isLong = true) }
         }
 
         btnLogout.setOnClickListener {
@@ -128,7 +125,194 @@ class AccountSettingsFragment : Fragment() {
         }
     }
 
-    // 🚨 Uploads to Firebase Storage & saves link to Firestore
+    // ==========================================
+    // 🚨 2-STEP PHONE CHANGE LOGIC
+    // ==========================================
+    // ==========================================
+    // 🚨 2-STEP PHONE CHANGE LOGIC (FIXED BINDING)
+    // ==========================================
+    // ==========================================
+    // 🚨 2-STEP PHONE CHANGE LOGIC (FIXED BINDING)
+    // ==========================================
+    private fun showChangePhoneDialog(tvPhone: TextView, isNightMode: Boolean) {
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_change_phone, null)
+        val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        val dialogRoot: LinearLayout = dialogView.findViewById(R.id.dialogRoot)
+        val dialogBg = GradientDrawable().apply {
+            cornerRadius = 60f
+            if (isNightMode) {
+                setColor(Color.parseColor("#FA0F172A"))
+                setStroke(2, Color.parseColor("#334155"))
+            } else {
+                setColor(Color.parseColor("#FAFFFFFF"))
+                setStroke(2, Color.parseColor("#CBD5E1"))
+            }
+        }
+        dialogRoot.background = dialogBg
+
+        // Phase 1 Views Declared Explicitly
+        val layoutPhase1: LinearLayout = dialogView.findViewById(R.id.layoutPhase1)
+        val tvOldPhoneDesc: TextView = dialogView.findViewById(R.id.tvOldPhoneDesc)
+        val etOldCode: EditText = dialogView.findViewById(R.id.etOldCode)
+        val btnGetOldCode: TextView = dialogView.findViewById(R.id.btnGetOldCode)
+        val btnVerifyOld: Button = dialogView.findViewById(R.id.btnVerifyOld)
+        val btnCancelOld: Button = dialogView.findViewById(R.id.btnCancelOld)
+
+        // Phase 2 Views Declared Explicitly
+        val layoutPhase2: LinearLayout = dialogView.findViewById(R.id.layoutPhase2)
+        val etNewPhone: EditText = dialogView.findViewById(R.id.etNewPhone)
+        val etNewCode: EditText = dialogView.findViewById(R.id.etNewCode)
+        val cardNewOtp: CardView = dialogView.findViewById(R.id.cardNewOtp)
+        val btnGetNewCode: TextView = dialogView.findViewById(R.id.btnGetNewCode)
+        val btnUpdatePhone: Button = dialogView.findViewById(R.id.btnUpdatePhone)
+        val btnCancelNew: Button = dialogView.findViewById(R.id.btnCancelNew)
+
+        var oldVerificationId = ""
+        var newVerificationId = ""
+        var pendingNewPhone = ""
+
+        tvOldPhoneDesc.text = "An OTP will be sent to your current number ending in ${currentPhone.takeLast(4)} to verify your identity."
+
+        btnCancelOld.setOnClickListener { dialog.dismiss() }
+        btnCancelNew.setOnClickListener { dialog.dismiss() }
+
+        // Phase 1 Actions
+        btnGetOldCode.setOnClickListener {
+            btnGetOldCode.text = "SENDING..."
+            btnGetOldCode.isEnabled = false
+            requestFirebaseOtp(
+                phone = currentPhone,
+                onCodeSent = { id ->
+                    oldVerificationId = id
+                    btnGetOldCode.text = "SENT"
+                    showSentryToast("Security OTP sent", false)
+                },
+                onAutoVerified = { cred ->
+                    verifyOldPhone(cred, layoutPhase1, layoutPhase2, btnVerifyOld)
+                },
+                onError = { err ->
+                    btnGetOldCode.isEnabled = true
+                    btnGetOldCode.text = "RETRY"
+                    showSentryToast("SMS Error: $err", true)
+                }
+            )
+        }
+
+        btnVerifyOld.setOnClickListener {
+            val code = etOldCode.text.toString().trim()
+            if (code.length < 6) return@setOnClickListener showSentryToast("Enter full code", false)
+            if (oldVerificationId.isEmpty()) return@setOnClickListener showSentryToast("Request OTP first", false)
+
+            btnVerifyOld.text = "VERIFYING..."
+            btnVerifyOld.isEnabled = false
+            try {
+                val credential = PhoneAuthProvider.getCredential(oldVerificationId, code)
+                verifyOldPhone(credential, layoutPhase1, layoutPhase2, btnVerifyOld)
+            } catch (e: Exception) {
+                btnVerifyOld.text = "VERIFY"
+                btnVerifyOld.isEnabled = true
+                showSentryToast("Invalid Code", true)
+            }
+        }
+
+        // Phase 2 Actions
+        btnGetNewCode.setOnClickListener {
+            val inputRaw = etNewPhone.text.toString().trim()
+            if (inputRaw.length < 7) return@setOnClickListener showSentryToast("Enter valid number", false)
+
+            pendingNewPhone = if (inputRaw.startsWith("+")) inputRaw else "+63${inputRaw.dropWhile { it == '0' }}"
+
+            btnGetNewCode.text = "SENDING..."
+            btnGetNewCode.isEnabled = false
+
+            requestFirebaseOtp(
+                phone = pendingNewPhone,
+                onCodeSent = { id ->
+                    newVerificationId = id
+                    btnGetNewCode.text = "SENT"
+                    cardNewOtp.visibility = View.VISIBLE
+                    showSentryToast("OTP sent to new number", false)
+                },
+                onAutoVerified = { cred ->
+                    updatePhoneRecord(cred, pendingNewPhone, dialog, tvPhone, btnUpdatePhone)
+                },
+                onError = { err ->
+                    btnGetNewCode.isEnabled = true
+                    btnGetNewCode.text = "RETRY"
+                    showSentryToast("SMS Error: $err", true)
+                }
+            )
+        }
+
+        btnUpdatePhone.setOnClickListener {
+            val code = etNewCode.text.toString().trim()
+            if (code.length < 6) return@setOnClickListener showSentryToast("Enter full code", false)
+            if (newVerificationId.isEmpty()) return@setOnClickListener showSentryToast("Request OTP first", false)
+
+            btnUpdatePhone.text = "UPDATING..."
+            btnUpdatePhone.isEnabled = false
+            try {
+                val credential = PhoneAuthProvider.getCredential(newVerificationId, code)
+                updatePhoneRecord(credential, pendingNewPhone, dialog, tvPhone, btnUpdatePhone)
+            } catch (e: Exception) {
+                btnUpdatePhone.text = "UPDATE"
+                btnUpdatePhone.isEnabled = true
+                showSentryToast("Invalid Code", true)
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun verifyOldPhone(cred: PhoneAuthCredential, phase1: View, phase2: View, btnVerify: Button) {
+        auth.currentUser?.reauthenticate(cred)?.addOnSuccessListener {
+            showSentryToast("Identity Verified. Enter new number.", false)
+            phase1.visibility = View.GONE
+            phase2.visibility = View.VISIBLE
+        }?.addOnFailureListener {
+            btnVerify.text = "VERIFY"
+            btnVerify.isEnabled = true
+            showSentryToast("Verification Failed", true)
+        }
+    }
+
+    private fun updatePhoneRecord(cred: PhoneAuthCredential, newPhone: String, dialog: AlertDialog, tvPhone: TextView, btnUpdate: Button) {
+        auth.currentUser?.updatePhoneNumber(cred)?.addOnSuccessListener {
+            db.collection("Users").document(auth.currentUser!!.uid)
+                .update("phoneNumber", newPhone).addOnSuccessListener {
+                    currentPhone = newPhone
+                    tvPhone.text = newPhone
+                    showSentryToast("Phone Number Successfully Updated!", true)
+                    dialog.dismiss()
+                }
+        }?.addOnFailureListener {
+            btnUpdate.text = "UPDATE"
+            btnUpdate.isEnabled = true
+            showSentryToast("Failed to update: ${it.message}", true)
+        }
+    }
+
+    private fun requestFirebaseOtp(phone: String, onCodeSent: (String) -> Unit, onAutoVerified: (PhoneAuthCredential) -> Unit, onError: (String) -> Unit) {
+        val callbacks = object : PhoneAuthProvider.OnVerificationStateChangedCallbacks() {
+            override fun onVerificationCompleted(credential: PhoneAuthCredential) { onAutoVerified(credential) }
+            override fun onVerificationFailed(e: FirebaseException) { onError(e.message ?: "Error") }
+            override fun onCodeSent(verificationId: String, token: PhoneAuthProvider.ForceResendingToken) { onCodeSent(verificationId) }
+        }
+
+        val options = PhoneAuthOptions.newBuilder(auth)
+            .setPhoneNumber(phone)
+            .setTimeout(60L, TimeUnit.SECONDS)
+            .setActivity(requireActivity())
+            .setCallbacks(callbacks)
+            .build()
+        PhoneAuthProvider.verifyPhoneNumber(options)
+    }
+
+    // ==========================================
+    // PROFILE & IMAGE UPLOADS
+    // ==========================================
     private fun uploadPhotoToFirebase(fileUri: Uri) {
         val uid = auth.currentUser?.uid ?: return
         showSentryToast("Uploading photo...", isLong = true)
@@ -140,7 +324,6 @@ class AccountSettingsFragment : Fragment() {
                 storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
                     currentPhotoUri = downloadUri.toString()
 
-                    // Instantly update database so MapFragment catches it
                     db.collection("Users").document(uid)
                         .set(hashMapOf("photoUri" to currentPhotoUri), SetOptions.merge())
 
@@ -151,16 +334,14 @@ class AccountSettingsFragment : Fragment() {
                                 dialogAvatarImage?.setImageBitmap(bitmap)
                                 dialogAvatarImage?.visibility = View.VISIBLE
                                 dialogAvatarInitials?.visibility = View.GONE
-                                updateMainAvatarUI() // Update background UI too
+                                updateMainAvatarUI()
                                 showSentryToast("Photo uploaded successfully!", isLong = false)
                             }
                         } catch (e: Exception) { e.printStackTrace() }
                     }
                 }
             }
-            .addOnFailureListener {
-                showSentryToast("Failed to upload photo.", isLong = false)
-            }
+            .addOnFailureListener { showSentryToast("Failed to upload photo.", isLong = false) }
     }
 
     private fun showSecureVerificationDialog(title: String, message: String, isNightMode: Boolean, onProceed: () -> Unit) {
@@ -176,13 +357,8 @@ class AccountSettingsFragment : Fragment() {
 
         val dialogBg = GradientDrawable().apply {
             cornerRadius = 60f
-            if (isNightMode) {
-                setColor(Color.parseColor("#FA0F172A"))
-                setStroke(2, Color.parseColor("#334155"))
-            } else {
-                setColor(Color.parseColor("#FAFFFFFF"))
-                setStroke(2, Color.parseColor("#CBD5E1"))
-            }
+            if (isNightMode) { setColor(Color.parseColor("#FA0F172A")); setStroke(2, Color.parseColor("#334155")) }
+            else { setColor(Color.parseColor("#FAFFFFFF")); setStroke(2, Color.parseColor("#CBD5E1")) }
         }
         dialogRoot.background = dialogBg
 
@@ -194,18 +370,11 @@ class AccountSettingsFragment : Fragment() {
         }
         applyGhostButton(btnCancel, isNightMode)
 
-        val dialog = AlertDialog.Builder(requireContext())
-            .setView(dialogView)
-            .setCancelable(false)
-            .create()
-
+        val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
         btnCancel.setOnClickListener { dialog.dismiss() }
-        btnProceed.setOnClickListener {
-            dialog.dismiss()
-            onProceed()
-        }
+        btnProceed.setOnClickListener { dialog.dismiss(); onProceed() }
         dialog.show()
     }
 
@@ -218,6 +387,7 @@ class AccountSettingsFragment : Fragment() {
                 currentLastName = document.getString("lastName") ?: ""
                 currentMI = document.getString("middleInitial") ?: ""
                 currentPhotoUri = document.getString("photoUri") ?: ""
+                currentPhone = document.getString("phoneNumber") ?: ""
 
                 if (currentFirstName.isEmpty() && currentLastName.isEmpty()) {
                     val legacyName = document.getString("fullName") ?: "Unknown User"
@@ -232,7 +402,7 @@ class AccountSettingsFragment : Fragment() {
                 header.text = constructedName
                 full.text = constructedName
                 email.text = document.getString("email") ?: auth.currentUser?.email ?: "--"
-                phone.text = document.getString("phoneNumber") ?: "--"
+                phone.text = if (currentPhone.isNotEmpty()) currentPhone else "--"
 
                 updateMainAvatarUI()
             }
@@ -291,13 +461,8 @@ class AccountSettingsFragment : Fragment() {
 
         val dialogBg = GradientDrawable().apply {
             cornerRadius = 60f
-            if (isNightMode) {
-                setColor(Color.parseColor("#FA0F172A"))
-                setStroke(2, Color.parseColor("#334155"))
-            } else {
-                setColor(Color.parseColor("#FAFFFFFF"))
-                setStroke(2, Color.parseColor("#CBD5E1"))
-            }
+            if (isNightMode) { setColor(Color.parseColor("#FA0F172A")); setStroke(2, Color.parseColor("#334155")) }
+            else { setColor(Color.parseColor("#FAFFFFFF")); setStroke(2, Color.parseColor("#CBD5E1")) }
         }
         dialogRoot.background = dialogBg
 
@@ -338,15 +503,9 @@ class AccountSettingsFragment : Fragment() {
             dialogAvatarInitials?.text = getInitials(currentFirstName, currentLastName)
         }
 
-        cardDialogAvatar.setOnClickListener {
-            pickImageLauncher.launch("image/*")
-        }
+        cardDialogAvatar.setOnClickListener { pickImageLauncher.launch("image/*") }
 
-        val dialog = AlertDialog.Builder(requireContext())
-            .setView(dialogView)
-            .setCancelable(false)
-            .create()
-
+        val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
         btnCancel.setOnClickListener { dialog.dismiss() }
@@ -417,10 +576,7 @@ class AccountSettingsFragment : Fragment() {
     }
 
     private fun applyPrimaryButton(button: Button, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 30f
-        }
+        val bg = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 30f }
         if (isNightMode) {
             bg.setColor(Color.parseColor("#3B82F6"))
             button.setTextColor(Color.parseColor("#FFFFFF"))
@@ -432,10 +588,7 @@ class AccountSettingsFragment : Fragment() {
     }
 
     private fun applyDestructivePrimaryButton(button: Button, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 30f
-        }
+        val bg = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 30f }
         if (isNightMode) {
             bg.setColor(Color.parseColor("#EF4444"))
             button.setTextColor(Color.parseColor("#FFFFFF"))
@@ -465,10 +618,7 @@ class AccountSettingsFragment : Fragment() {
     }
 
     private fun applyDestructiveGhostButton(button: Button, isNightMode: Boolean) {
-        val bg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = 30f
-        }
+        val bg = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; cornerRadius = 30f }
         if (isNightMode) {
             bg.setColor(Color.parseColor("#1AEF4444"))
             button.setTextColor(Color.parseColor("#F87171"))
@@ -496,9 +646,7 @@ class AccountSettingsFragment : Fragment() {
 
         val icon = ImageView(requireContext()).apply {
             setImageResource(R.drawable.ic_sentry_half_gold)
-            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
-                setMargins(0, 0, 30, 0)
-            }
+            layoutParams = LinearLayout.LayoutParams(60, 75).apply { setMargins(0, 0, 30, 0) }
         }
 
         val textView = TextView(requireContext()).apply {
