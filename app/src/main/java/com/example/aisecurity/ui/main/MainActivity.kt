@@ -5,7 +5,9 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.BitmapFactory
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
@@ -30,6 +32,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.drawerlayout.widget.DrawerLayout
 import androidx.fragment.app.Fragment
+import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
 import com.example.aisecurity.ui.biometrics.BiometricsFragment
 import com.example.aisecurity.ui.bluetooth.BluetoothFragment
@@ -40,7 +43,7 @@ import com.example.aisecurity.ui.map.LocationTrackingService
 import com.example.aisecurity.ui.map.MapFragment
 import com.example.aisecurity.ui.permissions.PermissionsFragment
 import com.example.aisecurity.ui.proximity.ProximityFragment
-import com.example.aisecurity.ui.qr.QRScannerFragment // 🚨 IMPORTED
+import com.example.aisecurity.ui.qr.QRScannerFragment
 import com.example.aisecurity.ui.settings.AccountSettingsFragment
 import com.example.aisecurity.ui.settings.SettingsFragment
 import com.google.android.material.appbar.MaterialToolbar
@@ -48,6 +51,11 @@ import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.HttpURLConnection
+import java.net.URL
 
 @Suppress("DEPRECATION")
 class MainActivity : AppCompatActivity() {
@@ -61,7 +69,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var biometricsFragment: Fragment
     private lateinit var proximityFragment: Fragment
     private lateinit var mapFragment: Fragment
-    private lateinit var qrScannerFragment: Fragment // 🚨 ADDED
+    private lateinit var qrScannerFragment: Fragment
     private lateinit var settingsFragment: Fragment
     private lateinit var accountSettingsFragment: Fragment
     private lateinit var bluetoothFragment: Fragment
@@ -120,12 +128,37 @@ class MainActivity : AppCompatActivity() {
                     val photoUri = snapshot.getString("photoUri") ?: ""
 
                     tvDrawerName.text = fullName
+
+                    // 🚨 THE FIX: Use Coroutines to fetch the internet URL in the background
                     if (photoUri.isNotEmpty()) {
-                        try {
-                            imgDrawerAvatar.setImageURI(photoUri.toUri())
-                        } catch (_: Exception) {
-                            imgDrawerAvatar.setImageResource(android.R.color.transparent)
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val bitmap = if (photoUri.startsWith("http")) {
+                                    val connection = URL(photoUri).openConnection() as HttpURLConnection
+                                    connection.doInput = true
+                                    connection.connect()
+                                    BitmapFactory.decodeStream(connection.inputStream)
+                                } else {
+                                    contentResolver.openInputStream(Uri.parse(photoUri))?.use {
+                                        BitmapFactory.decodeStream(it)
+                                    }
+                                }
+
+                                // Switch back to the main UI thread to show the downloaded image
+                                withContext(Dispatchers.Main) {
+                                    if (bitmap != null) {
+                                        imgDrawerAvatar.setImageBitmap(bitmap)
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                withContext(Dispatchers.Main) {
+                                    imgDrawerAvatar.setImageResource(R.drawable.ic_user_outlined)
+                                }
+                            }
                         }
+                    } else {
+                        imgDrawerAvatar.setImageResource(R.drawable.ic_user_outlined)
                     }
                 }
         }
@@ -135,7 +168,7 @@ class MainActivity : AppCompatActivity() {
             biometricsFragment = BiometricsFragment()
             proximityFragment = ProximityFragment()
             mapFragment = MapFragment()
-            qrScannerFragment = QRScannerFragment() // 🚨 ADDED
+            qrScannerFragment = QRScannerFragment()
             settingsFragment = SettingsFragment()
             accountSettingsFragment = AccountSettingsFragment()
             bluetoothFragment = BluetoothFragment()
@@ -150,7 +183,7 @@ class MainActivity : AppCompatActivity() {
                 add(R.id.fragment_container, bluetoothFragment, "bluetooth").hide(bluetoothFragment)
                 add(R.id.fragment_container, settingsFragment, "settings").hide(settingsFragment)
                 add(R.id.fragment_container, accountSettingsFragment, "account").hide(accountSettingsFragment)
-                add(R.id.fragment_container, qrScannerFragment, "qr").hide(qrScannerFragment) // 🚨 ADDED
+                add(R.id.fragment_container, qrScannerFragment, "qr").hide(qrScannerFragment)
                 add(R.id.fragment_container, mapFragment, "map").hide(mapFragment)
                 add(R.id.fragment_container, proximityFragment, "proximity").hide(proximityFragment)
                 add(R.id.fragment_container, biometricsFragment, "biometrics").hide(biometricsFragment)
@@ -164,7 +197,7 @@ class MainActivity : AppCompatActivity() {
             biometricsFragment = supportFragmentManager.findFragmentByTag("biometrics") ?: BiometricsFragment()
             proximityFragment = supportFragmentManager.findFragmentByTag("proximity") ?: ProximityFragment()
             mapFragment = supportFragmentManager.findFragmentByTag("map") ?: MapFragment()
-            qrScannerFragment = supportFragmentManager.findFragmentByTag("qr") ?: QRScannerFragment() // 🚨 ADDED
+            qrScannerFragment = supportFragmentManager.findFragmentByTag("qr") ?: QRScannerFragment()
             settingsFragment = supportFragmentManager.findFragmentByTag("settings") ?: SettingsFragment()
             accountSettingsFragment = supportFragmentManager.findFragmentByTag("account") ?: AccountSettingsFragment()
             bluetoothFragment = supportFragmentManager.findFragmentByTag("bluetooth") ?: BluetoothFragment()
@@ -261,11 +294,7 @@ class MainActivity : AppCompatActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
 
-        // 1. Forcefully update the Activity's memory with the new Intent
         setIntent(intent)
-
-        // 2. 🚨 FIX: Extract the URI from the newly set Activity Intent, NOT the raw incoming intent parameter.
-        // This guarantees we are reading the processed data.
         val newUri = getIntent().data
 
         if (newUri != null && newUri.scheme == "https" && newUri.host == "bioguard-efb32.web.app") {
@@ -274,12 +303,8 @@ class MainActivity : AppCompatActivity() {
             val bottomNav = findViewById<BottomNavigationView>(R.id.bottom_navigation)
             bottomNav.selectedItemId = R.id.nav_map
 
-            // 3. 🚨 FIX: Ensure the fragment has completely finished loading into the foreground
-            // before we try to inject the new data into it.
             bottomNav.post {
-                if (activeFragment == mapFragment) {
-                    (mapFragment as MapFragment).checkAndProcessQrIntent()
-                }
+                (mapFragment as MapFragment).checkAndProcessQrIntent()
             }
         }
     }
