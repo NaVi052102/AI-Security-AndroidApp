@@ -2238,44 +2238,37 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
     // 🚨 RESTORED: QR Intent processing
 
+    // 🚨 RESTORED & FIXED: QR Intent processing
     fun checkAndProcessQrIntent() {
-
         val currentActivity = activity ?: return
-
         val intent = currentActivity.intent
-
         val data: Uri? = intent?.data
 
-
-
         if (data != null && data.scheme == "https" && data.host == "bioguard-efb32.web.app") {
-
             val targetUid = data.getQueryParameter("uid")
-
             val targetName = data.getQueryParameter("name") ?: "Lost Device"
 
-
-
             if (targetUid != null && targetUid != auth.currentUser?.uid) {
-
+                // SUCCESS: Scanned someone else's code
                 unlockedViaQrUids.add(targetUid)
-
                 autoAddLostDevice(targetUid, targetName)
+                intent.data = null
 
+            } else if (targetUid == auth.currentUser?.uid) {
+                // 🚨 FIX: User scanned their OWN Recovery Code
+                showSentryToast("This is your own Recovery Code. Have a friend scan this from their app to track your phone.", isLong = true)
                 intent.data = null
 
             } else if (targetUid == null && targetName != "Lost Device") {
-
+                // Fallback: Try to find by email/phone
                 findUidAndAddLostDevice(targetName)
-
                 intent.data = null
-
+            } else {
+                showSentryToast("Invalid QR format detected.", isLong = false)
+                intent.data = null
             }
-
         }
-
     }
-
 
 
     // 🚨 RESTORED: User search

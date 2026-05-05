@@ -50,6 +50,14 @@ class ProximityFragment : Fragment(), SensorEventListener {
 
     private var currentAccel = floatArrayOf(0f, 0f, 0f)
     private var currentGyro = floatArrayOf(0f, 0f, 0f)
+
+    // 🚨 NEW: Anti-Theft Movement Variables
+    private var lastAccel = floatArrayOf(0f, 0f, 0f)
+    private var lastGyro = floatArrayOf(0f, 0f, 0f)
+    private var lastMovementAlertTime = 0L
+    private val MOVEMENT_THRESHOLD = 2.5f // Tuning for picking up the phone
+    private val GYRO_THRESHOLD = 1.5f
+
     private var isObjectClose = false
     private var isEnvironmentDark = false
     private var currentPocketState = "Out of Pocket"
@@ -147,9 +155,9 @@ class ProximityFragment : Fragment(), SensorEventListener {
                 if (isArmed && distance >= lockThreshold) {
                     if (!isLockdownTriggered) {
                         isLockdownTriggered = true
-
                         triggerEmergencyNetworkOverride()
 
+                        // 🚨 Uses dynamically selected defense type from settings
                         val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
                         SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
                     }
@@ -245,6 +253,26 @@ class ProximityFragment : Fragment(), SensorEventListener {
         telemetrySyncJob?.cancel()
     }
 
+    // 🚨 NEW: Core anti-theft check function
+    private fun checkMovementAndAlert() {
+        val deltaAccel = Math.abs(currentAccel[0] - lastAccel[0]) + Math.abs(currentAccel[1] - lastAccel[1]) + Math.abs(currentAccel[2] - lastAccel[2])
+        val deltaGyro = Math.abs(currentGyro[0] - lastGyro[0]) + Math.abs(currentGyro[1] - lastGyro[1]) + Math.abs(currentGyro[2] - lastGyro[2])
+
+        if (deltaAccel > MOVEMENT_THRESHOLD || deltaGyro > GYRO_THRESHOLD) {
+            val dist = WatchManager.liveDistance.value ?: 0.0
+            val now = System.currentTimeMillis()
+
+            // If phone is >= 2.0 meters away AND it moved, alert the watch immediately
+            if (dist >= 2.0 && (now - lastMovementAlertTime > 15000)) { // 15-second cooldown so it doesn't spam
+                lastMovementAlertTime = now
+                WatchManager.sendNotificationToWatch("⚠️ THEFT ALERT", "Someone is moving your phone while you are away!")
+            }
+        }
+
+        lastAccel = currentAccel.clone()
+        lastGyro = currentGyro.clone()
+    }
+
     override fun onSensorChanged(event: SensorEvent?) {
         if (event == null) return
 
@@ -252,10 +280,12 @@ class ProximityFragment : Fragment(), SensorEventListener {
             Sensor.TYPE_ACCELEROMETER -> {
                 currentAccel = event.values.clone()
                 tvAccelData.text = String.format(Locale.US, "X: %.2f\nY: %.2f\nZ: %.2f", currentAccel[0], currentAccel[1], currentAccel[2])
+                checkMovementAndAlert() // 🚨 Trigger Theft Check
             }
             Sensor.TYPE_GYROSCOPE -> {
                 currentGyro = event.values.clone()
                 tvGyroData.text = String.format(Locale.US, "X: %.2f\nY: %.2f\nZ: %.2f", currentGyro[0], currentGyro[1], currentGyro[2])
+                checkMovementAndAlert() // 🚨 Trigger Theft Check
             }
             Sensor.TYPE_PROXIMITY -> {
                 isObjectClose = event.values[0] < event.sensor.maximumRange
@@ -300,7 +330,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
         telemetrySyncJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    // Removed raw gyroscope and accelerometer from Firebase upload
                     val telemetryData = hashMapOf<String, Any>(
                         "pocketMode" to currentPocketState,
                         "telemetryUpdated" to com.google.firebase.Timestamp.now()
