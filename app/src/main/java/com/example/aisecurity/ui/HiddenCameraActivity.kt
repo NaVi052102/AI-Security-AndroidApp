@@ -1,14 +1,12 @@
 package com.example.aisecurity.ui
 
 import android.Manifest
-import android.content.ContentValues
 import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
-import android.provider.MediaStore
 import android.util.Log
 import android.view.Surface
 import android.view.WindowManager
@@ -25,6 +23,7 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.storage.FirebaseStorage
+import java.io.File
 
 class HiddenCameraActivity : AppCompatActivity() {
 
@@ -99,8 +98,7 @@ class HiddenCameraActivity : AppCompatActivity() {
                     .requireLensFacing(lensFacing)
                     .build()
 
-                // 🚨 MIUI FIX: Create an invisible dummy surface.
-                // Redmi/MIUI camera hardware crashes if it tries to take a photo without a Preview running.
+                // MIUI FIX: Create an invisible dummy surface.
                 val preview = Preview.Builder().build()
                 preview.setSurfaceProvider { request ->
                     val surfaceTexture = SurfaceTexture(10)
@@ -117,23 +115,12 @@ class HiddenCameraActivity : AppCompatActivity() {
                     .build()
 
                 cameraProvider.unbindAll()
-
-                // 🚨 Bind BOTH the dummy preview and the image capture to satisfy the Redmi HAL
                 cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageCapture)
 
-                val contentValues = ContentValues().apply {
-                    put(
-                        MediaStore.MediaColumns.DISPLAY_NAME,
-                        "Sentry_${System.currentTimeMillis()}.jpg"
-                    )
-                    put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
-                }
-
-                val outputOptions = ImageCapture.OutputFileOptions.Builder(
-                    contentResolver,
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                    contentValues
-                ).build()
+                // 🚨 FIX: Save to a HIDDEN temporary cache file instead of the public MediaStore Gallery!
+                // This bypasses Android 11+ storage security and ensures Firebase can actually read it.
+                val photoFile = File(externalCacheDir, "secret_snap_${System.currentTimeMillis()}.jpg")
+                val outputOptions = ImageCapture.OutputFileOptions.Builder(photoFile).build()
 
                 imageCapture.takePicture(
                     outputOptions,
@@ -142,10 +129,12 @@ class HiddenCameraActivity : AppCompatActivity() {
                         override fun onImageSaved(output: ImageCapture.OutputFileResults) {
                             Toast.makeText(
                                 this@HiddenCameraActivity,
-                                "📸 Sentry: $cameraType Photo Saved!",
+                                "📸 Sentry: $cameraType Photo Captured!",
                                 Toast.LENGTH_SHORT
                             ).show()
-                            uploadToFirebase(output.savedUri)
+
+                            // Upload the hidden file
+                            uploadToFirebase(Uri.fromFile(photoFile))
                         }
 
                         override fun onError(exc: ImageCaptureException) {
@@ -171,6 +160,8 @@ class HiddenCameraActivity : AppCompatActivity() {
         val storageRef = FirebaseStorage.getInstance().reference
             .child("secret_snaps/$uid.jpg")
 
+        Log.d("SENTRY_CAM", "Attempting to upload to Firebase...")
+
         storageRef.putFile(fileUri)
             .addOnSuccessListener {
                 storageRef.downloadUrl.addOnSuccessListener { downloadUri ->
@@ -182,13 +173,13 @@ class HiddenCameraActivity : AppCompatActivity() {
                             SetOptions.merge()
                         )
                         .addOnCompleteListener {
-                            Log.d("SENTRY_CAM", "Upload complete. Closing.")
+                            Log.d("SENTRY_CAM", "Upload complete! Map should now update.")
                             finish()
                         }
                 }
             }
-            .addOnFailureListener {
-                Log.e("SENTRY_CAM", "Firebase upload failed")
+            .addOnFailureListener { e ->
+                Log.e("SENTRY_CAM", "Firebase upload failed: ${e.message}")
                 finish()
             }
     }
