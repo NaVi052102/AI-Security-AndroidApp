@@ -85,6 +85,12 @@ object WatchManager {
     private var lastKnownCity = "Tracking Active"
     private var lastGeocodeTime = 0L
 
+    // 🚨 SECURITY AUTHENTICATION STATE ──────────────────────────
+    private var isAuthenticated = false
+    private var pendingAuthMac = ""
+    private var isConnectionInitialized = false
+    // ─────────────────────────────────────────────────────────
+
     private fun hasPermissions(context: Context): Boolean {
         var accessibilityEnabled = 0
         val service = context.packageName + "/" + "com.example.aisecurity.ai.TouchDynamicsService"
@@ -197,31 +203,25 @@ object WatchManager {
                 }
 
                 isConnected.postValue(true)
-                liveStatus.postValue("Secure Link Established ✅")
-
-                distanceFilter.reset()
-
-                startRssiPolling()
-                startBiometricsSync()
-                startSystemStateSync()
-                startLocationSync()
 
                 scope.launch {
-                    currentContext?.let { sendSystemState(it) }
-                    delay(400)
-                    fetchLiveWeatherAndSend()
-                    delay(400)
-                    WatchMediaService.syncCurrentMedia()
-                    delay(400)
+                    delay(600)
 
-                    val auth = FirebaseAuth.getInstance()
-                    val user = auth.currentUser
-                    if (user != null) {
-                        val name = user.displayName ?: "Sentry User"
-                        val email = user.email ?: user.phoneNumber ?: ""
-                        syncAccountProfile(name, email)
-                        delay(400)
-                        syncUserTracker(email)
+                    val prefs = currentContext?.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    val trustedWatches = prefs?.getStringSet("trusted_watches", mutableSetOf()) ?: mutableSetOf()
+                    val watchMac = gatt.device.address
+
+                    if (trustedWatches.contains(watchMac)) {
+                        isAuthenticated = true
+                        liveStatus.postValue("Secure Link Established ✅")
+                        initializeTrustedConnection()
+                    } else {
+                        isAuthenticated = false
+                        pendingAuthMac = watchMac
+                        isConnectionInitialized = false
+                        liveStatus.postValue("Awaiting Watch Authentication...")
+
+                        sendData("<AUTH_REQ>")
                     }
                 }
             }
@@ -231,6 +231,37 @@ object WatchManager {
             if (char.uuid == TX_CHAR_UUID) {
                 val payload = char.getStringValue(0)
                 watchPayload.postValue(payload)
+
+                if (payload.startsWith("<AUTH:")) {
+                    val pin = payload.substringAfter(":").replace(">", "")
+                    val prefs = currentContext?.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    val savedPin = prefs?.getString("watch_pairing_pin", "1234") ?: "1234"
+
+                    if (pin == savedPin) {
+                        isAuthenticated = true
+                        val trustedWatches = prefs?.getStringSet("trusted_watches", mutableSetOf())?.toMutableSet() ?: mutableSetOf()
+                        trustedWatches.add(pendingAuthMac)
+                        prefs?.edit()?.putStringSet("trusted_watches", trustedWatches)?.apply()
+
+                        sendData("<AUTH_OK>")
+                        liveStatus.postValue("Secure Link Established ✅")
+
+                        // 🚨 FIX: Delay the flood of tracking data by 600ms so the Watch doesn't overwrite the <AUTH_OK> command in its buffer!
+                        scope.launch {
+                            delay(600)
+                            initializeTrustedConnection()
+                        }
+                    } else {
+                        sendData("<AUTH_FAIL>")
+                        liveStatus.postValue("Auth Failed! Wrong PIN.")
+                    }
+                    return
+                }
+
+                if (!isAuthenticated && payload.startsWith("<CMD:")) {
+                    Log.w("BLE", "Ignored command because watch is not authenticated: $payload")
+                    return
+                }
 
                 if (payload.startsWith("<HR:")) {
                     liveHeartRate.postValue(payload.substringAfter(":").replace(">", ""))
@@ -280,6 +311,36 @@ object WatchManager {
                 currentContext?.let { checkDistanceAndLock(it, cleanDistance.toFloat()) }
             } else {
                 disconnect()
+            }
+        }
+    }
+
+    private fun initializeTrustedConnection() {
+        if (isConnectionInitialized) return
+        isConnectionInitialized = true
+        distanceFilter.reset()
+
+        startRssiPolling()
+        startBiometricsSync()
+        startSystemStateSync()
+        startLocationSync()
+
+        scope.launch {
+            currentContext?.let { sendSystemState(it) }
+            delay(400)
+            fetchLiveWeatherAndSend()
+            delay(400)
+            WatchMediaService.syncCurrentMedia()
+            delay(400)
+
+            val auth = FirebaseAuth.getInstance()
+            val user = auth.currentUser
+            if (user != null) {
+                val name = user.displayName ?: "Sentry User"
+                val email = user.email ?: user.phoneNumber ?: ""
+                syncAccountProfile(name, email)
+                delay(400)
+                syncUserTracker(email)
             }
         }
     }
@@ -775,7 +836,6 @@ object WatchManager {
         sendData("<PRX2:$accel|$gyro|$safePocket>")
     }
 
-    // 🚨 UPDATED QR GENERATOR: Uses the exact format the web portal expects
     fun syncUserTracker(identifier: String) {
         val safeId = identifier.replace("<", "").replace(">", "").replace("|", "").take(50)
         sendData("<TRACK:$safeId>")
@@ -887,6 +947,8 @@ object WatchManager {
         }
         bluetoothGatt = null
         isConnected.postValue(false)
+        isAuthenticated = false
+        isConnectionInitialized = false
         liveStatus.postValue("Watch Disconnected")
         liveDistance.postValue(0.0)
         distanceFilter.reset()

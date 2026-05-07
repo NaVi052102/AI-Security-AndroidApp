@@ -6,6 +6,7 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -23,11 +24,13 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -116,9 +119,23 @@ class BluetoothFragment : Fragment() {
 
         val switchBluetooth = view.findViewById<SwitchCompat>(R.id.switchBluetooth)
         val btnScan = view.findViewById<Button>(R.id.btnScan)
+        val btnSetPin = view.findViewById<Button>(R.id.btnSetPin)
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
 
-        // Initialize Button Design
+        // 🚨 Programmatically draw the Set PIN Button background to avoid XML crashes
+        val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
+        btnSetPin.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 1000f
+            if (isNightMode) {
+                colors = intArrayOf(Color.parseColor("#1E3A8A"), Color.parseColor("#172554"))
+                setStroke(4, Color.parseColor("#3B82F6"))
+            } else {
+                colors = intArrayOf(Color.parseColor("#3B82F6"), Color.parseColor("#2563EB"))
+            }
+        }
+        btnSetPin.setOnClickListener { showSetPinDialog() }
+
         updateScanButtonUI(btnScan, isScanning)
 
         deviceAdapter = BleDeviceAdapter { clickedDevice, isAlreadyConnected ->
@@ -134,7 +151,7 @@ class BluetoothFragment : Fragment() {
             } else {
                 prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
                 stopRadarScan()
-                updateScanButtonUI(btnScan, false) // Ensure button reverts on connect
+                updateScanButtonUI(btnScan, false)
                 deviceAdapter.setConnectedDevice(clickedDevice.address)
 
                 try {
@@ -212,9 +229,60 @@ class BluetoothFragment : Fragment() {
         }
     }
 
-    // ==========================================
-    // 🚨 PREMIUM CUSTOM TOAST BUILDER
-    // ==========================================
+    // 🚨 SECURE PIN DIALOG LOGIC WITH CUSTOM XML
+    private fun showSetPinDialog() {
+        val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        val currentPin = prefs.getString("watch_pairing_pin", "1234")
+
+        // Inflate your custom layout
+        val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_set_pin, null)
+        val etPinCode = dialogView.findViewById<EditText>(R.id.etPinCode)
+        val btnCancelPin = dialogView.findViewById<Button>(R.id.btnCancelPin)
+        val btnSavePin = dialogView.findViewById<Button>(R.id.btnSavePin)
+
+        // Pre-fill existing PIN
+        etPinCode.setText(currentPin)
+
+        // Dynamically paint the dark background to match the OTP box
+        dialogView.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = 64f
+            setColor(Color.parseColor("#0F172A"))
+            setStroke(2, Color.parseColor("#1E293B"))
+        }
+
+        // Create and style the dialog
+        val dialog = AlertDialog.Builder(requireContext())
+            .setView(dialogView)
+            .create()
+
+        // Make the default white alert window transparent
+        dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+
+        btnCancelPin.setOnClickListener {
+            dialog.dismiss()
+        }
+
+        btnSavePin.setOnClickListener {
+            val newPin = etPinCode.text.toString()
+            if (newPin.length in 4..6) {
+                prefs.edit()
+                    .putString("watch_pairing_pin", newPin)
+                    // Revoke all previously trusted watches so they are forced to use the new PIN
+                    .putStringSet("trusted_watches", mutableSetOf())
+                    .apply()
+
+                showSentryToast("PIN Saved! All watches must re-authenticate.", true)
+                WatchManager.disconnect() // Disconnect current watch to force new PIN entry
+                dialog.dismiss()
+            } else {
+                showSentryToast("PIN must be 4 to 6 digits long.", false)
+            }
+        }
+
+        dialog.show()
+    }
+
     private fun showSentryToast(message: String, isLong: Boolean) {
         val toast = Toast(requireContext())
         toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
@@ -250,19 +318,15 @@ class BluetoothFragment : Fragment() {
         toast.show()
     }
 
-    // ==========================================
-    // THE GLASSMORPHISM BLUETOOTH ENGINE
-    // ==========================================
     private fun updateScanButtonUI(button: Button, isScanning: Boolean) {
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
         val btnBackground = GradientDrawable()
         btnBackground.shape = GradientDrawable.RECTANGLE
-        btnBackground.cornerRadius = 1000f // Perfect Pill Shape
+        btnBackground.cornerRadius = 1000f
         btnBackground.orientation = GradientDrawable.Orientation.TOP_BOTTOM
 
         if (isScanning) {
-            // --- THE "STOP SCANNING" STATE (Destructive/Active) ---
             if (isNightMode) {
                 btnBackground.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004"))
                 btnBackground.setStroke(4, Color.parseColor("#EF4444"))
@@ -274,7 +338,6 @@ class BluetoothFragment : Fragment() {
             }
             button.text = "STOP SCANNING"
         } else {
-            // --- THE "READY TO SCAN" STATE (Primary Action) ---
             if (isNightMode) {
                 btnBackground.colors = intArrayOf(Color.parseColor("#1E293B"), Color.parseColor("#080E1A"))
                 btnBackground.setStroke(4, Color.parseColor("#D4AF37"))
@@ -360,3 +423,4 @@ class BluetoothFragment : Fragment() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 }
+

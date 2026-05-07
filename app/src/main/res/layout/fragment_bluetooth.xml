@@ -57,6 +57,21 @@
         </LinearLayout>
 
         <androidx.appcompat.widget.AppCompatButton
+            android:id="@+id/btnSetPin"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginHorizontal="20dp"
+            android:layout_marginBottom="16dp"
+            android:text="SET WATCH PIN"
+            android:fontFamily="@font/inter"
+            android:textSize="14sp"
+            android:textColor="#FFFFFF"
+            android:textStyle="bold"
+            android:letterSpacing="0.08"
+            android:stateListAnimator="@null"
+            android:background="@null" />
+
+        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnScan"
             android:layout_width="match_parent"
             android:layout_height="52dp"
