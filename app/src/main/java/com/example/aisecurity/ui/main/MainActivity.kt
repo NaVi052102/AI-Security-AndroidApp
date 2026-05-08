@@ -46,6 +46,7 @@ import com.example.aisecurity.ui.proximity.ProximityFragment
 import com.example.aisecurity.ui.qr.QRScannerFragment
 import com.example.aisecurity.ui.settings.AccountSettingsFragment
 import com.example.aisecurity.ui.settings.SettingsFragment
+import com.example.aisecurity.ui.phonecase.PhoneCaseFragment // 🚨 IMPORTED NEW FRAGMENT
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.bottomnavigation.BottomNavigationView
 import com.google.android.material.navigation.NavigationView
@@ -76,6 +77,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var permissionsFragment: Fragment
     private lateinit var logsFragment: Fragment
     private lateinit var helpFragment: Fragment
+    private lateinit var phoneCaseFragment: Fragment // 🚨 DECLARED NEW FRAGMENT
 
     private lateinit var activeFragment: Fragment
 
@@ -129,7 +131,6 @@ class MainActivity : AppCompatActivity() {
 
                     tvDrawerName.text = fullName
 
-                    // 🚨 THE FIX: Use Coroutines to fetch the internet URL in the background
                     if (photoUri.isNotEmpty()) {
                         lifecycleScope.launch(Dispatchers.IO) {
                             try {
@@ -144,7 +145,6 @@ class MainActivity : AppCompatActivity() {
                                     }
                                 }
 
-                                // Switch back to the main UI thread to show the downloaded image
                                 withContext(Dispatchers.Main) {
                                     if (bitmap != null) {
                                         imgDrawerAvatar.setImageBitmap(bitmap)
@@ -175,8 +175,10 @@ class MainActivity : AppCompatActivity() {
             permissionsFragment = PermissionsFragment()
             logsFragment = LogsFragment()
             helpFragment = HelpFragment()
+            phoneCaseFragment = PhoneCaseFragment() // 🚨 INITIALIZED NEW FRAGMENT
 
             supportFragmentManager.beginTransaction().apply {
+                add(R.id.fragment_container, phoneCaseFragment, "phonecase").hide(phoneCaseFragment) // 🚨 ADDED
                 add(R.id.fragment_container, helpFragment, "help").hide(helpFragment)
                 add(R.id.fragment_container, logsFragment, "logs").hide(logsFragment)
                 add(R.id.fragment_container, permissionsFragment, "permissions").hide(permissionsFragment)
@@ -204,6 +206,7 @@ class MainActivity : AppCompatActivity() {
             permissionsFragment = supportFragmentManager.findFragmentByTag("permissions") ?: PermissionsFragment()
             logsFragment = supportFragmentManager.findFragmentByTag("logs") ?: LogsFragment()
             helpFragment = supportFragmentManager.findFragmentByTag("help") ?: HelpFragment()
+            phoneCaseFragment = supportFragmentManager.findFragmentByTag("phonecase") ?: PhoneCaseFragment() // 🚨 ADDED
 
             activeFragment = supportFragmentManager.fragments.firstOrNull { !it.isHidden && it.tag != null } ?: dashboardFragment
         }
@@ -268,6 +271,7 @@ class MainActivity : AppCompatActivity() {
                 R.id.side_settings -> { switchFragment(settingsFragment); topAppBar.title = "Settings" }
                 R.id.side_bluetooth -> { switchFragment(bluetoothFragment); topAppBar.title = "Connections" }
                 R.id.side_permissions -> { switchFragment(permissionsFragment); topAppBar.title = "App Permissions" }
+                R.id.side_phonecase -> { switchFragment(phoneCaseFragment); topAppBar.title = "Sentry Case Control" } // 🚨 ADDED ROUTING
                 R.id.side_logs -> { switchFragment(logsFragment); topAppBar.title = "Security Audit Logs" }
                 R.id.side_help -> { switchFragment(helpFragment); topAppBar.title = "Help & Support" }
                 R.id.side_dark_mode -> {

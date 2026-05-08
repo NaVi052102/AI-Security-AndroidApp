@@ -65,7 +65,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.BufferedInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
@@ -572,13 +571,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         val isLocalDevice = (targetUid == auth.currentUser?.uid)
 
-        // 🚨 HELPER FUNCTION: Download and Display Gallery Image with Click-to-Fullscreen feature
+        // HELPER FUNCTION: Download and Display Gallery Image with Click-to-Fullscreen feature
         fun loadGalleryImage(latestCapturedPhoto: String) {
             if (latestCapturedPhoto.isNotEmpty() && ivGalleryImage != null) {
                 val currentGalleryTag = ivGalleryImage.tag as? String
                 if (currentGalleryTag != latestCapturedPhoto) {
                     ivGalleryImage.tag = latestCapturedPhoto
-                    Log.d("SENTRY_MAP", "Detected new photo URL: $latestCapturedPhoto")
 
                     viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
                         try {
@@ -590,7 +588,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
                                 val imageBytes = connection.inputStream.readBytes()
                                 val options = android.graphics.BitmapFactory.Options()
-                                options.inSampleSize = 4 // Prevents RAM crashes
+                                options.inSampleSize = 4
                                 android.graphics.BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size, options)
                             } else {
                                 requireContext().contentResolver.openInputStream(Uri.parse(latestCapturedPhoto))?.use {
@@ -605,12 +603,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                                 if (bitmap != null && ivGalleryImage.tag == latestCapturedPhoto) {
                                     ivGalleryImage.setImageBitmap(bitmap)
                                     ivGalleryImage.setPadding(0, 0, 0, 0)
-
-                                    // Remove XML Tints so the photo actually shows
                                     ivGalleryImage.colorFilter = null
                                     ImageViewCompat.setImageTintList(ivGalleryImage, null)
 
-                                    // 🚨 FULL-SCREEN CLICK LISTENER
+                                    // FULL-SCREEN CLICK LISTENER
                                     ivGalleryImage.setOnClickListener {
                                         val fullScreenDialog = android.app.Dialog(requireContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen)
                                         val fullScreenImageView = ImageView(requireContext()).apply {
@@ -621,7 +617,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                                             scaleType = ImageView.ScaleType.FIT_CENTER
                                             setBackgroundColor(Color.BLACK)
                                             setImageBitmap(bitmap)
-                                            // Tap anywhere to close the full screen view
                                             setOnClickListener { fullScreenDialog.dismiss() }
                                         }
                                         fullScreenDialog.setContentView(fullScreenImageView)
@@ -641,17 +636,23 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
                 if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
 
+                // 🚨 NEW REVOKE ACCESS LISTENER: Auto-kick intruder if access is revoked
+                val accessRevoked = snapshot.getBoolean("remoteAccessRevoked") ?: false
+                if (accessRevoked) {
+                    dialog.dismiss()
+                    showSentryToast("CONNECTION SEVERED: Owner revoked scanner access.", isLong = true)
+                    return@addSnapshotListener
+                }
+
                 val lat = snapshot.getDouble("currentLat") ?: 0.0
                 val lng = snapshot.getDouble("currentLng") ?: 0.0
                 val battery = snapshot.getLong("battery")?.toInt() ?: 100
                 val placeName = snapshot.getString("placeName") ?: "Unknown Location"
                 val photoUri = snapshot.getString("photoUri") ?: ""
 
-                // Handle Gallery Image update
                 val latestCapturedPhoto = snapshot.getString("latestSecretSnap") ?: ""
                 loadGalleryImage(latestCapturedPhoto)
 
-                // Hydrate Telemetry
                 tvBattery?.text = "$battery%"
                 tvLocationCity?.text = placeName
                 tvLatitude?.text = String.format(Locale.US, "%.4f° N", lat)
@@ -662,7 +663,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     tvRemoteDistance?.text = formatDistance(dist)
                 }
 
-                // Hydrate Custom Avatar
                 if (photoUri.isNotEmpty() && ivAvatar != null) {
                     val currentTag = ivAvatar.tag as? String
                     if (currentTag != photoUri) {
@@ -697,7 +697,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             dialog.setOnDismissListener { listener.remove() }
 
         } else if (isLocalDevice) {
-            // Also allow user to see their own gallery if testing locally
             val listener = db.collection("Users").document(targetUid ?: "").addSnapshotListener { snapshot, e ->
                 if (snapshot != null && snapshot.exists()) {
                     val latestCapturedPhoto = snapshot.getString("latestSecretSnap") ?: ""
@@ -1232,9 +1231,21 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
+    // 🚨 UPDATED: Prevents "Accidental Deletion" duplicate bug
     private fun autoAddLostDevice(uid: String, fallbackName: String) {
         val myUid = auth.currentUser?.uid ?: return
 
+        // 1. First, check if the scanned user is ALREADY a normal Trusted Contact
+        val existingContact = mapContactsList.find { it.uid == uid }
+        if (existingContact != null) {
+            // They are already a friend! Do not modify the database.
+            showSentryToast("Target is a Trusted Contact. Override Access Granted.", isLong = true)
+            // Just open the remote panel and let them control the phone!
+            showRemoteControlPanel(existingContact.name, uid)
+            return
+        }
+
+        // 2. If they are NOT a friend, proceed with adding them as a "Lost Device"
         db.collection("Users").document(myUid).get().addOnSuccessListener { currentUserDoc ->
             val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
 
@@ -1298,7 +1309,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     showRemoteControlPanel("$fallbackName (Lost Device)", uid)
                     initLife360Engine()
                 }
-
             } else {
                 showSentryToast("Device is already being tracked.", isLong = false)
                 val actualName = mapContactsList.find { it.uid == uid }?.name ?: fallbackName
@@ -1340,15 +1350,14 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             rootChassis?.strokeColor = strokeColor
 
             val cardIds = intArrayOf(
-                R.id.cardProfile, R.id.cardConnectivity, R.id.cardAiDetection,
-                R.id.cardLocation
+                R.id.cardProfile, R.id.cardAiDetection, R.id.cardLocation
             )
             for (id in cardIds) {
                 view.findViewById<CardView>(id)?.setCardBackgroundColor(cardBgColor)
             }
 
             val textPrimaryIds = intArrayOf(
-                R.id.tvTargetName, R.id.tvLocationStatus, R.id.tvLocationCity,
+                R.id.tvTargetName, R.id.tvLocationCity,
                 R.id.tvLatitude, R.id.tvLongitude, R.id.tvRemoteDistance
             )
             for (id in textPrimaryIds) {
@@ -1359,14 +1368,38 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 val data = JSONObject(marker.snippet ?: "{}")
 
                 val targetName = data.getString("name")
+                val targetUid = data.optString("uid", "")
+                val isSOS = data.optBoolean("isSOS", false)
+                val isLostDevice = targetName.contains("Lost Device")
+
                 view.findViewById<TextView>(R.id.tvTargetName)?.text = targetName
-                view.findViewById<TextView>(R.id.tvLocationStatus)?.text = data.getString("status")
-                view.findViewById<TextView>(R.id.tvRemoteDistance)?.text = "DIST: ${data.getString("distance")}"
+                view.findViewById<TextView>(R.id.tvRemoteDistance)?.text = "DIST: ${data.optString("distance", "0m")}"
 
                 val battery = data.getInt("battery")
                 val tvBatt = view.findViewById<TextView>(R.id.tvBattery)
                 tvBatt?.text = "$battery%"
                 if (battery <= 20) tvBatt?.setTextColor(Color.parseColor("#EF4444"))
+
+                view.findViewById<TextView>(R.id.tvLatitude)?.text = String.format(Locale.US, "LAT: %.4f° N", marker.position.latitude)
+                view.findViewById<TextView>(R.id.tvLongitude)?.text = String.format(Locale.US, "LNG: %.4f° E", marker.position.longitude)
+
+                val contact = mapContactsList.find { it.uid == targetUid }
+                view.findViewById<TextView>(R.id.tvLocationCity)?.text = contact?.locationName ?: "Unknown Location"
+
+                val tvAiAccessStatus = view.findViewById<TextView>(R.id.tvAiAccessStatus)
+                val tvMemberTier = view.findViewById<TextView>(R.id.tvMemberTier)
+
+                if (isSOS || isLostDevice || unlockedViaQrUids.contains(targetUid)) {
+                    tvAiAccessStatus?.text = "ACCESS GRANTED"
+                    tvAiAccessStatus?.setTextColor(Color.parseColor("#10B981"))
+                    tvMemberTier?.text = if (isSOS) "EMERGENCY SOS" else "AUTHORIZED"
+                    tvMemberTier?.setTextColor(Color.parseColor("#EF4444"))
+                } else {
+                    tvAiAccessStatus?.text = "NO ACCESS"
+                    tvAiAccessStatus?.setTextColor(Color.parseColor("#EF4444"))
+                    tvMemberTier?.text = "TRUSTED CONTACT"
+                    tvMemberTier?.setTextColor(Color.parseColor("#3B82F6"))
+                }
 
             } catch (e: Exception) {
                 view.findViewById<TextView>(R.id.tvTargetName)?.text = marker.title
@@ -1441,7 +1474,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                         val connection = URL(photoUri).openConnection() as HttpURLConnection
                         connection.doInput = true
                         connection.connect()
-                        // Safe byte array download
                         val bytes = connection.inputStream.readBytes()
                         android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     } else {
@@ -1512,12 +1544,12 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     val targetUid = data.optString("uid", "")
 
                     val isLostDevice = targetName.contains("Lost Device")
-                    val isTrustedUser = mapContactsList.any { it.uid == targetUid }
+                    val unlockedByQr = unlockedViaQrUids.contains(targetUid)
 
-                    if (isSOS || isLostDevice || isTrustedUser || unlockedViaQrUids.contains(targetUid)) {
+                    if (isSOS || isLostDevice || unlockedByQr) {
                         showRemoteControlPanel(targetName, targetUid)
                     } else {
-                        showSentryToast("Access Denied. Device is not in SOS Mode.", isLong = false)
+                        showSentryToast("Access Denied! Remote control requires an active SOS alert.", isLong = false)
                     }
                 } catch (e: Exception) {}
             }

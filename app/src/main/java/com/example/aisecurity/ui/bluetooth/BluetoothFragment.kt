@@ -6,7 +6,6 @@ import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothManager
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
-import android.bluetooth.le.ScanSettings
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -38,6 +37,7 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
+import com.example.aisecurity.ble.CaseManager
 import com.example.aisecurity.ble.WatchManager
 
 class BluetoothFragment : Fragment() {
@@ -122,7 +122,6 @@ class BluetoothFragment : Fragment() {
         val btnSetPin = view.findViewById<Button>(R.id.btnSetPin)
         val recyclerDevices = view.findViewById<RecyclerView>(R.id.recyclerDevices)
 
-        // 🚨 Programmatically draw the Set PIN Button background to avoid XML crashes
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
         btnSetPin.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
@@ -138,29 +137,42 @@ class BluetoothFragment : Fragment() {
 
         updateScanButtonUI(btnScan, isScanning)
 
-        deviceAdapter = BleDeviceAdapter { clickedDevice, isAlreadyConnected ->
+        deviceAdapter = BleDeviceAdapter { clickedDevice, resolvedName, isAlreadyConnected ->
             if (!::bluetoothAdapter.isInitialized || !bluetoothAdapter.isEnabled) {
                 showSentryToast("Please turn on Bluetooth first!", isLong = false)
                 return@BleDeviceAdapter
             }
 
-            if (isAlreadyConnected) {
-                WatchManager.disconnect()
-                deviceAdapter.setConnectedDevice(null)
-                showSentryToast("Watch Disconnected", isLong = false)
-            } else {
-                prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
-                stopRadarScan()
-                updateScanButtonUI(btnScan, false)
-                deviceAdapter.setConnectedDevice(clickedDevice.address)
+            // ROUTE CLICKS TO THE CORRECT HARDWARE MANAGER
+            val isTargetCase = resolvedName.contains("Sentry Case", true) ||
+                    resolvedName.contains("ESP32", true) ||
+                    clickedDevice.address == "80:F3:DA:63:90:7E" ||
+                    prefs.getString("saved_case_mac", "") == clickedDevice.address
 
-                try {
-                    val name = clickedDevice.name ?: "Watch Pro"
-                    showSentryToast("Connecting to $name...", isLong = false)
-                } catch (e: SecurityException) {
-                    showSentryToast("Connecting to Watch Pro...", isLong = false)
+            if (isTargetCase) {
+                if (isAlreadyConnected) {
+                    CaseManager.disconnect()
+                    prefs.edit().remove("saved_case_mac").apply()
+                    showSentryToast("Case Disconnected", isLong = false)
+                } else {
+                    prefs.edit().putString("saved_case_mac", clickedDevice.address).apply()
+                    stopRadarScan()
+                    updateScanButtonUI(btnScan, false)
+                    showSentryToast("Connecting to Sentry Case...", isLong = false)
+                    CaseManager.connectToTarget(requireContext(), clickedDevice.address)
                 }
-                WatchManager.connectToTarget(requireContext(), clickedDevice.address)
+            } else {
+                if (isAlreadyConnected) {
+                    WatchManager.disconnect()
+                    prefs.edit().remove("saved_watch_mac").apply()
+                    showSentryToast("Watch Disconnected", isLong = false)
+                } else {
+                    prefs.edit().putString("saved_watch_mac", clickedDevice.address).apply()
+                    stopRadarScan()
+                    updateScanButtonUI(btnScan, false)
+                    showSentryToast("Connecting to Watch Pro...", isLong = false)
+                    WatchManager.connectToTarget(requireContext(), clickedDevice.address)
+                }
             }
         }
 
@@ -168,17 +180,31 @@ class BluetoothFragment : Fragment() {
         recyclerDevices.adapter = deviceAdapter
 
         WatchManager.isConnected.observe(viewLifecycleOwner) { isConnected ->
-            if (!isConnected) {
-                deviceAdapter.setConnectedDevice(null)
-            }
+            val mac = prefs.getString("saved_watch_mac", null)
+            if (mac != null) deviceAdapter.updateConnectionState(mac, isConnected)
         }
 
-        val savedMac = prefs.getString("saved_watch_mac", null)
-        if (savedMac != null && ::bluetoothAdapter.isInitialized && bluetoothAdapter.isEnabled && WatchManager.isConnected.value == true) {
+        CaseManager.isConnected.observe(viewLifecycleOwner) { isConnected ->
+            val mac = CaseManager.connectedMacAddress ?: prefs.getString("saved_case_mac", null)
+            if (mac != null) deviceAdapter.updateConnectionState(mac, isConnected)
+        }
+
+        // Auto-connect saved devices
+        val savedWatchMac = prefs.getString("saved_watch_mac", null)
+        val savedCaseMac = prefs.getString("saved_case_mac", null)
+
+        if (::bluetoothAdapter.isInitialized && bluetoothAdapter.isEnabled) {
             try {
-                val savedDevice = bluetoothAdapter.getRemoteDevice(savedMac)
-                deviceAdapter.addDevice(savedDevice)
-                deviceAdapter.setConnectedDevice(savedMac)
+                if (savedWatchMac != null && WatchManager.isConnected.value == true) {
+                    val savedDevice = bluetoothAdapter.getRemoteDevice(savedWatchMac)
+                    deviceAdapter.addDevice(savedDevice, "Watch Pro")
+                    deviceAdapter.updateConnectionState(savedWatchMac, true)
+                }
+                if (savedCaseMac != null && CaseManager.isConnected.value == true) {
+                    val savedDevice = bluetoothAdapter.getRemoteDevice(savedCaseMac)
+                    deviceAdapter.addDevice(savedDevice, "Sentry Case")
+                    deviceAdapter.updateConnectionState(savedCaseMac, true)
+                }
             } catch (e: SecurityException) {
                 Log.e("BLE", "Missing permission for getRemoteDevice")
             }
@@ -229,21 +255,17 @@ class BluetoothFragment : Fragment() {
         }
     }
 
-    // 🚨 SECURE PIN DIALOG LOGIC WITH CUSTOM XML
     private fun showSetPinDialog() {
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         val currentPin = prefs.getString("watch_pairing_pin", "1234")
 
-        // Inflate your custom layout
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_set_pin, null)
         val etPinCode = dialogView.findViewById<EditText>(R.id.etPinCode)
         val btnCancelPin = dialogView.findViewById<Button>(R.id.btnCancelPin)
         val btnSavePin = dialogView.findViewById<Button>(R.id.btnSavePin)
 
-        // Pre-fill existing PIN
         etPinCode.setText(currentPin)
 
-        // Dynamically paint the dark background to match the OTP box
         dialogView.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = 64f
@@ -251,12 +273,10 @@ class BluetoothFragment : Fragment() {
             setStroke(2, Color.parseColor("#1E293B"))
         }
 
-        // Create and style the dialog
         val dialog = AlertDialog.Builder(requireContext())
             .setView(dialogView)
             .create()
 
-        // Make the default white alert window transparent
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
         btnCancelPin.setOnClickListener {
@@ -268,12 +288,11 @@ class BluetoothFragment : Fragment() {
             if (newPin.length in 4..6) {
                 prefs.edit()
                     .putString("watch_pairing_pin", newPin)
-                    // Revoke all previously trusted watches so they are forced to use the new PIN
                     .putStringSet("trusted_watches", mutableSetOf())
                     .apply()
 
                 showSentryToast("PIN Saved! All watches must re-authenticate.", true)
-                WatchManager.disconnect() // Disconnect current watch to force new PIN entry
+                WatchManager.disconnect()
                 dialog.dismiss()
             } else {
                 showSentryToast("PIN must be 4 to 6 digits long.", false)
@@ -390,9 +409,27 @@ class BluetoothFragment : Fragment() {
         @SuppressLint("MissingPermission")
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             try {
-                val deviceName = result.device.name
-                val isTargetWatch = result.device.address == "FC:01:2C:FD:DD:76" || (deviceName != null && deviceName.contains("Watch Pro", true))
-                if (isTargetWatch) deviceAdapter.addDevice(result.device)
+                val scanRecordName = result.scanRecord?.deviceName ?: ""
+                val deviceObjName = result.device.name ?: ""
+                val deviceName = if (scanRecordName.isNotEmpty()) scanRecordName else deviceObjName
+
+                val isTargetWatch = result.device.address.equals("FC:01:2C:FD:DD:76", ignoreCase = true) || deviceName.contains("Watch Pro", ignoreCase = true)
+
+                val hasCaseUUID = result.scanRecord?.serviceUuids?.any {
+                    it.uuid.toString().equals("8101a153-61b6-444a-a0f5-502a5e958742", ignoreCase = true)
+                } == true
+
+                val isTargetCase = deviceName.contains("Sentry Case", ignoreCase = true) ||
+                        deviceName.contains("ESP32", ignoreCase = true) ||
+                        result.device.address == "80:F3:DA:63:43:0A" ||
+                        hasCaseUUID
+
+                if (isTargetWatch) {
+                    deviceAdapter.addDevice(result.device, if (deviceName.isNotEmpty()) deviceName else "Watch Pro")
+                } else if (isTargetCase) {
+                    deviceAdapter.addDevice(result.device, "Sentry Case")
+                }
+
             } catch (e: SecurityException) {
                 Log.e("BLE", "Permission missing during scan", e)
             }
@@ -423,4 +460,3 @@ class BluetoothFragment : Fragment() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 }
-

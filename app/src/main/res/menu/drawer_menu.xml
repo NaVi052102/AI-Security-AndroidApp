@@ -8,6 +8,12 @@
                 android:id="@+id/side_bluetooth"
                 android:icon="@drawable/ic_bluetooth_outlined"
                 android:title="Connections" />
+
+            <item
+                android:id="@+id/side_phonecase"
+                android:icon="@drawable/ic_lock"
+                android:title="Sentry Case Control" />
+
             <item
                 android:id="@+id/side_permissions"
                 android:icon="@drawable/ic_shield_outlined"

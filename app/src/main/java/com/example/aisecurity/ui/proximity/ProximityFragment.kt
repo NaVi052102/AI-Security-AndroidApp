@@ -17,6 +17,7 @@ import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
+import com.example.aisecurity.ble.CaseManager
 import com.example.aisecurity.ble.WatchManager
 import com.example.aisecurity.ai.SecurityEnforcer
 import com.google.firebase.auth.FirebaseAuth
@@ -51,11 +52,11 @@ class ProximityFragment : Fragment(), SensorEventListener {
     private var currentAccel = floatArrayOf(0f, 0f, 0f)
     private var currentGyro = floatArrayOf(0f, 0f, 0f)
 
-    // 🚨 NEW: Anti-Theft Movement Variables
+    // Anti-Theft Movement Variables
     private var lastAccel = floatArrayOf(0f, 0f, 0f)
     private var lastGyro = floatArrayOf(0f, 0f, 0f)
     private var lastMovementAlertTime = 0L
-    private val MOVEMENT_THRESHOLD = 2.5f // Tuning for picking up the phone
+    private val MOVEMENT_THRESHOLD = 2.5f
     private val GYRO_THRESHOLD = 1.5f
 
     private var isObjectClose = false
@@ -157,9 +158,22 @@ class ProximityFragment : Fragment(), SensorEventListener {
                         isLockdownTriggered = true
                         triggerEmergencyNetworkOverride()
 
-                        // 🚨 Uses dynamically selected defense type from settings
-                        val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
-                        SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
+                        // 🚨 DOUBLE LOCK PROTOCOL: Instantly secure the physical phone case!
+                        if (CaseManager.isConnected.value == true) {
+                            CaseManager.triggerLock()
+                            Toast.makeText(requireContext(), "🚨 SENTRY CASE DOUBLE-LOCKED!", Toast.LENGTH_SHORT).show()
+                        }
+
+                        // 🚨 BULLETPROOF FIX: Delay the phone's screen lock by 500 milliseconds!
+                        // This guarantees the Bluetooth antenna has time to transmit the command
+                        // to the ESP32 before the Android OS puts the phone to sleep.
+                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
+                            delay(500)
+
+                            // Uses dynamically selected defense type from settings
+                            val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
+                            SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
+                        }
                     }
                 }
                 else if (distance < warningThreshold && isLockdownTriggered) {
@@ -253,7 +267,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
         telemetrySyncJob?.cancel()
     }
 
-    // 🚨 NEW: Core anti-theft check function
     private fun checkMovementAndAlert() {
         val deltaAccel = Math.abs(currentAccel[0] - lastAccel[0]) + Math.abs(currentAccel[1] - lastAccel[1]) + Math.abs(currentAccel[2] - lastAccel[2])
         val deltaGyro = Math.abs(currentGyro[0] - lastGyro[0]) + Math.abs(currentGyro[1] - lastGyro[1]) + Math.abs(currentGyro[2] - lastGyro[2])
@@ -280,12 +293,12 @@ class ProximityFragment : Fragment(), SensorEventListener {
             Sensor.TYPE_ACCELEROMETER -> {
                 currentAccel = event.values.clone()
                 tvAccelData.text = String.format(Locale.US, "X: %.2f\nY: %.2f\nZ: %.2f", currentAccel[0], currentAccel[1], currentAccel[2])
-                checkMovementAndAlert() // 🚨 Trigger Theft Check
+                checkMovementAndAlert()
             }
             Sensor.TYPE_GYROSCOPE -> {
                 currentGyro = event.values.clone()
                 tvGyroData.text = String.format(Locale.US, "X: %.2f\nY: %.2f\nZ: %.2f", currentGyro[0], currentGyro[1], currentGyro[2])
-                checkMovementAndAlert() // 🚨 Trigger Theft Check
+                checkMovementAndAlert()
             }
             Sensor.TYPE_PROXIMITY -> {
                 isObjectClose = event.values[0] < event.sensor.maximumRange
