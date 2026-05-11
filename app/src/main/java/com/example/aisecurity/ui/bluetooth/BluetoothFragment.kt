@@ -39,6 +39,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 import com.example.aisecurity.ble.CaseManager
 import com.example.aisecurity.ble.WatchManager
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.SetOptions
 
 class BluetoothFragment : Fragment() {
 
@@ -51,10 +54,18 @@ class BluetoothFragment : Fragment() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == BluetoothAdapter.ACTION_STATE_CHANGED) {
                 val state = intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR)
+                val uid = FirebaseAuth.getInstance().currentUser?.uid
 
                 if (state == BluetoothAdapter.STATE_OFF) {
                     updateToggleState()
                     deviceAdapter.clear()
+
+                    // 🚨 NEW: Sync to Firebase instantly so remote controllers don't fight it
+                    if (uid != null) {
+                        FirebaseFirestore.getInstance().collection("Users").document(uid).set(
+                            hashMapOf("state_bluetooth" to false), SetOptions.merge()
+                        )
+                    }
 
                     if (isScanning) {
                         isScanning = false
@@ -62,6 +73,13 @@ class BluetoothFragment : Fragment() {
                     }
                 } else if (state == BluetoothAdapter.STATE_ON) {
                     updateToggleState()
+
+                    // 🚨 NEW: Sync to Firebase instantly
+                    if (uid != null) {
+                        FirebaseFirestore.getInstance().collection("Users").document(uid).set(
+                            hashMapOf("state_bluetooth" to true), SetOptions.merge()
+                        )
+                    }
                 }
             }
         }
@@ -143,7 +161,6 @@ class BluetoothFragment : Fragment() {
                 return@BleDeviceAdapter
             }
 
-            // ROUTE CLICKS TO THE CORRECT HARDWARE MANAGER
             val isTargetCase = resolvedName.contains("Sentry Case", true) ||
                     resolvedName.contains("ESP32", true) ||
                     clickedDevice.address == "80:F3:DA:63:90:7E" ||
@@ -189,7 +206,6 @@ class BluetoothFragment : Fragment() {
             if (mac != null) deviceAdapter.updateConnectionState(mac, isConnected)
         }
 
-        // Auto-connect saved devices
         val savedWatchMac = prefs.getString("saved_watch_mac", null)
         val savedCaseMac = prefs.getString("saved_case_mac", null)
 

@@ -158,19 +158,14 @@ class ProximityFragment : Fragment(), SensorEventListener {
                         isLockdownTriggered = true
                         triggerEmergencyNetworkOverride()
 
-                        // 🚨 DOUBLE LOCK PROTOCOL: Instantly secure the physical phone case!
                         if (CaseManager.isConnected.value == true) {
                             CaseManager.triggerLock()
                             Toast.makeText(requireContext(), "🚨 SENTRY CASE DOUBLE-LOCKED!", Toast.LENGTH_SHORT).show()
                         }
 
-                        // 🚨 BULLETPROOF FIX: Delay the phone's screen lock by 500 milliseconds!
-                        // This guarantees the Bluetooth antenna has time to transmit the command
-                        // to the ESP32 before the Android OS puts the phone to sleep.
                         viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
                             delay(500)
 
-                            // Uses dynamically selected defense type from settings
                             val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
                             SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
                         }
@@ -301,11 +296,17 @@ class ProximityFragment : Fragment(), SensorEventListener {
                 checkMovementAndAlert()
             }
             Sensor.TYPE_PROXIMITY -> {
-                isObjectClose = event.values[0] < event.sensor.maximumRange
+                // 🚨 UNIVERSAL FIX: Some phones report 8.0 or 10.0 when far.
+                // A safe "close" reading on all Androids is less than max range AND less than 5cm.
+                val maxRange = event.sensor.maximumRange
+                isObjectClose = event.values[0] < maxRange && event.values[0] <= 5.0f
                 evaluatePocketMode()
             }
             Sensor.TYPE_LIGHT -> {
-                isEnvironmentDark = event.values[0] < 5.0f
+                // 🚨 UNIVERSAL FIX: Modern phones put the light sensor UNDER the OLED screen.
+                // When the screen is on, it bleeds light into the sensor, so it never reaches 5.0 lux
+                // even in a pitch-black pocket! 40.0f safely accounts for screen bleed.
+                isEnvironmentDark = event.values[0] < 40.0f
                 evaluatePocketMode()
             }
         }

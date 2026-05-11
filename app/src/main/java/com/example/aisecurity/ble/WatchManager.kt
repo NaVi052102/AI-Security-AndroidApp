@@ -18,12 +18,15 @@ import android.media.RingtoneManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.os.PowerManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.lifecycle.MutableLiveData
 import com.example.aisecurity.ai.BehavioralAuthClassifier
 import com.example.aisecurity.ai.SecurityDatabase
@@ -85,11 +88,9 @@ object WatchManager {
     private var lastKnownCity = "Tracking Active"
     private var lastGeocodeTime = 0L
 
-    // 🚨 SECURITY AUTHENTICATION STATE ──────────────────────────
     private var isAuthenticated = false
     private var pendingAuthMac = ""
     private var isConnectionInitialized = false
-    // ─────────────────────────────────────────────────────────
 
     private fun hasPermissions(context: Context): Boolean {
         var accessibilityEnabled = 0
@@ -246,7 +247,6 @@ object WatchManager {
                         sendData("<AUTH_OK>")
                         liveStatus.postValue("Secure Link Established ✅")
 
-                        // 🚨 FIX: Delay the flood of tracking data by 600ms so the Watch doesn't overwrite the <AUTH_OK> command in its buffer!
                         scope.launch {
                             delay(600)
                             initializeTrustedConnection()
@@ -281,6 +281,10 @@ object WatchManager {
 
                         "<CMD:REMOTE_LOCK>" -> handleRemoteLock(ctx)
                         "<CMD:PING_PHONE>" -> handlePingPhone(ctx)
+
+                        // 🚨 RELAY: Watch requests to lock/unlock the Sentry Case via Phone
+                        "<CMD:CASE_LOCK>" -> handleCaseCommand(ctx, true)
+                        "<CMD:CASE_UNLOCK>" -> handleCaseCommand(ctx, false)
 
                         "<CMD:WIFI_1>" -> handleSystemToggle(ctx, "WIFI", true)
                         "<CMD:WIFI_0>" -> handleSystemToggle(ctx, "WIFI", false)
@@ -341,6 +345,23 @@ object WatchManager {
                 syncAccountProfile(name, email)
                 delay(400)
                 syncUserTracker(email)
+            }
+        }
+    }
+
+    // 🚨 MIDDLEMAN FUNCTION: Route the watch's command to the CaseManager
+    private fun handleCaseCommand(context: Context, lock: Boolean) {
+        scope.launch(Dispatchers.Main) {
+            if (CaseManager.isConnected.value == true) {
+                if (lock) {
+                    CaseManager.triggerLock()
+                    Toast.makeText(context, "🔒 Watch locked the Sentry Case", Toast.LENGTH_SHORT).show()
+                } else {
+                    CaseManager.triggerUnlock()
+                    Toast.makeText(context, "🔓 Watch unlocked the Sentry Case", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(context, "⚠️ Watch command failed: Case disconnected", Toast.LENGTH_SHORT).show()
             }
         }
     }

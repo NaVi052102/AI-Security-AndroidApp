@@ -210,6 +210,16 @@
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
+                        <TextView
+                            android:id="@+id/tvMemberTier"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="TRUSTED CONTACT"
+                            android:textColor="#3B82F6"
+                            android:textSize="9sp"
+                            android:textStyle="bold"
+                            android:layout_marginTop="2dp" />
+
                     </LinearLayout>
                 </androidx.cardview.widget.CardView>
 

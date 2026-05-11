@@ -506,6 +506,8 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
         if (!isAdded) return
 
+        val dialogOpenTime = System.currentTimeMillis()
+
         if (targetUid != null && targetUid.isNotEmpty() && targetUid != auth.currentUser?.uid) {
             currentlySelectedUid = targetUid
             updateAllTrackingLines()
@@ -554,7 +556,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
 
-        // Find Dynamic XML Views
         val ivAvatar = dialogView.findViewById<ImageView>(R.id.ivAvatar)
         val tvBattery = dialogView.findViewById<TextView>(R.id.tvBattery)
         val tvLocationCity = dialogView.findViewById<TextView>(R.id.tvLocationCity)
@@ -606,7 +607,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                                     ivGalleryImage.colorFilter = null
                                     ImageViewCompat.setImageTintList(ivGalleryImage, null)
 
-                                    // FULL-SCREEN CLICK LISTENER
                                     ivGalleryImage.setOnClickListener {
                                         val fullScreenDialog = android.app.Dialog(requireContext(), android.R.style.Theme_Black_NoTitleBar_Fullscreen)
                                         val fullScreenImageView = ImageView(requireContext()).apply {
@@ -634,12 +634,25 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         if (targetUid != null && !isLocalDevice) {
             val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-
-                // 🚨 NEW REVOKE ACCESS LISTENER: Auto-kick intruder if access is revoked
-                val accessRevoked = snapshot.getBoolean("remoteAccessRevoked") ?: false
-                if (accessRevoked) {
+                if (e != null || snapshot == null || !snapshot.exists()) {
                     dialog.dismiss()
+                    return@addSnapshotListener
+                }
+
+                // 🚨 REAL-TIME BULLETPROOF KICK LOGIC
+                val accessRevoked = snapshot.getBoolean("remoteAccessRevoked") ?: false
+                val myUid = auth.currentUser?.uid
+
+                // Read the list. If it doesn't exist, default to an empty list.
+                val ownerContacts = snapshot.get("trustedContacts") as? List<Map<String, Any>> ?: emptyList()
+
+                // If myUid is no longer in this list, they kicked me.
+                val isStillTrusted = ownerContacts.any { it["uid"] == myUid }
+
+                // If global revoked, OR individually kicked (with a tiny 1500ms network sync buffer)
+                if (accessRevoked || (!isStillTrusted && (System.currentTimeMillis() - dialogOpenTime > 1500))) {
+                    unlockedViaQrUids.remove(targetUid) // Remove from local cache
+                    dialog.dismiss() // INSTANTLY SLAM THE WINDOW SHUT
                     showSentryToast("CONNECTION SEVERED: Owner revoked scanner access.", isLong = true)
                     return@addSnapshotListener
                 }
@@ -1231,21 +1244,16 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
-    // 🚨 UPDATED: Prevents "Accidental Deletion" duplicate bug
     private fun autoAddLostDevice(uid: String, fallbackName: String) {
         val myUid = auth.currentUser?.uid ?: return
 
-        // 1. First, check if the scanned user is ALREADY a normal Trusted Contact
         val existingContact = mapContactsList.find { it.uid == uid }
         if (existingContact != null) {
-            // They are already a friend! Do not modify the database.
             showSentryToast("Target is a Trusted Contact. Override Access Granted.", isLong = true)
-            // Just open the remote panel and let them control the phone!
             showRemoteControlPanel(existingContact.name, uid)
             return
         }
 
-        // 2. If they are NOT a friend, proceed with adding them as a "Lost Device"
         db.collection("Users").document(myUid).get().addOnSuccessListener { currentUserDoc ->
             val existingList = currentUserDoc.get("trustedContacts") as? MutableList<Map<String, String>> ?: mutableListOf()
 

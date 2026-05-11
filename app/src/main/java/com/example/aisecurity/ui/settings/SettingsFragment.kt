@@ -68,6 +68,9 @@ class SettingsFragment : Fragment() {
 
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
 
+        // 🚨 NEW: Auto Case Lock Binding
+        val switchAutoCaseLock = view.findViewById<SwitchCompat>(R.id.switchAutoCaseLock)
+
         val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
         val btnDemoEnforcer = view.findViewById<Button>(R.id.btnDemoEnforcer)
         val btnDemoOrdinary = view.findViewById<Button>(R.id.btnDemoOrdinary)
@@ -78,7 +81,7 @@ class SettingsFragment : Fragment() {
         applyDangerButton(btnDemoEnforcer, isNightMode)
         applyDangerButton(btnDemoOrdinary, isNightMode)
 
-        // 1. AI SENSITIVITY (Normal = 0, Moderate = 1, Strict = 2)
+        // 1. AI SENSITIVITY
         val currentSensitivity = prefs.getInt("ai_sensitivity", 1)
         seekAi.progress = currentSensitivity
         updateAiDesc(currentSensitivity, tvAiDesc)
@@ -222,6 +225,19 @@ class SettingsFragment : Fragment() {
             }
         }
 
+        // 🚨 NEW: Auto Case Lock Event Setup
+        if (switchAutoCaseLock != null) {
+            switchAutoCaseLock.isChecked = prefs.getBoolean("auto_case_lock", false)
+            switchAutoCaseLock.setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit { putBoolean("auto_case_lock", isChecked) }
+                if (isChecked) {
+                    showSentryToast("Auto Case Lock ON: Case will lock when screen goes dark.", false)
+                } else {
+                    showSentryToast("Auto Case Lock OFF: Manual mode active.", false)
+                }
+            }
+        }
+
         // ==========================================
         // 4. DYNAMIC MODAL TEST TRIGGERS
         // ==========================================
@@ -321,7 +337,6 @@ class SettingsFragment : Fragment() {
         dialog.show()
     }
 
-    // 🚨 UPDATED: Explicit description showing locking thresholds based on the slider
     @SuppressLint("SetTextI18n")
     private fun updateAiDesc(progress: Int, tv: TextView) {
         when (progress) {
