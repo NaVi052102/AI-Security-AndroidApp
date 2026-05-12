@@ -25,12 +25,19 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     private val escapeTimestamps = mutableListOf<Long>()
     private var isDeadStateActive = false
+    private var isBootlooping = false
 
     private val escapeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (!isDeadStateActive) return
 
             val action = intent?.action
+
+            // 🚨 PSYCHOLOGICAL TRAP: The thief pressed the power button!
+            if (action == Intent.ACTION_SCREEN_ON) {
+                triggerFakeBootSequence()
+            }
+
             if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_POWER_CONNECTED) {
                 val now = System.currentTimeMillis()
                 escapeTimestamps.add(now)
@@ -48,7 +55,7 @@ class FakeShutdownActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 🚨 1. OVERRIDE LOCK SCREEN
+        // 1. OVERRIDE LOCK SCREEN
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
@@ -63,13 +70,13 @@ class FakeShutdownActivity : AppCompatActivity() {
             )
         }
 
-        // 🚨 2. AGGRESSIVE NOTCH / CUTOUT OVERRIDE (Obliterates the top bar)
+        // 2. AGGRESSIVE NOTCH / CUTOUT OVERRIDE
         window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-            window.setDecorFitsSystemWindows(false) // Force draw behind status bar
+            window.setDecorFitsSystemWindows(false)
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
@@ -113,13 +120,45 @@ class FakeShutdownActivity : AppCompatActivity() {
         isDeadStateActive = true
         getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_fake_dead_state", true).apply()
 
-        // Tell the Accessibility Service to drop the ultimate shield
         sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
             putExtra("TARGET_SETTING", "DEAD_STATE_ON")
         })
 
-        // Blindly consume all touches
         window.decorView.setOnTouchListener { _, _ -> true }
+    }
+
+    // ==========================================
+    // 🎬 AGGRESSIVE FAKE BOOT SEQUENCE
+    // ==========================================
+    private fun triggerFakeBootSequence() {
+        if (isBootlooping) return
+        isBootlooping = true
+
+        // 🚨 NEW: Force Xiaomi/MIUI to explicitly wake the screen and give us UI focus
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+        }
+        // Force the screen to stay bright while the fake boot is playing
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+        val layoutFakeBoot = findViewById<LinearLayout>(R.id.layoutFakeBoot)
+
+        lifecycleScope.launch {
+            layoutFakeBoot.visibility = View.VISIBLE
+
+            // Hold it on screen for 4.5 seconds
+            delay(4500)
+
+            // Fake a "dead battery crash"
+            layoutFakeBoot.visibility = View.GONE
+            isBootlooping = false
+
+            // Allow the screen to naturally turn off again
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
