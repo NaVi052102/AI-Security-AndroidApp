@@ -111,6 +111,9 @@ class TouchDynamicsService : AccessibilityService() {
     private var aegisShieldView: View? = null
     private var isAegisDeployed = false
 
+    // 🚨 NEW: Accessibility-Level Blackout Shield
+    private var blackoutShieldView: View? = null
+
     private var isPoltergeistActive = false
     private var isWatchSyncLoopRunning = false
 
@@ -145,13 +148,18 @@ class TouchDynamicsService : AccessibilityService() {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
 
-                    // 🚨 NEW: INSTANT SHADE SLAM
                     if (target == "SLAM_SHADE") {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                             this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
                         }
                         this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_BACK)
                         return
+                    }
+                    // 🚨 NEW: DEPLOY/REMOVE BLACKOUT SHIELD
+                    else if (target == "DEAD_STATE_ON") {
+                        deployBlackoutShield()
+                    } else if (target == "DEAD_STATE_OFF") {
+                        removeBlackoutShield()
                     }
                     else if (target == "FORCE_SLEEP") {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -642,6 +650,49 @@ class TouchDynamicsService : AccessibilityService() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
+    // ==========================================
+    // 🚨 ULTIMATE BLACKOUT SHIELD (Absolute Window Focus)
+    // ==========================================
+    @SuppressLint("ClickableViewAccessibility")
+    private fun deployBlackoutShield() {
+        if (blackoutShieldView != null || windowManager == null) return
+        try {
+            blackoutShieldView = View(this).apply {
+                setBackgroundColor(Color.BLACK)
+                setOnTouchListener { _, _ -> true } // Consumes all edge swipes instantly
+            }
+            val params = WindowManager.LayoutParams(
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.MATCH_PARENT, // Cover entire screen top to bottom
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, // Highest possible OS priority
+
+                // 🚨 CRITICAL CHANGE: We REMOVED FLAG_NOT_FOCUSABLE here.
+                // This gives the black screen "Absolute Focus", stealing edge-swipes away from the OS!
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
+                        or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
+                        or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
+                PixelFormat.OPAQUE
+            ).apply {
+                // Force Android to draw into the camera notch area
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                }
+            }
+            windowManager?.addView(blackoutShieldView, params)
+            LiveLogger.log("🌑 ULTIMATE BLACKOUT DEPLOYED via Accessibility.")
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
+    private fun removeBlackoutShield() {
+        if (blackoutShieldView == null || windowManager == null) return
+        try {
+            windowManager?.removeView(blackoutShieldView)
+            blackoutShieldView = null
+        } catch (e: Exception) { e.printStackTrace() }
+    }
+
     private fun getContextHash(text: String): Float {
         return (kotlin.math.abs(text.hashCode()) % 1000) / 1000f
     }
@@ -762,12 +813,9 @@ class TouchDynamicsService : AccessibilityService() {
         val eventType      = event?.eventType
         val textNodes      = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
 
-        // 🚨 NEW: AGGRESSIVE STATUS BAR BLOCKER DURING FAKE SHUTDOWN
         val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
         if (isFakeDeadState) {
-            // ✅ Deploy the accessibility overlay — highest z-order, beats TYPE_APPLICATION_OVERLAY
-            deployAegisShield()
-
+            // Because the Ultimate Blackout Shield covers the screen, any leaked system UI attempts will be squashed here
             if (rawPackageName == "com.android.systemui" ||
                 className.contains("panel", true) ||
                 className.contains("notification", true) ||
@@ -786,10 +834,12 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        // 🚨 STRENGTHENED POWER MENU DETECTION
         val isPowerMenu = className.contains("globalactions", true) ||
                 rawPackageName == "android" ||
                 (rawPackageName == "com.android.systemui" && className.contains("dialog", true)) ||
+                rawPackageName.contains("miui.powercenter") ||
+                rawPackageName.contains("miui.powerkeeper") ||
+                className.contains("ShutdownContainer", true) ||
                 textNodes.contains("power off") ||
                 textNodes.contains("restart") ||
                 textNodes.contains("shut down") ||
@@ -801,10 +851,7 @@ class TouchDynamicsService : AccessibilityService() {
         if (isEnvironmentHostile && isPowerMenu) {
 
             if (isFakeShutdownEnabled) {
-                // 🟢 THE USER ENABLED IT: Launch the Deceptive Shutdown UI
                 LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Fake Power-Off...")
-
-                // Force the real power menu to close
                 performGlobalAction(GLOBAL_ACTION_BACK)
                 try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
 
@@ -824,13 +871,12 @@ class TouchDynamicsService : AccessibilityService() {
                 } catch (e: Exception) { e.printStackTrace() }
 
             } else {
-                // 🔴 THE USER DISABLED IT: Let the phone shut down normally, but lock the screen quickly
                 LiveLogger.log("⚠️ Fake Shutdown Disabled. Allowing normal OS execution.")
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                 }
             }
-            return // Prevent processing other hostile checks for this specific event
+            return
         }
 
         if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
@@ -1122,6 +1168,7 @@ class TouchDynamicsService : AccessibilityService() {
     override fun onDestroy() {
         super.onDestroy()
         removeAegisShield()
+        removeBlackoutShield()
         isWatchSyncLoopRunning = false
         try {
             unregisterReceiver(ghostReceiver)

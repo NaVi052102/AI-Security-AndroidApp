@@ -1,16 +1,16 @@
 package com.example.aisecurity.ui
 
+import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
-import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.view.Gravity
 import android.view.View
+import android.view.WindowInsets
+import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.LinearLayout
 import android.widget.Toast
@@ -25,10 +25,6 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     private val escapeTimestamps = mutableListOf<Long>()
     private var isDeadStateActive = false
-
-    private var topBlocker: View? = null
-    private var bottomBlocker: View? = null
-    private var wm: WindowManager? = null
 
     private val escapeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -52,15 +48,30 @@ class FakeShutdownActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // 🚨 1. OVERRIDE LOCK SCREEN
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
             setTurnScreenOn(true)
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
             window.addFlags(
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
                         or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                        or WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
             )
+        }
+
+        // 🚨 2. AGGRESSIVE NOTCH / CUTOUT OVERRIDE (Obliterates the top bar)
+        window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
+        window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+            window.setDecorFitsSystemWindows(false) // Force draw behind status bar
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
         setContentView(R.layout.activity_fake_shutdown)
@@ -100,107 +111,62 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     private fun activateDeadStateTraps() {
         isDeadStateActive = true
-
-        // 🚨 TELL THE AI WE ARE IN DEAD STATE SO IT BLOCKS THE STATUS BAR
         getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_fake_dead_state", true).apply()
 
-        deployEdgeBlockers()
+        // Tell the Accessibility Service to drop the ultimate shield
+        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
+            putExtra("TARGET_SETTING", "DEAD_STATE_ON")
+        })
 
-        // 🚨 BLIND TOUCH CONSUMPTION
-        // We return true for every touch so the user can't tap anything behind the black screen.
-        // The 5-tap escape hatch has been completely removed.
+        // Blindly consume all touches
         window.decorView.setOnTouchListener { _, _ -> true }
     }
 
-    // 🚨 FAILSAFE: If the status bar is pulled, the Activity loses focus. Instantly slam it shut!
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus) {
             hideSystemUI()
         } else if (isDeadStateActive) {
             try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) {}
-            // Send command to Accessibility Service to force-close the notification shade
             sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
                 putExtra("TARGET_SETTING", "SLAM_SHADE")
             })
         }
     }
 
-    private fun deployEdgeBlockers() {
-        if (!Settings.canDrawOverlays(this)) return
-
-        wm = getSystemService(WINDOW_SERVICE) as WindowManager
-        val layoutFlag = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+    private fun hideSystemUI() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.let {
+                it.hide(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+                it.systemBarsBehavior = WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            }
         } else {
             @Suppress("DEPRECATION")
-            WindowManager.LayoutParams.TYPE_PHONE
+            window.decorView.systemUiVisibility = (
+                    View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
+                            or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                            or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
+                            or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
+                            or View.SYSTEM_UI_FLAG_FULLSCREEN
+                    )
         }
-
-        // Tall enough to cover any status bar pull gesture on any device
-        val topBlockerHeight = 350
-
-        topBlocker = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnTouchListener { _, _ -> true }
-        }
-        val topParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            topBlockerHeight,
-            layoutFlag,
-            // ✅ Removed FLAG_NOT_TOUCH_MODAL — it was letting swipe-from-edge slip through
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                    or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                    or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-            PixelFormat.TRANSPARENT
-        ).apply { gravity = Gravity.TOP }
-
-        bottomBlocker = View(this).apply {
-            setBackgroundColor(Color.TRANSPARENT)
-            setOnTouchListener { _, _ -> true }
-        }
-        val bottomParams = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.MATCH_PARENT,
-            topBlockerHeight,
-            layoutFlag,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                    or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                    or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-            PixelFormat.TRANSPARENT
-        ).apply { gravity = Gravity.BOTTOM }
-
-        try {
-            wm?.addView(topBlocker, topParams)
-            wm?.addView(bottomBlocker, bottomParams)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun removeEdgeBlockers() {
-        try {
-            topBlocker?.let { wm?.removeView(it) }
-            bottomBlocker?.let { wm?.removeView(it) }
-            topBlocker = null
-            bottomBlocker = null
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun hideSystemUI() {
-        window.decorView.systemUiVisibility = (View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
-                or View.SYSTEM_UI_FLAG_FULLSCREEN
-                or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION)
     }
 
     private fun exitFakeShutdown() {
-        // TURN OFF THE AI TRAP FLAG
         getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_fake_dead_state", false).apply()
-        removeEdgeBlockers()
+        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
+            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
+        })
         finish()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_fake_dead_state", false).apply()
-        removeEdgeBlockers()
+        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
+            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
+        })
         try {
             unregisterReceiver(escapeReceiver)
         } catch (e: Exception) { e.printStackTrace() }
