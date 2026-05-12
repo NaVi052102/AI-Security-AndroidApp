@@ -296,16 +296,11 @@ class ProximityFragment : Fragment(), SensorEventListener {
                 checkMovementAndAlert()
             }
             Sensor.TYPE_PROXIMITY -> {
-                // 🚨 UNIVERSAL FIX: Some phones report 8.0 or 10.0 when far.
-                // A safe "close" reading on all Androids is less than max range AND less than 5cm.
                 val maxRange = event.sensor.maximumRange
                 isObjectClose = event.values[0] < maxRange && event.values[0] <= 5.0f
                 evaluatePocketMode()
             }
             Sensor.TYPE_LIGHT -> {
-                // 🚨 UNIVERSAL FIX: Modern phones put the light sensor UNDER the OLED screen.
-                // When the screen is on, it bleeds light into the sensor, so it never reaches 5.0 lux
-                // even in a pitch-black pocket! 40.0f safely accounts for screen bleed.
                 isEnvironmentDark = event.values[0] < 40.0f
                 evaluatePocketMode()
             }
@@ -340,16 +335,26 @@ class ProximityFragment : Fragment(), SensorEventListener {
 
     private fun startFirebaseTelemetrySync() {
         val userId = auth.currentUser?.uid ?: return
+        val safeContext = context?.applicationContext ?: return
 
         telemetrySyncJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    val telemetryData = hashMapOf<String, Any>(
-                        "pocketMode" to currentPocketState,
-                        "telemetryUpdated" to com.google.firebase.Timestamp.now()
-                    )
-                    db.collection("Users").document(userId).set(telemetryData, SetOptions.merge())
+                    // 🚨 BILLING SAVER GUARD
+                    val prefs = safeContext.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    val isCloudSyncPaused = prefs.getBoolean("cloud_sync_paused", false)
 
+                    // Only write to Firebase if Cloud Sync is active
+                    if (!isCloudSyncPaused) {
+                        val telemetryData = hashMapOf<String, Any>(
+                            "pocketMode" to currentPocketState,
+                            "telemetryUpdated" to com.google.firebase.Timestamp.now()
+                        )
+                        db.collection("Users").document(userId).set(telemetryData, SetOptions.merge())
+                    }
+
+                    // Watch Sync (Bluetooth) is 100% FREE, so we let this keep running
+                    // even if Firebase Cloud Sync is paused!
                     if (WatchManager.isConnected.value == true) {
 
                         val elapsed = System.currentTimeMillis() - sessionStartTime

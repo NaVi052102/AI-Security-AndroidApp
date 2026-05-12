@@ -111,7 +111,6 @@ class TouchDynamicsService : AccessibilityService() {
     private var aegisShieldView: View? = null
     private var isAegisDeployed = false
 
-    // 🚨 NEW: Accessibility-Level Blackout Shield
     private var blackoutShieldView: View? = null
 
     private var isPoltergeistActive = false
@@ -155,7 +154,6 @@ class TouchDynamicsService : AccessibilityService() {
                         this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_BACK)
                         return
                     }
-                    // 🚨 NEW: DEPLOY/REMOVE BLACKOUT SHIELD
                     else if (target == "DEAD_STATE_ON") {
                         deployBlackoutShield()
                     } else if (target == "DEAD_STATE_OFF") {
@@ -650,30 +648,23 @@ class TouchDynamicsService : AccessibilityService() {
         } catch (e: Exception) { e.printStackTrace() }
     }
 
-    // ==========================================
-    // 🚨 ULTIMATE BLACKOUT SHIELD (Absolute Window Focus)
-    // ==========================================
     @SuppressLint("ClickableViewAccessibility")
     private fun deployBlackoutShield() {
         if (blackoutShieldView != null || windowManager == null) return
         try {
             blackoutShieldView = View(this).apply {
                 setBackgroundColor(Color.BLACK)
-                setOnTouchListener { _, _ -> true } // Consumes all edge swipes instantly
+                setOnTouchListener { _, _ -> true }
             }
             val params = WindowManager.LayoutParams(
                 WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT, // Cover entire screen top to bottom
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY, // Highest possible OS priority
-
-                // 🚨 CRITICAL CHANGE: We REMOVED FLAG_NOT_FOCUSABLE here.
-                // This gives the black screen "Absolute Focus", stealing edge-swipes away from the OS!
+                WindowManager.LayoutParams.MATCH_PARENT,
+                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
                         or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
                         or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
                 PixelFormat.OPAQUE
             ).apply {
-                // Force Android to draw into the camera notch area
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                     layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
                 } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -806,6 +797,7 @@ class TouchDynamicsService : AccessibilityService() {
         if (prefs.getBoolean("is_auth_in_progress", false)) return
 
         val isLocked = prefs.getBoolean("is_system_locked", false)
+        val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY" // 🚨 ADDED DEFENSE TYPE CHECK
         val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
 
         val rawPackageName = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
@@ -815,7 +807,6 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
         if (isFakeDeadState) {
-            // Because the Ultimate Blackout Shield covers the screen, any leaked system UI attempts will be squashed here
             if (rawPackageName == "com.android.systemui" ||
                 className.contains("panel", true) ||
                 className.contains("notification", true) ||
@@ -849,7 +840,6 @@ class TouchDynamicsService : AccessibilityService() {
         val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
 
         if (isEnvironmentHostile && isPowerMenu) {
-
             if (isFakeShutdownEnabled) {
                 LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Fake Power-Off...")
                 performGlobalAction(GLOBAL_ACTION_BACK)
@@ -879,7 +869,38 @@ class TouchDynamicsService : AccessibilityService() {
             return
         }
 
-        if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
+        // 🚨 CRITICAL FIX: Only deploy Aegis Shield UI-crushing attacks if using OVERLAY defense!
+        if (isLocked) {
+            if (defenseType == "OVERLAY") {
+                deployAegisShield()
+                if (rawPackageName.contains("systemui") ||
+                    eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
+                ) {
+                    if (!isPoltergeistActive) {
+                        try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) { e.printStackTrace() }
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        executeAntiGravitySwipe()
+                        performGlobalAction(GLOBAL_ACTION_HOME)
+                    }
+                } else if (rawPackageName.contains("com.android.settings") ||
+                    rawPackageName.contains("coloros") ||
+                    rawPackageName.contains("oplus") ||
+                    rawPackageName.contains("miui")
+                ) {
+                    if (!isPoltergeistActive) performGlobalAction(GLOBAL_ACTION_HOME)
+                } else if (rawPackageName.isNotEmpty() &&
+                    !rawPackageName.contains("com.example.aisecurity")
+                ) {
+                    performGlobalAction(GLOBAL_ACTION_HOME)
+                }
+            }
+            return // ALWAYS skip swipe tracking when locked, regardless of defense type
+        } else {
+            removeAegisShield()
+        }
+
+        // Only track System UI Quick Settings opening if we are NOT in an Ordinary lock state
+        if (isEnvironmentHostile && rawPackageName == "com.android.systemui" && defenseType == "OVERLAY") {
             if (className.contains("panel", true) || className.contains("notification", true) ||
                 className.contains("expand", true) || className.contains("settings", true) ||
                 eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
@@ -887,33 +908,6 @@ class TouchDynamicsService : AccessibilityService() {
                 triggerScrimSniper()
                 return
             }
-        }
-
-        if (isLocked) {
-            deployAegisShield()
-            if (rawPackageName.contains("systemui") ||
-                eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
-            ) {
-                if (!isPoltergeistActive) {
-                    try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) { e.printStackTrace() }
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-                    executeAntiGravitySwipe()
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                }
-            } else if (rawPackageName.contains("com.android.settings") ||
-                rawPackageName.contains("coloros") ||
-                rawPackageName.contains("oplus") ||
-                rawPackageName.contains("miui")
-            ) {
-                if (!isPoltergeistActive) performGlobalAction(GLOBAL_ACTION_HOME)
-            } else if (rawPackageName.isNotEmpty() &&
-                !rawPackageName.contains("com.example.aisecurity")
-            ) {
-                performGlobalAction(GLOBAL_ACTION_HOME)
-            }
-            return
-        } else {
-            removeAegisShield()
         }
 
         if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {

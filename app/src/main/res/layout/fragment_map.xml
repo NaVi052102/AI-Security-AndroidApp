@@ -146,6 +146,19 @@
                     android:nestedScrollingEnabled="false" />
 
                 <androidx.appcompat.widget.AppCompatButton
+                    android:id="@+id/btnToggleTracking"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:layout_marginBottom="12dp"
+                    android:text="PAUSE CLOUD SYNC"
+                    android:fontFamily="@font/inter"
+                    android:textSize="13sp"
+                    android:textStyle="bold"
+                    android:letterSpacing="0.08"
+                    android:stateListAnimator="@null"
+                    android:background="@null" />
+
+                <androidx.appcompat.widget.AppCompatButton
                     android:id="@+id/btnSettings"
                     android:layout_width="match_parent"
                     android:layout_height="56dp"
