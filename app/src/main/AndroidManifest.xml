@@ -85,7 +85,6 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
-                <!-- 🚨 REMOVED pathPrefix="/track" -->
                 <data android:scheme="https" android:host="bioguard-efb32.web.app" />
             </intent-filter>
         </activity>
@@ -133,8 +132,14 @@
             android:exported="false"
             android:showWhenLocked="true"
             android:showOnLockScreen="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
             android:theme="@style/Theme.AppCompat.NoActionBar" />
 
+        <service
+            android:name=".ui.FakeDeadStateService"
+            android:enabled="true"
+            android:exported="false" />
         <activity
             android:name=".ui.qr.PortraitCaptureActivity"
             android:screenOrientation="portrait"

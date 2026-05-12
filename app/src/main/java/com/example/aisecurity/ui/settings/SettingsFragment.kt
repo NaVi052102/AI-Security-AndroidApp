@@ -67,9 +67,11 @@ class SettingsFragment : Fragment() {
         val rbOrdinaryLock = view.findViewById<RadioButton>(R.id.rbOrdinaryLock)
 
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
-
-        // 🚨 NEW: Auto Case Lock Binding
         val switchAutoCaseLock = view.findViewById<SwitchCompat>(R.id.switchAutoCaseLock)
+
+        // 🚨 NEW: Fake Shutdown Bindings
+        val switchFakeShutdown = view.findViewById<SwitchCompat>(R.id.switchFakeShutdown)
+        val tvFakeShutdownStatus = view.findViewById<TextView>(R.id.tvFakeShutdownStatus)
 
         val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
         val btnDemoEnforcer = view.findViewById<Button>(R.id.btnDemoEnforcer)
@@ -225,7 +227,7 @@ class SettingsFragment : Fragment() {
             }
         }
 
-        // 🚨 NEW: Auto Case Lock Event Setup
+        // Auto Case Lock Event Setup
         if (switchAutoCaseLock != null) {
             switchAutoCaseLock.isChecked = prefs.getBoolean("auto_case_lock", false)
             switchAutoCaseLock.setOnCheckedChangeListener { _, isChecked ->
@@ -234,6 +236,22 @@ class SettingsFragment : Fragment() {
                     showSentryToast("Auto Case Lock ON: Case will lock when screen goes dark.", false)
                 } else {
                     showSentryToast("Auto Case Lock OFF: Manual mode active.", false)
+                }
+            }
+        }
+
+        // 🚨 NEW: Fake Shutdown Event Setup
+        if (switchFakeShutdown != null) {
+            val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
+            switchFakeShutdown.isChecked = isFakeShutdownEnabled
+            tvFakeShutdownStatus?.text = if (isFakeShutdownEnabled) "Enabled" else "Disabled"
+
+            switchFakeShutdown.setOnCheckedChangeListener { _, isChecked ->
+                prefs.edit { putBoolean("enable_fake_shutdown", isChecked) }
+                tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
+
+                if (isChecked) {
+                    showSentryToast("Power Deception Active.", false)
                 }
             }
         }

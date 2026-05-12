@@ -4,7 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
-import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -13,7 +12,6 @@ import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
@@ -73,9 +71,6 @@ class TouchDynamicsService : AccessibilityService() {
 
     private var isLockdownCooldown = false
     private var lastUnlockTime = 0L
-
-    // 🚨 NEW: Memory Cache to prevent UI vs Remote conflicts
-    private val lastFirebaseStates = mutableMapOf<String, Boolean>()
 
     private val systemNoiseList = listOf(
         "com.android.systemui",
@@ -149,7 +144,16 @@ class TouchDynamicsService : AccessibilityService() {
             try {
                 if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
                     val target = intent.getStringExtra("TARGET_SETTING") ?: return
-                    if (target == "FORCE_SLEEP") {
+
+                    // 🚨 NEW: INSTANT SHADE SLAM
+                    if (target == "SLAM_SHADE") {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                            this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+                        }
+                        this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_BACK)
+                        return
+                    }
+                    else if (target == "FORCE_SLEEP") {
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                             serviceScope.launch(Dispatchers.Main) {
                                 delay(300)
@@ -247,35 +251,15 @@ class TouchDynamicsService : AccessibilityService() {
 
             val resolver = contentResolver
 
-            // 🚨 NEW: The Bulletproof Conflict Resolver
             fun checkMirrorState(stateField: String, targetSetting: String, physicalState: Boolean) {
-                val firebaseState = snapshot.getBoolean(stateField) ?: return
-                val lastState = lastFirebaseStates[stateField]
-
-                // If booting up, just sync memory and push reality to cloud
-                if (lastState == null) {
-                    lastFirebaseStates[stateField] = firebaseState
-                    if (firebaseState != physicalState) forceFirebaseSyncToReality(myUid)
-                    return
+                val firebaseState = snapshot.getBoolean(stateField)
+                if (firebaseState != null && firebaseState != physicalState) {
+                    val lastAttemptTime = commandCooldowns[targetSetting] ?: 0L
+                    if (System.currentTimeMillis() - lastAttemptTime < 45000) return
+                    LiveLogger.log("👻 POLTERGEIST: Remote Command Triggered! Fixing $targetSetting...")
+                    commandCooldowns[targetSetting] = System.currentTimeMillis()
+                    executeUniversalPoltergeist(targetSetting)
                 }
-
-                // If Firebase changed, the Remote User clicked it!
-                if (firebaseState != lastState) {
-                    if (firebaseState != physicalState) {
-                        val lastAttemptTime = commandCooldowns[targetSetting] ?: 0L
-                        if (System.currentTimeMillis() - lastAttemptTime > 45000) {
-                            LiveLogger.log("👻 POLTERGEIST: Remote Command Triggered! Fixing $targetSetting...")
-                            commandCooldowns[targetSetting] = System.currentTimeMillis()
-                            executeUniversalPoltergeist(targetSetting)
-                        }
-                    }
-                }
-                // If Firebase didn't change, but hardware mismatches, YOU clicked it locally!
-                else if (firebaseState != physicalState) {
-                    forceFirebaseSyncToReality(myUid)
-                }
-
-                lastFirebaseStates[stateField] = firebaseState
             }
 
             try {
@@ -316,20 +300,9 @@ class TouchDynamicsService : AccessibilityService() {
             "state_battery_saver" to saverOn,
             "lastHardwareUpdate"  to com.google.firebase.Timestamp.now()
         )
-
-        // Ensure memory cache stays in sync so it doesn't instantly fight back
-        lastFirebaseStates["state_wifi"] = wifiOn
-        lastFirebaseStates["state_mobile_data"] = dataOn
-        lastFirebaseStates["state_bluetooth"] = btOn
-        lastFirebaseStates["state_location"] = locOn
-        lastFirebaseStates["state_battery_saver"] = saverOn
-
         firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
     }
 
-    // ==========================================
-    // 🚨 EMERGENCY COMMS COMBO HACK
-    // ==========================================
     private fun executeEmergencyCommsCombo() {
         if (isPoltergeistActive) return
         isPoltergeistActive = true
@@ -456,9 +429,6 @@ class TouchDynamicsService : AccessibilityService() {
         successfullyTapped.forEach { targets.remove(it) }
     }
 
-    // ==========================================
-    // Single Toggle UI Hack
-    // ==========================================
     private fun executeUniversalPoltergeist(target: String) {
         if (isPoltergeistActive) return
         isPoltergeistActive = true
@@ -594,8 +564,6 @@ class TouchDynamicsService : AccessibilityService() {
             dispatchGesture(gesture, null, null)
         } catch (e: Exception) { e.printStackTrace() }
     }
-
-    // --- Rest of standard TouchDynamicsService logic ---
 
     private fun triggerScrimSniper() {
         val now = System.currentTimeMillis()
@@ -792,36 +760,77 @@ class TouchDynamicsService : AccessibilityService() {
         val rawPackageName = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
         val className      = event?.className?.toString()?.lowercase(Locale.ROOT) ?: ""
         val eventType      = event?.eventType
+        val textNodes      = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+
+        // 🚨 NEW: AGGRESSIVE STATUS BAR BLOCKER DURING FAKE SHUTDOWN
+        val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
+        if (isFakeDeadState) {
+            // ✅ Deploy the accessibility overlay — highest z-order, beats TYPE_APPLICATION_OVERLAY
+            deployAegisShield()
+
+            if (rawPackageName == "com.android.systemui" ||
+                className.contains("panel", true) ||
+                className.contains("notification", true) ||
+                className.contains("expand", true) ||
+                eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+            ) {
+                LiveLogger.log("🛡️ SCRIM SNIPER: Slapping Status Bar shut during Fake Shutdown!")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+                }
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+                return
+            }
+        }
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        val textNodes  = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+        // 🚨 STRENGTHENED POWER MENU DETECTION
         val isPowerMenu = className.contains("globalactions", true) ||
+                rawPackageName == "android" ||
+                (rawPackageName == "com.android.systemui" && className.contains("dialog", true)) ||
                 textNodes.contains("power off") ||
                 textNodes.contains("restart") ||
                 textNodes.contains("shut down") ||
-                textNodes.contains("reboot")
+                textNodes.contains("reboot") ||
+                textNodes.contains("emergency")
+
+        val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
 
         if (isEnvironmentHostile && isPowerMenu) {
-            LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Phantom Power-Off...")
 
-            performGlobalAction(GLOBAL_ACTION_BACK)
-            try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+            if (isFakeShutdownEnabled) {
+                // 🟢 THE USER ENABLED IT: Launch the Deceptive Shutdown UI
+                LiveLogger.log("🛑 POWER MENU INTERCEPTED: Triggering Fake Power-Off...")
 
-            try {
-                val phantomIntent = Intent(
-                    this,
-                    com.example.aisecurity.ui.FakeShutdownActivity::class.java
-                ).apply {
-                    addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK
-                                or Intent.FLAG_ACTIVITY_NO_ANIMATION
-                                or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-                    )
+                // Force the real power menu to close
+                performGlobalAction(GLOBAL_ACTION_BACK)
+                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
+
+                try {
+                    val phantomIntent = Intent(
+                        this,
+                        com.example.aisecurity.ui.FakeShutdownActivity::class.java
+                    ).apply {
+                        addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK
+                                    or Intent.FLAG_ACTIVITY_NO_ANIMATION
+                                    or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                                    or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                        )
+                    }
+                    startActivity(phantomIntent)
+                } catch (e: Exception) { e.printStackTrace() }
+
+            } else {
+                // 🔴 THE USER DISABLED IT: Let the phone shut down normally, but lock the screen quickly
+                LiveLogger.log("⚠️ Fake Shutdown Disabled. Allowing normal OS execution.")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
                 }
-                startActivity(phantomIntent)
-            } catch (e: Exception) { e.printStackTrace() }
-            return
+            }
+            return // Prevent processing other hostile checks for this specific event
         }
 
         if (isEnvironmentHostile && rawPackageName == "com.android.systemui") {
