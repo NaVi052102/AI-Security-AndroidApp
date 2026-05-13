@@ -1165,4 +1165,4 @@ class TouchDynamicsService : AccessibilityService() {
         } catch (_: IllegalArgumentException) {}
         serviceScope.cancel()
     }
-}z
+}
