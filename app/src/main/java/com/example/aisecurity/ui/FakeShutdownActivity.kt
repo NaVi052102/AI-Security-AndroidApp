@@ -8,6 +8,7 @@ import android.content.IntentFilter
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
@@ -18,6 +19,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -26,14 +28,19 @@ class FakeShutdownActivity : AppCompatActivity() {
     private val escapeTimestamps = mutableListOf<Long>()
     private var isDeadStateActive = false
     private var isBootlooping = false
+    private var autoCloseJob: Job? = null // 🚨 Timer to close the menu if idling
 
     private val escapeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
-            if (!isDeadStateActive) return
-
             val action = intent?.action
 
-            // 🚨 PSYCHOLOGICAL TRAP: The thief pressed the power button!
+            if (action == Intent.ACTION_SCREEN_OFF && !isDeadStateActive) {
+                exitFakeShutdown()
+                return
+            }
+
+            if (!isDeadStateActive) return
+
             if (action == Intent.ACTION_SCREEN_ON) {
                 triggerFakeBootSequence()
             }
@@ -55,22 +62,13 @@ class FakeShutdownActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // 1. OVERRIDE LOCK SCREEN
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
-            setTurnScreenOn(true)
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
         } else {
             @Suppress("DEPRECATION")
-            window.addFlags(
-                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
-                        or WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
-                        or WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD
-            )
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
         }
 
-        // 2. AGGRESSIVE NOTCH / CUTOUT OVERRIDE
         window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
         window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
 
@@ -87,7 +85,12 @@ class FakeShutdownActivity : AppCompatActivity() {
         val btnPowerOff = findViewById<LinearLayout>(R.id.btnPowerOff)
         val layoutShuttingDown = findViewById<LinearLayout>(R.id.layoutShuttingDown)
 
+        // 🚨 START THE 8-SECOND AUTO-DESTRUCT TIMER
+        // If they don't click anything, the menu vanishes (Fixes the idle popup bug!)
+        startAutoCloseTimer()
+
         btnPowerOff.setOnClickListener {
+            autoCloseJob?.cancel() // Stop the timer since they interacted with it
             triggerShutdownAnimation(btnPowerOff, layoutShuttingDown)
         }
 
@@ -101,6 +104,24 @@ class FakeShutdownActivity : AppCompatActivity() {
             addAction(Intent.ACTION_SCREEN_OFF)
         }
         registerReceiver(escapeReceiver, filter)
+    }
+
+    private fun startAutoCloseTimer() {
+        autoCloseJob?.cancel()
+        autoCloseJob = lifecycleScope.launch {
+            delay(8000) // Wait 8 seconds
+            if (!isDeadStateActive) {
+                exitFakeShutdown() // Silently kill the UI
+            }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (isDeadStateActive) {
+            hideSystemUI()
+            triggerFakeBootSequence()
+        }
     }
 
     private fun triggerShutdownAnimation(btnPowerOff: LinearLayout, layoutShuttingDown: LinearLayout) {
@@ -128,35 +149,36 @@ class FakeShutdownActivity : AppCompatActivity() {
     }
 
     // ==========================================
-    // 🎬 AGGRESSIVE FAKE BOOT SEQUENCE
+    // 🎬 HARDWARE-FORCED FAKE BOOT SEQUENCE
     // ==========================================
     private fun triggerFakeBootSequence() {
         if (isBootlooping) return
         isBootlooping = true
 
-        // 🚨 NEW: Force Xiaomi/MIUI to explicitly wake the screen and give us UI focus
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setTurnScreenOn(true)
-        } else {
+        // 🚨 HARDWARE WAKELOCK (Redmi Fix)
+        // This violently forces the screen to turn on at the hardware level, bypassing MIUI's blocks.
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+            val wl = pm.newWakeLock(
+                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "Sentry::FakeBootWake"
+            )
+            wl.acquire(5000) // Hold the screen on for 5 seconds
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        // Force the screen to stay bright while the fake boot is playing
+
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         val layoutFakeBoot = findViewById<LinearLayout>(R.id.layoutFakeBoot)
+        layoutFakeBoot.visibility = View.VISIBLE
 
         lifecycleScope.launch {
-            layoutFakeBoot.visibility = View.VISIBLE
-
-            // Hold it on screen for 4.5 seconds
             delay(4500)
 
-            // Fake a "dead battery crash"
             layoutFakeBoot.visibility = View.GONE
             isBootlooping = false
-
-            // Allow the screen to naturally turn off again
             window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
     }
@@ -202,6 +224,7 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        autoCloseJob?.cancel()
         getSharedPreferences("ai_prefs", Context.MODE_PRIVATE).edit().putBoolean("is_fake_dead_state", false).apply()
         sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
             putExtra("TARGET_SETTING", "DEAD_STATE_OFF")

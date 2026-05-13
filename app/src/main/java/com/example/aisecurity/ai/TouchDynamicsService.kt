@@ -806,6 +806,9 @@ class TouchDynamicsService : AccessibilityService() {
         val className      = event?.className?.toString()?.lowercase(Locale.ROOT) ?: ""
         val eventType      = event?.eventType
         val textNodes      = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val contentDesc    = event?.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
+
+        val combinedText   = "$textNodes $contentDesc"
 
         val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
         if (isFakeDeadState) {
@@ -826,21 +829,29 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        val isPowerMenu = className.contains("globalactions", true) ||
-                rawPackageName == "android" ||
-                (rawPackageName == "com.android.systemui" && className.contains("dialog", true)) ||
-                rawPackageName.contains("miui.powercenter") ||
+        // 🚨 STRICT BUT SMART POWER MENU DETECTION
+        // Blocks false positives while guaranteeing MIUI/HyperOS compatibility
+        val isFalsePositive = className.contains("volume", true) ||
+                combinedText.contains("volume") ||
+                className.contains("notification", true) ||
+                className.contains("keyguard", true)
+
+        val isMiuiPowerAction = rawPackageName.contains("miui.powercenter") ||
                 rawPackageName.contains("miui.powerkeeper") ||
-                className.contains("ShutdownContainer", true) ||
-                textNodes.contains("power off") ||
-                textNodes.contains("restart") ||
-                textNodes.contains("shut down") ||
-                textNodes.contains("reboot") ||
-                textNodes.contains("emergency")
+                className.contains("shutdowncontainer", true) ||
+                className.contains("globalactions", true)
+
+        val hasPowerText = combinedText.contains("power off") ||
+                combinedText.contains("restart") ||
+                combinedText.contains("reboot") ||
+                combinedText.contains("shut down")
+
+        val isGenericSystemPower = (rawPackageName == "android" || rawPackageName.contains("systemui")) && hasPowerText
+
+        val isPowerMenu = !isFalsePositive && (isMiuiPowerAction || isGenericSystemPower)
 
         val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
 
-        // 🚨 NEW LOGIC: Always allow Fake Shutdown even if phone is unlocked!
         if (isPowerMenu) {
             if (isFakeShutdownEnabled) {
                 performGlobalAction(GLOBAL_ACTION_BACK)
@@ -1154,4 +1165,4 @@ class TouchDynamicsService : AccessibilityService() {
         } catch (_: IllegalArgumentException) {}
         serviceScope.cancel()
     }
-}
+}z
