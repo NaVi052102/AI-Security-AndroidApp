@@ -8,18 +8,14 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.os.Bundle
 import android.util.AttributeSet
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import android.widget.Toast
 import androidx.fragment.app.Fragment
 import androidx.lifecycle.lifecycleScope
 import com.example.aisecurity.R
-import com.example.aisecurity.ble.CaseManager
 import com.example.aisecurity.ble.WatchManager
-import com.example.aisecurity.ai.SecurityEnforcer
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
@@ -52,7 +48,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
     private var currentAccel = floatArrayOf(0f, 0f, 0f)
     private var currentGyro = floatArrayOf(0f, 0f, 0f)
 
-    // Anti-Theft Movement Variables
     private var lastAccel = floatArrayOf(0f, 0f, 0f)
     private var lastGyro = floatArrayOf(0f, 0f, 0f)
     private var lastMovementAlertTime = 0L
@@ -61,7 +56,8 @@ class ProximityFragment : Fragment(), SensorEventListener {
 
     private var isObjectClose = false
     private var isEnvironmentDark = false
-    private var currentPocketState = "Out of Pocket"
+    private var currentPocketState = "Visible"
+    private var lastLoggedPocketState = ""
 
     private var sessionStartTime = 0L
     private var historicPeakDistance = 0.0
@@ -69,8 +65,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
     private var telemetrySyncJob: Job? = null
     private lateinit var auth: FirebaseAuth
     private lateinit var db: FirebaseFirestore
-
-    private var isLockdownTriggered = false
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -143,7 +137,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
                 }
 
                 val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
-                val isArmed = prefs.getBoolean("is_proximity_armed", true)
                 val lockThreshold = prefs.getFloat("radar_threshold_meters", 5.0f)
                 val warningThreshold = prefs.getFloat("radar_warning_meters", 2.0f)
 
@@ -152,29 +145,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
                     distance < lockThreshold -> tvDistance.setTextColor(Color.parseColor("#F59E0B"))
                     else -> tvDistance.setTextColor(Color.parseColor("#EF4444"))
                 }
-
-                if (isArmed && distance >= lockThreshold) {
-                    if (!isLockdownTriggered) {
-                        isLockdownTriggered = true
-                        triggerEmergencyNetworkOverride()
-
-                        if (CaseManager.isConnected.value == true) {
-                            CaseManager.triggerLock()
-                            Toast.makeText(requireContext(), "🚨 SENTRY CASE DOUBLE-LOCKED!", Toast.LENGTH_SHORT).show()
-                        }
-
-                        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
-                            delay(500)
-
-                            val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
-                            SecurityEnforcer(requireContext()).lockDevice("Proximity Breach ($distanceStr m)", defenseType)
-                        }
-                    }
-                }
-                else if (distance < warningThreshold && isLockdownTriggered) {
-                    isLockdownTriggered = false
-                }
-
             } catch (e: NumberFormatException) {
                 tvDistance.setTextColor(Color.parseColor("#10B981"))
             }
@@ -212,38 +182,6 @@ class ProximityFragment : Fragment(), SensorEventListener {
         }
     }
 
-    private fun triggerEmergencyNetworkOverride() {
-        viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
-            try {
-                val wifiCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "svc wifi enable"))
-                val dataCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "svc data enable"))
-                val gpsCmd = Runtime.getRuntime().exec(arrayOf("su", "-c", "settings put secure location_mode 3"))
-
-                wifiCmd.waitFor()
-                dataCmd.waitFor()
-                gpsCmd.waitFor()
-
-                val userId = auth.currentUser?.uid
-                if (userId != null) {
-                    val states = hashMapOf(
-                        "state_wifi" to true,
-                        "state_mobile_data" to true,
-                        "state_location" to true,
-                        "isSOS" to true
-                    )
-                    db.collection("Users").document(userId).set(states, SetOptions.merge())
-                }
-
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(requireContext(), "🚨 EMERGENCY: Network & GPS Forced ON", Toast.LENGTH_SHORT).show()
-                }
-
-            } catch (e: Exception) {
-                Log.e("SilentOverride", "Failed to force network radios: ${e.message}")
-            }
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         if (sessionStartTime == 0L) sessionStartTime = System.currentTimeMillis()
@@ -262,6 +200,7 @@ class ProximityFragment : Fragment(), SensorEventListener {
         telemetrySyncJob?.cancel()
     }
 
+    // 🚨 THEFT MOVEMENT LOGIC
     private fun checkMovementAndAlert() {
         val deltaAccel = Math.abs(currentAccel[0] - lastAccel[0]) + Math.abs(currentAccel[1] - lastAccel[1]) + Math.abs(currentAccel[2] - lastAccel[2])
         val deltaGyro = Math.abs(currentGyro[0] - lastGyro[0]) + Math.abs(currentGyro[1] - lastGyro[1]) + Math.abs(currentGyro[2] - lastGyro[2])
@@ -270,10 +209,19 @@ class ProximityFragment : Fragment(), SensorEventListener {
             val dist = WatchManager.liveDistance.value ?: 0.0
             val now = System.currentTimeMillis()
 
-            // If phone is >= 2.0 meters away AND it moved, alert the watch immediately
-            if (dist >= 2.0 && (now - lastMovementAlertTime > 15000)) { // 15-second cooldown so it doesn't spam
+            val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            val warningMeters = prefs.getFloat("radar_warning_meters", 2.0f).toDouble()
+
+            if (dist >= warningMeters && (now - lastMovementAlertTime > 15000)) {
                 lastMovementAlertTime = now
-                WatchManager.sendNotificationToWatch("⚠️ THEFT ALERT", "Someone is moving your phone while you are away!")
+
+                // 🚨 Trigger Universal Sync Engine
+                WatchManager.logAndNotify(
+                    requireContext(),
+                    "⚠️ THEFT ALERT",
+                    "Device movement detected while outside safe zone ($dist m away).",
+                    2
+                )
             }
         }
 
@@ -309,11 +257,12 @@ class ProximityFragment : Fragment(), SensorEventListener {
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
+    // 🚨 ENVIRONMENT LOGIC
     private fun evaluatePocketMode() {
         val zAxis = currentAccel[2]
         val yAxis = currentAccel[1]
 
-        currentPocketState = if (zAxis <= -7.0f && isObjectClose) {
+        val newState = if (zAxis <= -7.0f && isObjectClose) {
             "Face Down"
         } else if ((yAxis >= 5.0f || yAxis <= -5.0f) && isObjectClose && isEnvironmentDark) {
             "Concealed (Pocket)"
@@ -323,7 +272,20 @@ class ProximityFragment : Fragment(), SensorEventListener {
             "Visible"
         }
 
+        currentPocketState = newState
         tvPocketStatus.text = currentPocketState
+
+        // ── PERSIST POCKET STATE FOR WatchManager.calculateDistance() ────────
+        // WatchManager reads "current_pocket_state" from SharedPreferences to
+        // apply the correct body-absorption correction to the RSSI distance
+        // calculation. We write it here every time the state is evaluated so
+        // the value is always fresh when the next RSSI poll fires (~1 sec).
+        requireContext()
+            .getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+            .edit()
+            .putString("current_pocket_state", currentPocketState)
+            .apply()
+        // ─────────────────────────────────────────────────────────────────────
 
         when {
             currentPocketState.contains("Concealed") -> tvPocketStatus.setTextColor(Color.parseColor("#8B5CF6"))
@@ -331,30 +293,34 @@ class ProximityFragment : Fragment(), SensorEventListener {
             currentPocketState.contains("Covered") -> tvPocketStatus.setTextColor(Color.parseColor("#3B82F6"))
             else -> tvPocketStatus.setTextColor(Color.parseColor("#10B981"))
         }
+
+        // 🚨 Trigger Universal Sync Engine when state shifts
+        if (currentPocketState != lastLoggedPocketState && lastLoggedPocketState.isNotEmpty()) {
+            lastLoggedPocketState = currentPocketState
+
+            WatchManager.logAndNotify(
+                requireContext(),
+                "Environment Update",
+                "Device spatial state shifted to: $currentPocketState",
+                0
+            )
+        } else if (lastLoggedPocketState.isEmpty()) {
+            lastLoggedPocketState = currentPocketState
+        }
     }
 
     private fun startFirebaseTelemetrySync() {
         val userId = auth.currentUser?.uid ?: return
-        val safeContext = context?.applicationContext ?: return
 
         telemetrySyncJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
             while (isActive) {
                 try {
-                    // 🚨 BILLING SAVER GUARD
-                    val prefs = safeContext.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
-                    val isCloudSyncPaused = prefs.getBoolean("cloud_sync_paused", false)
+                    val telemetryData = hashMapOf<String, Any>(
+                        "pocketMode" to currentPocketState,
+                        "telemetryUpdated" to com.google.firebase.Timestamp.now()
+                    )
+                    db.collection("Users").document(userId).set(telemetryData, SetOptions.merge())
 
-                    // Only write to Firebase if Cloud Sync is active
-                    if (!isCloudSyncPaused) {
-                        val telemetryData = hashMapOf<String, Any>(
-                            "pocketMode" to currentPocketState,
-                            "telemetryUpdated" to com.google.firebase.Timestamp.now()
-                        )
-                        db.collection("Users").document(userId).set(telemetryData, SetOptions.merge())
-                    }
-
-                    // Watch Sync (Bluetooth) is 100% FREE, so we let this keep running
-                    // even if Firebase Cloud Sync is paused!
                     if (WatchManager.isConnected.value == true) {
 
                         val elapsed = System.currentTimeMillis() - sessionStartTime

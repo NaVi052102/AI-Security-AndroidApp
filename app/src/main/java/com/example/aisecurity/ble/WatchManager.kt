@@ -84,6 +84,9 @@ object WatchManager {
     private var lastWarningTime = 0L
     private const val LOCK_COOLDOWN_MS = 5000L
 
+    // 🚨 STATE MACHINE: Prevents notification loops
+    private var currentProximityState = "SAFE"
+
     private var locationManager: LocationManager? = null
     private var lastKnownCity = "Tracking Active"
     private var lastGeocodeTime = 0L
@@ -91,6 +94,32 @@ object WatchManager {
     private var isAuthenticated = false
     private var pendingAuthMac = ""
     private var isConnectionInitialized = false
+
+    // =================================================================
+    // 🚨 THE UNIVERSAL SYNC ENGINE
+    // Guarantees DB Log and Watch Notification happen together!
+    // =================================================================
+    fun logAndNotify(context: Context, title: String, details: String, severity: Int) {
+        sendNotificationToWatch(title, details)
+
+        val timeFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
+        val currentTimeStr = timeFormat.format(Date())
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val database = SecurityDatabase.get(context)
+                val logEntry = SecurityLog(
+                    timestamp = currentTimeStr,
+                    title = title,
+                    details = details,
+                    severity = severity
+                )
+                database.securityLogDao().insertLog(logEntry)
+            } catch (e: Exception) {
+                Log.e("SentrySync", "Failed to write audit log: ${e.message}")
+            }
+        }
+    }
 
     private fun hasPermissions(context: Context): Boolean {
         var accessibilityEnabled = 0
@@ -259,7 +288,6 @@ object WatchManager {
                 }
 
                 if (!isAuthenticated && payload.startsWith("<CMD:")) {
-                    Log.w("BLE", "Ignored command because watch is not authenticated: $payload")
                     return
                 }
 
@@ -278,14 +306,10 @@ object WatchManager {
                         "<CMD:NEXT>" -> WatchMediaService.sendMediaCommand(ctx, KeyEvent.KEYCODE_MEDIA_NEXT)
                         "<CMD:BIO_ACTION>" -> handleBioAction(ctx)
                         "<CMD:BIO_USE_AI>" -> handleBioUseAi(ctx)
-
                         "<CMD:REMOTE_LOCK>" -> handleRemoteLock(ctx)
                         "<CMD:PING_PHONE>" -> handlePingPhone(ctx)
-
-                        // 🚨 RELAY: Watch requests to lock/unlock the Sentry Case via Phone
                         "<CMD:CASE_LOCK>" -> handleCaseCommand(ctx, true)
                         "<CMD:CASE_UNLOCK>" -> handleCaseCommand(ctx, false)
-
                         "<CMD:WIFI_1>" -> handleSystemToggle(ctx, "WIFI", true)
                         "<CMD:WIFI_0>" -> handleSystemToggle(ctx, "WIFI", false)
                         "<CMD:DATA_1>" -> handleSystemToggle(ctx, "DATA", true)
@@ -349,7 +373,6 @@ object WatchManager {
         }
     }
 
-    // 🚨 MIDDLEMAN FUNCTION: Route the watch's command to the CaseManager
     private fun handleCaseCommand(context: Context, lock: Boolean) {
         scope.launch(Dispatchers.Main) {
             if (CaseManager.isConnected.value == true) {
@@ -383,8 +406,6 @@ object WatchManager {
                 activePingJob?.cancel()
                 return
             }
-
-            Log.d("BLE_WATCH", "Ping received. Ringing phone...")
 
             val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
             val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
@@ -454,7 +475,6 @@ object WatchManager {
             try {
                 val context = currentContext ?: return@launch
                 locationManager = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
-
                 locationManager?.removeUpdates(locationListener)
 
                 if (locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true) {
@@ -463,9 +483,7 @@ object WatchManager {
                 if (locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true) {
                     locationManager?.requestLocationUpdates(LocationManager.NETWORK_PROVIDER, 1000L, 0f, locationListener)
                 }
-            } catch (e: Exception) {
-                Log.e("BLE", "Real-time Location Error: ${e.message}")
-            }
+            } catch (e: Exception) { }
         }
     }
 
@@ -481,7 +499,7 @@ object WatchManager {
                     if (state) btAdapter?.enable() else btAdapter?.disable()
                 }
             }
-        } catch (e: Exception) { Log.e("BLE", "Direct hardware toggle denied by Android: ${e.message}") }
+        } catch (e: Exception) { }
 
         try {
             val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
@@ -516,11 +534,11 @@ object WatchManager {
     private fun sendSystemState(ctx: Context) {
         var w = 0; var m = 0; var l = 0; var b = 0; var s = 0
 
-        try { val wifiMgr = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager; w = if (wifiMgr.isWifiEnabled) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Wi-Fi check failed") }
-        try { m = if (Settings.Global.getInt(ctx.contentResolver, "mobile_data", 0) == 1) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Data check failed") }
-        try { val locMgr = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager; l = if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Loc check failed") }
-        try { val btAdapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter; b = if (btAdapter?.isEnabled == true) 1 else 0 } catch(e:Exception){ Log.e("BLE", "BT check failed") }
-        try { val powerMgr = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager; s = if (powerMgr.isPowerSaveMode) 1 else 0 } catch(e:Exception){ Log.e("BLE", "Battery check failed") }
+        try { val wifiMgr = ctx.applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager; w = if (wifiMgr.isWifiEnabled) 1 else 0 } catch(e:Exception){}
+        try { m = if (Settings.Global.getInt(ctx.contentResolver, "mobile_data", 0) == 1) 1 else 0 } catch(e:Exception){}
+        try { val locMgr = ctx.getSystemService(Context.LOCATION_SERVICE) as LocationManager; l = if (locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER)) 1 else 0 } catch(e:Exception){}
+        try { val btAdapter = (ctx.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter; b = if (btAdapter?.isEnabled == true) 1 else 0 } catch(e:Exception){}
+        try { val powerMgr = ctx.getSystemService(Context.POWER_SERVICE) as PowerManager; s = if (powerMgr.isPowerSaveMode) 1 else 0 } catch(e:Exception){}
 
         sendData("<SYS:$w|$m|$l|$b|$s>")
     }
@@ -722,14 +740,13 @@ object WatchManager {
                         sendData("<BIOAPP:END>")
                     }
                     loopCount++
-                } catch (e: Exception) {
-                    Log.e("WATCH_SYNC", "Biometrics Sync Error: ${e.message}")
-                }
+                } catch (e: Exception) { }
                 delay(1000)
             }
         }
     }
 
+    // 🚨 STATE MACHINE LOGIC
     private fun checkDistanceAndLock(context: Context, currentDistanceMeters: Float) {
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
@@ -738,48 +755,40 @@ object WatchManager {
 
         val warningMeters = prefs.getFloat("radar_warning_meters", 2.0f)
         val thresholdMeters = prefs.getFloat("radar_threshold_meters", 5.0f)
-        val now = System.currentTimeMillis()
 
         val km = context.getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
         var isSystemLocked = prefs.getBoolean("is_system_locked", false)
 
-        val timeFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
-        val currentTimeStr = timeFormat.format(Date())
-
         if (!km.isKeyguardLocked && isSystemLocked) {
             prefs.edit().putBoolean("is_system_locked", false).commit()
             isSystemLocked = false
-            LiveLogger.log("✅ OS UNLOCK DETECTED: Resetting Stuck Lock State.")
         }
 
-        // 1. LOCKDOWN
+        // 1. LOCKDOWN ZONE
         if (currentDistanceMeters >= thresholdMeters) {
-            if (!isSystemLocked) {
-                if (now - lastLockTime < LOCK_COOLDOWN_MS) return
-                lastLockTime = now
+            if (currentProximityState != "LOCKDOWN") {
+                currentProximityState = "LOCKDOWN"
 
-                LiveLogger.log("🚨 PROXIMITY BREACH: Distance ($currentDistanceMeters m) hit threshold ($thresholdMeters m)!")
+                logAndNotify(
+                    context,
+                    "Proximity Lockdown",
+                    "Target breached ${thresholdMeters}m safe zone boundary. Current distance: $currentDistanceMeters m.",
+                    2
+                )
 
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val db = SecurityDatabase.get(context)
-                        val logEntry = SecurityLog(
-                            timestamp = currentTimeStr,
-                            title = "Proximity Lockdown",
-                            details = "Target breached the $thresholdMeters m safe zone boundary. Current distance: $currentDistanceMeters m. Defense protocols triggered.",
-                            severity = 2 // Red
-                        )
-                        db.securityLogDao().insertLog(logEntry)
-                    } catch (e: Exception) { Log.e("BLE", "Log failed: ${e.message}") }
+                val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
+                intent.putExtra("TARGET_SETTING", "EMERGENCY_COMMS")
+                context.sendBroadcast(intent)
+
+                if (CaseManager.isConnected.value == true) {
+                    CaseManager.triggerLock()
                 }
 
                 try {
                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         vibrator.vibrate(VibrationEffect.createOneShot(800, VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        vibrator.vibrate(800)
-                    }
+                    } else { vibrator.vibrate(800) }
                 } catch (_: Exception) {}
 
                 val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
@@ -787,40 +796,34 @@ object WatchManager {
             }
         }
         // 2. WARNING ZONE
-        else if (currentDistanceMeters >= warningMeters && currentDistanceMeters < thresholdMeters) {
-            if (now - lastWarningTime > 30000) {
-                lastWarningTime = now
-                sendNotificationToWatch("Proximity Warning", "Phone is getting too far! ($currentDistanceMeters m)")
+        else if (currentDistanceMeters >= warningMeters) {
+            if (currentProximityState != "WARNING") {
+                currentProximityState = "WARNING"
+
+                logAndNotify(
+                    context,
+                    "Proximity Warning",
+                    "Device exceeded warning threshold of $warningMeters m. Auto-arming emergency comms.",
+                    1
+                )
 
                 val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
                 intent.putExtra("TARGET_SETTING", "EMERGENCY_COMMS")
-                intent.setPackage(context.packageName)
                 context.sendBroadcast(intent)
-
-                scope.launch(Dispatchers.IO) {
-                    try {
-                        val db = SecurityDatabase.get(context)
-                        val logEntry = SecurityLog(
-                            timestamp = currentTimeStr,
-                            title = "Proximity Warning",
-                            details = "Device exceeded warning threshold of $warningMeters m. Auto-arming emergency comms.",
-                            severity = 1 // Orange
-                        )
-                        db.securityLogDao().insertLog(logEntry)
-                    } catch (e: Exception) { Log.e("BLE", "Log failed: ${e.message}") }
-                }
 
                 try {
                     val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                         vibrator.vibrate(VibrationEffect.createOneShot(300, VibrationEffect.DEFAULT_AMPLITUDE))
-                    } else {
-                        vibrator.vibrate(300)
-                    }
+                    } else { vibrator.vibrate(300) }
                 } catch (_: Exception) {}
             }
-        } else {
-            lastWarningTime = 0L
+        }
+        // 3. SAFE ZONE
+        else {
+            if (currentProximityState != "SAFE") {
+                currentProximityState = "SAFE"
+            }
         }
     }
 
@@ -893,9 +896,7 @@ object WatchManager {
             if (addresses != null && addresses.isNotEmpty()) {
                 cityName = addresses[0].locality ?: addresses[0].subAdminArea ?: "Unknown City"
             }
-        } catch (e: Exception) {
-            Log.e("BLE_WATCH", "Geocoder failed, falling back to API")
-        }
+        } catch (e: Exception) { }
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
@@ -924,9 +925,7 @@ object WatchManager {
 
                 sendWeatherToWatch(temp, desc, humidity, windSpeed, cloudCover, cityName)
 
-            } catch (e: Exception) {
-                Log.e("BLE_WATCH", "Failed to fetch weather: ${e.message}")
-            }
+            } catch (e: Exception) { }
         }
     }
 
@@ -947,11 +946,15 @@ object WatchManager {
         sendData("<MUSIC:$safeTitle|$safeArtist|$safeAlbum|$stateInt>")
     }
 
+    // 🚨 BLUETOOTH TRAFFIC CONTROLLER (Prevents dropped packets)
     fun sendNotificationToWatch(title: String, text: String) {
         val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(25)
         val safeText = text.replace("<", "").replace(">", "").replace("|", "").take(120)
 
-        sendData("<NOTIF:$safeTitle|$safeText>")
+        scope.launch(Dispatchers.Main) {
+            delay(200) // Small buffer to ensure the watch clears its <RADAR> queue
+            sendData("<NOTIF:$safeTitle|$safeText>")
+        }
     }
 
     fun disconnect() {
@@ -963,9 +966,7 @@ object WatchManager {
         try {
             bluetoothGatt?.disconnect()
             bluetoothGatt?.close()
-        } catch (e: Exception) {
-            Log.e("BLE", "Error closing GATT: ${e.message}")
-        }
+        } catch (e: Exception) { }
         bluetoothGatt = null
         isConnected.postValue(false)
         isAuthenticated = false
@@ -982,5 +983,35 @@ object WatchManager {
         isScanning = false
     }
 
-    private fun calculateDistance(rssi: Int): Double = 10.0.pow((-59 - rssi).toDouble() / 20.0)
+    /**
+     * 🚨 FORCED -50 dBm = 1.0 Meter CALIBRATION
+     * Empirical Piecewise Algorithm mapped smoothly.
+     */
+    private fun calculateDistance(rssi: Int): Double {
+        val signal = rssi.toDouble()
+
+        return when {
+            // Anchor exactly at -50 dBm for 1.0m
+            signal >= -50.0 -> {
+                val progress = (signal - (-30.0)) / (-50.0 - (-30.0))
+                (0.1 + (progress * 0.9)).coerceIn(0.1, 1.0)
+            }
+            signal >= -60.0 -> {
+                val progress = (signal - (-50.0)) / (-60.0 - (-50.0))
+                1.0 + (progress * 1.0)
+            }
+            signal >= -70.0 -> {
+                val progress = (signal - (-60.0)) / (-70.0 - (-60.0))
+                2.0 + (progress * 1.0)
+            }
+            signal >= -80.0 -> {
+                val progress = (signal - (-70.0)) / (-80.0 - (-70.0))
+                3.0 + (progress * 1.0)
+            }
+            else -> {
+                val progress = (signal - (-80.0)) / (-100.0 - (-80.0))
+                (4.0 + (progress * 2.0)).coerceAtMost(6.0)
+            }
+        }
+    }
 }

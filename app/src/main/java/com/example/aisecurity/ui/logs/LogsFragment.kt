@@ -15,12 +15,16 @@ import androidx.recyclerview.widget.RecyclerView
 import com.example.aisecurity.R
 import com.example.aisecurity.ai.SecurityDatabase
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class LogsFragment : Fragment() {
 
     private lateinit var adapter: LogsAdapter
+    private var realtimeJob: Job? = null // 🚨 NEW: Real-time sync job
 
     override fun onCreateView(
         inflater: LayoutInflater, container: ViewGroup?,
@@ -33,21 +37,15 @@ class LogsFragment : Fragment() {
         super.onViewCreated(view, savedInstanceState)
 
         val recyclerLogs = view.findViewById<RecyclerView>(R.id.recyclerLogs)
-        val btnDeleteSelected = view.findViewById<Button>(R.id.btnDeleteSelected) // 🚨 TYPO FIXED HERE
+        val btnDeleteSelected = view.findViewById<Button>(R.id.btnDeleteSelected)
         val btnClearAll = view.findViewById<Button>(R.id.btnClearAll)
 
-        // Inject the Light/Dark mode Glassmorphism designs
         applyGlassmorphism(btnDeleteSelected, btnClearAll)
 
-        // 1. Initialize the adapter with an empty list
         adapter = LogsAdapter(emptyList())
         recyclerLogs.layoutManager = LinearLayoutManager(requireContext())
         recyclerLogs.adapter = adapter
 
-        // 2. Fetch the REAL data from the AI Database
-        loadLogsFromDatabase()
-
-        // 3. DELETE SELECTED LOGS
         btnDeleteSelected.setOnClickListener {
             val idsToDelete = adapter.selectedIds.toList()
             if (idsToDelete.isEmpty()) {
@@ -57,18 +55,15 @@ class LogsFragment : Fragment() {
 
             lifecycleScope.launch(Dispatchers.IO) {
                 val db = SecurityDatabase.get(requireContext())
-
                 db.securityLogDao().deleteLogsByIds(idsToDelete)
 
                 withContext(Dispatchers.Main) {
-                    adapter.clearSelections() // Uncheck everything
-                    loadLogsFromDatabase()    // Refresh the screen
+                    adapter.clearSelections()
                     Toast.makeText(requireContext(), "Selected logs deleted", Toast.LENGTH_SHORT).show()
                 }
             }
         }
 
-        // 4. CLEAR ALL LOGS
         btnClearAll.setOnClickListener {
             lifecycleScope.launch(Dispatchers.IO) {
                 val db = SecurityDatabase.get(requireContext())
@@ -83,9 +78,47 @@ class LogsFragment : Fragment() {
         }
     }
 
-    // ==========================================
-    // THE GLASSMORPHISM LOGS ENGINE
-    // ==========================================
+    // 🚨 NEW: Start polling the database every 2 seconds while the screen is open
+    override fun onResume() {
+        super.onResume()
+        startRealtimeLogSync()
+    }
+
+    // 🚨 NEW: Stop polling when we leave the screen to save battery
+    override fun onPause() {
+        super.onPause()
+        realtimeJob?.cancel()
+    }
+
+    private fun startRealtimeLogSync() {
+        realtimeJob?.cancel()
+        realtimeJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                try {
+                    val db = SecurityDatabase.get(requireContext())
+                    val logsFromDb = db.securityLogDao().getAllLogs()
+
+                    val displayEvents = logsFromDb.map { log ->
+                        SecurityEvent(
+                            id = log.id,
+                            timestamp = log.timestamp,
+                            title = log.title,
+                            details = log.details,
+                            severity = log.severity
+                        )
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        adapter.updateData(displayEvents)
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(2000) // Refresh every 2 seconds
+            }
+        }
+    }
+
     private fun applyGlassmorphism(btnDelete: Button, btnClear: Button) {
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
@@ -102,51 +135,24 @@ class LogsFragment : Fragment() {
         }
 
         if (isNightMode) {
-            // --- DARK MODE ---
-            // Secondary/Ghost styling for Delete
             deleteBg.colors = intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#020617"))
-            deleteBg.setStroke(3, Color.parseColor("#334155")) // Slate outline
-            btnDelete.setTextColor(Color.parseColor("#94A3B8")) // Muted silver text
+            deleteBg.setStroke(3, Color.parseColor("#334155"))
+            btnDelete.setTextColor(Color.parseColor("#94A3B8"))
 
-            // Destructive styling for Clear All
             clearBg.colors = intArrayOf(Color.parseColor("#3F000F"), Color.parseColor("#1A0004"))
-            clearBg.setStroke(4, Color.parseColor("#EF4444")) // Crimson outline
+            clearBg.setStroke(4, Color.parseColor("#EF4444"))
             btnClear.setTextColor(Color.parseColor("#FFFFFF"))
         } else {
-            // --- LIGHT MODE ---
-            // Secondary/Ghost styling for Delete
             deleteBg.colors = intArrayOf(Color.parseColor("#F8FAFC"), Color.parseColor("#E2E8F0"))
-            deleteBg.setStroke(3, Color.parseColor("#CBD5E1")) // Light silver outline
-            btnDelete.setTextColor(Color.parseColor("#64748B")) // Muted dark text
+            deleteBg.setStroke(3, Color.parseColor("#CBD5E1"))
+            btnDelete.setTextColor(Color.parseColor("#64748B"))
 
-            // Destructive styling for Clear All
             clearBg.colors = intArrayOf(Color.parseColor("#FEF2F2"), Color.parseColor("#FEE2E2"))
-            clearBg.setStroke(4, Color.parseColor("#EF4444")) // Crisp Red outline
-            btnClear.setTextColor(Color.parseColor("#7F1D1D")) // Deep Red text
+            clearBg.setStroke(4, Color.parseColor("#EF4444"))
+            btnClear.setTextColor(Color.parseColor("#7F1D1D"))
         }
 
         btnDelete.background = deleteBg
         btnClear.background = clearBg
-    }
-
-    private fun loadLogsFromDatabase() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val db = SecurityDatabase.get(requireContext())
-            val logsFromDb = db.securityLogDao().getAllLogs()
-
-            val displayEvents = logsFromDb.map { log ->
-                SecurityEvent(
-                    id = log.id,
-                    timestamp = log.timestamp,
-                    title = log.title,
-                    details = log.details,
-                    severity = log.severity
-                )
-            }
-
-            withContext(Dispatchers.Main) {
-                adapter.updateData(displayEvents)
-            }
-        }
     }
 }

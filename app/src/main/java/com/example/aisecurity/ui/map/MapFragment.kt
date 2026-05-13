@@ -91,6 +91,10 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private lateinit var btnSettings: Button
     private lateinit var btnSos: androidx.appcompat.widget.AppCompatButton
 
+    // 🚨 NEW: Toggle Tracking Elements
+    private lateinit var btnToggleTracking: androidx.appcompat.widget.AppCompatButton
+    private var isCloudSyncPaused = false
+
     private lateinit var btnNavMode: View
     private lateinit var tvNavMode: TextView
     private var isNavModeActive = false
@@ -148,11 +152,16 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
+        // 🚨 Read Paused State
+        val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        isCloudSyncPaused = prefs.getBoolean("cloud_sync_paused", false)
+
         googleMapContainer = view.findViewById(R.id.googleMapContainer)
         tvLocationStatus = view.findViewById(R.id.tvLocationStatus)
         tvNetworkStatus = view.findViewById(R.id.tvNetworkStatus)
         btnSettings = view.findViewById(R.id.btnSettings)
         btnSos = view.findViewById(R.id.btnSos)
+        btnToggleTracking = view.findViewById(R.id.btnToggleTracking)
         recyclerMapContacts = view.findViewById(R.id.recyclerMapContacts)
 
         btnNavMode = view.findViewById(R.id.btnNavMode)
@@ -170,17 +179,21 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             override fun onAvailable(network: Network) {
                 activity?.runOnUiThread {
                     if (!isAdded) return@runOnUiThread
-                    tvNetworkStatus.text = "ONLINE"
-                    tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
-                    tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
+                    if (!isCloudSyncPaused) { // Only show online if we aren't paused
+                        tvNetworkStatus.text = "ONLINE"
+                        tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
+                        tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
+                    }
                 }
             }
             override fun onLost(network: Network) {
                 activity?.runOnUiThread {
                     if (!isAdded) return@runOnUiThread
-                    tvNetworkStatus.text = "OFFLINE"
-                    tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
-                    tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+                    if (!isCloudSyncPaused) {
+                        tvNetworkStatus.text = "OFFLINE"
+                        tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+                        tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+                    }
                 }
             }
         }
@@ -267,7 +280,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                             connection.doInput = true
                             connection.connect()
 
-                            // Safe Byte Array Download to prevent stream drop
                             val bytes = connection.inputStream.readBytes()
                             android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         } else {
@@ -397,6 +409,35 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSos.background = sosBg
         applyGlassButton(btnSettings, isNightMode)
 
+        // 🚨 PAUSE CLOUD SYNC UI SETUP
+        if (isCloudSyncPaused) {
+            btnToggleTracking.text = "RESUME CLOUD SYNC"
+            btnToggleTracking.setTextColor(Color.parseColor("#F59E0B"))
+            tvNetworkStatus.text = "SYNC PAUSED"
+            tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+            tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+        } else {
+            btnToggleTracking.text = "PAUSE CLOUD SYNC"
+            applyGlassButton(btnToggleTracking, isNightMode)
+        }
+
+        btnToggleTracking.setOnClickListener {
+            isCloudSyncPaused = !isCloudSyncPaused
+            requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                .edit().putBoolean("cloud_sync_paused", isCloudSyncPaused).apply()
+
+            if (isCloudSyncPaused) {
+                btnToggleTracking.text = "RESUME CLOUD SYNC"
+                btnToggleTracking.background = null
+                btnToggleTracking.setTextColor(Color.parseColor("#F59E0B"))
+                pauseFirebaseSync()
+            } else {
+                btnToggleTracking.text = "PAUSE CLOUD SYNC"
+                applyGlassButton(btnToggleTracking, isDarkMode())
+                resumeFirebaseSync()
+            }
+        }
+
         btnSettings.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@MapFragment)
@@ -496,11 +537,83 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnVerify.setOnClickListener {
             dialog.dismiss()
             isSosActive = true
+
+            // 🚨 OVERRIDE: If we are paused, automatically resume sync to ensure SOS locations are sent
+            if (isCloudSyncPaused) {
+                isCloudSyncPaused = false
+                requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+                    .edit().putBoolean("cloud_sync_paused", false).apply()
+                btnToggleTracking.text = "PAUSE CLOUD SYNC"
+                applyGlassButton(btnToggleTracking, isDarkMode())
+                resumeFirebaseSync()
+            }
+
             updateSosDatabaseState()
             showSentryToast("🚨 PROTOCOL ENGAGED! Remote access granted.", isLong = true)
         }
 
         dialog.show()
+    }
+
+    // 🚨 PAUSE LOGIC: Stop Readers and Location
+    private fun pauseFirebaseSync() {
+        activeFirebaseListeners.forEach { it.remove() }
+        activeFirebaseListeners.clear()
+        stopLocationTracking()
+        tvNetworkStatus.text = "SYNC PAUSED"
+        tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+        tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+        showSentryToast("Firebase Sync Paused. Saving battery and data.", isLong = false)
+    }
+
+    // 🚨 RESUME LOGIC: Restart Readers and Location
+    private fun resumeFirebaseSync() {
+        val userId = auth.currentUser?.uid ?: return
+        startMyProfileListener(userId)
+        startLocationTracking(userId)
+        initLife360Engine()
+
+        val isConnected = connectivityManager.activeNetwork != null
+        if (isConnected) {
+            tvNetworkStatus.text = "ONLINE"
+            tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
+            tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
+        } else {
+            tvNetworkStatus.text = "OFFLINE"
+            tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
+            tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
+        }
+        showSentryToast("Firebase Sync Resumed.", isLong = false)
+    }
+
+    // Extracted Profile Listener so it can be called on Resume
+    private fun startMyProfileListener(userId: String) {
+        val myRegistration = db.collection("Users").document(userId).addSnapshotListener { doc, e ->
+            if (e != null || doc == null || !doc.exists()) return@addSnapshotListener
+
+            if (isAdded) {
+                myName = doc.getString("fullName") ?: "Me"
+
+                val newPhotoUri = doc.getString("photoUri") ?: ""
+                if (newPhotoUri != myPhotoUri) {
+                    myPhotoUri = newPhotoUri
+                    cachedMyBitmap = null
+
+                    myCurrentLatLng?.let {
+                        val dummyLoc = Location(LocationManager.GPS_PROVIDER).apply {
+                            latitude = it.latitude
+                            longitude = it.longitude
+                            accuracy = 10f
+                            speed = 0f
+                        }
+                        processLocationUpdate(dummyLoc)
+                    }
+                }
+
+                if (isFirstLocationUpdate) startLocationTracking(userId)
+            }
+        }
+        activeFirebaseListeners.add(myRegistration)
     }
 
     private fun showRemoteControlPanel(targetName: String, targetUid: String? = null) {
@@ -572,7 +685,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         val isLocalDevice = (targetUid == auth.currentUser?.uid)
 
-        // HELPER FUNCTION: Download and Display Gallery Image with Click-to-Fullscreen feature
         fun loadGalleryImage(latestCapturedPhoto: String) {
             if (latestCapturedPhoto.isNotEmpty() && ivGalleryImage != null) {
                 val currentGalleryTag = ivGalleryImage.tag as? String
@@ -639,20 +751,15 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                     return@addSnapshotListener
                 }
 
-                // 🚨 REAL-TIME BULLETPROOF KICK LOGIC
                 val accessRevoked = snapshot.getBoolean("remoteAccessRevoked") ?: false
                 val myUid = auth.currentUser?.uid
 
-                // Read the list. If it doesn't exist, default to an empty list.
                 val ownerContacts = snapshot.get("trustedContacts") as? List<Map<String, Any>> ?: emptyList()
-
-                // If myUid is no longer in this list, they kicked me.
                 val isStillTrusted = ownerContacts.any { it["uid"] == myUid }
 
-                // If global revoked, OR individually kicked (with a tiny 1500ms network sync buffer)
                 if (accessRevoked || (!isStillTrusted && (System.currentTimeMillis() - dialogOpenTime > 1500))) {
-                    unlockedViaQrUids.remove(targetUid) // Remove from local cache
-                    dialog.dismiss() // INSTANTLY SLAM THE WINDOW SHUT
+                    unlockedViaQrUids.remove(targetUid)
+                    dialog.dismiss()
                     showSentryToast("CONNECTION SEVERED: Owner revoked scanner access.", isLong = true)
                     return@addSnapshotListener
                 }
@@ -1095,14 +1202,16 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             activeFirebaseListeners.clear()
         } else {
             lastRouteFetchTime = 0L
-            val userId = auth.currentUser?.uid
-            if (userId != null) {
-                startLocationTracking(userId)
+            if (!isCloudSyncPaused) {
+                val userId = auth.currentUser?.uid
+                if (userId != null) {
+                    startMyProfileListener(userId)
+                    startLocationTracking(userId)
+                }
+                checkAndProcessQrIntent()
+                initLife360Engine()
             }
             rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
-
-            checkAndProcessQrIntent()
-            initLife360Engine()
         }
     }
 
@@ -1161,38 +1270,13 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         connectivityManager.registerNetworkCallback(networkRequest, networkCallback)
 
         val userId = auth.currentUser?.uid
-        if (userId != null) {
-            val myRegistration = db.collection("Users").document(userId).addSnapshotListener { doc, e ->
-                if (e != null || doc == null || !doc.exists()) return@addSnapshotListener
-
-                if (isAdded) {
-                    myName = doc.getString("fullName") ?: "Me"
-
-                    val newPhotoUri = doc.getString("photoUri") ?: ""
-                    if (newPhotoUri != myPhotoUri) {
-                        myPhotoUri = newPhotoUri
-                        cachedMyBitmap = null
-
-                        myCurrentLatLng?.let {
-                            val dummyLoc = Location(LocationManager.GPS_PROVIDER).apply {
-                                latitude = it.latitude
-                                longitude = it.longitude
-                                accuracy = 10f
-                                speed = 0f
-                            }
-                            processLocationUpdate(dummyLoc)
-                        }
-                    }
-
-                    if (isFirstLocationUpdate) startLocationTracking(userId)
-                }
-            }
-            activeFirebaseListeners.add(myRegistration)
+        if (userId != null && !isCloudSyncPaused) {
+            startMyProfileListener(userId)
         }
 
         rotationSensor?.let { sensorManager.registerListener(this, it, SensorManager.SENSOR_DELAY_UI) }
 
-        if (!isHidden) {
+        if (!isHidden && !isCloudSyncPaused) {
             checkAndProcessQrIntent()
             initLife360Engine()
         }
@@ -1646,17 +1730,21 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             } catch (e: Exception) { }
 
             val userId = auth.currentUser?.uid ?: return@launch
-            val locationData = hashMapOf(
-                "currentLat" to currentLat,
-                "currentLng" to currentLng,
-                "accuracy" to currentAccuracy,
-                "battery" to currentBattery,
-                "isSOS" to isSosActive,
-                "bearing" to lastKnownBearing,
-                "placeName" to placeName,
-                "lastUpdated" to com.google.firebase.Timestamp.now()
-            )
-            db.collection("Users").document(userId).set(locationData, SetOptions.merge())
+
+            // 🚨 ONLY write to Firebase if SOS is active OR we are NOT paused
+            if (isSosActive || !isCloudSyncPaused) {
+                val locationData = hashMapOf(
+                    "currentLat" to currentLat,
+                    "currentLng" to currentLng,
+                    "accuracy" to currentAccuracy,
+                    "battery" to currentBattery,
+                    "isSOS" to isSosActive,
+                    "bearing" to lastKnownBearing,
+                    "placeName" to placeName,
+                    "lastUpdated" to com.google.firebase.Timestamp.now()
+                )
+                db.collection("Users").document(userId).set(locationData, SetOptions.merge())
+            }
 
             val myArrowColor = if (isSosActive) "#EF4444" else "#3B82F6"
             val newBitmap = if (cachedMyBitmap == null || lastSosStateForBitmap != isSosActive) {
@@ -1696,7 +1784,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 if (!isNavModeActive && isFirstLocationUpdate) {
                     gMap?.moveCamera(CameraUpdateFactory.newLatLngZoom(currentLatlng, 18f))
                     isFirstLocationUpdate = false
-                    initLife360Engine()
+                    if (!isCloudSyncPaused) initLife360Engine()
                 } else if (isNavModeActive) {
                     gMap?.animateCamera(CameraUpdateFactory.newLatLng(currentLatlng), 1000, null)
                 }
