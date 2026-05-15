@@ -103,23 +103,48 @@ class FakeShutdownActivity : AppCompatActivity() {
         setContentView(R.layout.activity_fake_shutdown)
         hideSystemUI()
 
-        val layoutPowerMenu = findViewById<LinearLayout>(R.id.layoutPowerMenu)
+        val layoutPowerMenu = findViewById<View>(R.id.layoutPowerMenu) // Generic
+        val layoutVivoPowerMenu = findViewById<View>(R.id.layoutVivoPowerMenu) // Vivo
         val layoutShuttingDown = findViewById<LinearLayout>(R.id.layoutShuttingDown)
-
-        // 🚨 CRASH FIX: Changed to generic View to handle the new FrameLayouts in XML
-        val btnPowerOff = findViewById<View>(R.id.btnPowerOff)
-        val btnRestart = findViewById<View>(R.id.btnRestart)
 
         startAutoCloseTimer()
 
-        // Both buttons trigger the same fake shutdown trap
-        val clickListener = View.OnClickListener {
-            autoCloseJob?.cancel()
-            triggerShutdownAnimation(layoutPowerMenu, layoutShuttingDown)
-        }
+        // 🚨 NEW: Read the saved style preference
+        val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi / Generic")
 
-        btnPowerOff.setOnClickListener(clickListener)
-        btnRestart.setOnClickListener(clickListener)
+        val activeMenuLayout: View
+
+        if (savedStyle == "Vivo V40 Lite") {
+            layoutPowerMenu.visibility = View.GONE
+            layoutVivoPowerMenu.visibility = View.VISIBLE
+            activeMenuLayout = layoutVivoPowerMenu
+
+            val btnVivoPowerOff = findViewById<View>(R.id.btnVivoPowerOff)
+            val btnVivoRestart = findViewById<View>(R.id.btnVivoRestart)
+
+            val clickListener = View.OnClickListener {
+                autoCloseJob?.cancel()
+                triggerShutdownAnimation(activeMenuLayout, layoutShuttingDown)
+            }
+            btnVivoPowerOff.setOnClickListener(clickListener)
+            btnVivoRestart.setOnClickListener(clickListener)
+
+        } else {
+            // Default Xiaomi / Generic
+            layoutPowerMenu.visibility = View.VISIBLE
+            layoutVivoPowerMenu.visibility = View.GONE
+            activeMenuLayout = layoutPowerMenu
+
+            val btnPowerOff = findViewById<View>(R.id.btnPowerOff)
+            val btnRestart = findViewById<View>(R.id.btnRestart)
+
+            val clickListener = View.OnClickListener {
+                autoCloseJob?.cancel()
+                triggerShutdownAnimation(activeMenuLayout, layoutShuttingDown)
+            }
+            btnPowerOff.setOnClickListener(clickListener)
+            btnRestart.setOnClickListener(clickListener)
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { }
@@ -137,6 +162,33 @@ class FakeShutdownActivity : AppCompatActivity() {
         } else {
             registerReceiver(escapeReceiver, filter)
         }
+    }
+
+    // 🚨 UPDATE THE ANIMATION FUNCTION TO ACCEPT 'View' INSTEAD OF 'LinearLayout'
+    private fun triggerShutdownAnimation(layoutPowerMenu: View, layoutShuttingDown: LinearLayout) {
+        layoutPowerMenu.animate()
+            .alpha(0f)
+            .setDuration(300)
+            .withEndAction {
+                layoutPowerMenu.visibility = View.GONE
+
+                findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
+                window.decorView.setBackgroundColor(Color.BLACK)
+
+                layoutShuttingDown.alpha = 0f
+                layoutShuttingDown.visibility = View.VISIBLE
+                layoutShuttingDown.animate().alpha(1f).setDuration(400).start()
+
+                lifecycleScope.launch {
+                    delay(3000)
+
+                    layoutShuttingDown.animate().alpha(0f).setDuration(300).withEndAction {
+                        layoutShuttingDown.visibility = View.GONE
+                        activateDeadStateTraps()
+                    }.start()
+                }
+            }
+            .start()
     }
 
     override fun onNewIntent(intent: Intent) {

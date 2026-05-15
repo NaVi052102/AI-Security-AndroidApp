@@ -75,7 +75,7 @@ class SettingsFragment : Fragment() {
         val switchFakeShutdown = view.findViewById<SwitchCompat>(R.id.switchFakeShutdown)
         val tvFakeShutdownStatus = view.findViewById<TextView>(R.id.tvFakeShutdownStatus)
 
-        // 🚨 NEW: Spinner Bindings
+        // Spinner Bindings
         val spinnerDeviceStyle = view.findViewById<Spinner>(R.id.spinnerDeviceStyle)
 
         val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
@@ -209,13 +209,13 @@ class SettingsFragment : Fragment() {
             tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
         }
 
-        // 🚨 NEW: Spinner Logic
-        val styles = arrayOf("Xiaomi (MIUI)") // You can add more later (Samsung, Pixel, etc.)
+        // 🚨 UPDATED: Spinner Logic with Vivo V40 Lite Option
+        val styles = arrayOf("Xiaomi / Generic", "Vivo V40 Lite")
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, styles)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
         spinnerDeviceStyle.adapter = adapter
 
-        val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi (MIUI)")
+        val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi / Generic")
         val position = styles.indexOf(savedStyle).takeIf { it >= 0 } ?: 0
         spinnerDeviceStyle.setSelection(position)
 
