@@ -12,12 +12,15 @@ import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
@@ -41,8 +44,8 @@ class SettingsFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
-        val seekAi = view.findViewById<SeekBar>(R.id.seekAiSensitivity)
-        val tvAiDesc = view.findViewById<TextView>(R.id.tvAiDesc)
+        val seekPenalty = view.findViewById<SeekBar>(R.id.seekAiSensitivity)
+        val tvPenaltyDesc = view.findViewById<TextView>(R.id.tvAiDesc)
 
         // Proximity Bindings
         val switchProximityArmed = view.findViewById<SwitchCompat>(R.id.switchProximityArmed)
@@ -69,9 +72,11 @@ class SettingsFragment : Fragment() {
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
         val switchAutoCaseLock = view.findViewById<SwitchCompat>(R.id.switchAutoCaseLock)
 
-        // 🚨 NEW: Fake Shutdown Bindings
         val switchFakeShutdown = view.findViewById<SwitchCompat>(R.id.switchFakeShutdown)
         val tvFakeShutdownStatus = view.findViewById<TextView>(R.id.tvFakeShutdownStatus)
+
+        // 🚨 NEW: Spinner Bindings
+        val spinnerDeviceStyle = view.findViewById<Spinner>(R.id.spinnerDeviceStyle)
 
         val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
         val btnDemoEnforcer = view.findViewById<Button>(R.id.btnDemoEnforcer)
@@ -83,21 +88,21 @@ class SettingsFragment : Fragment() {
         applyDangerButton(btnDemoEnforcer, isNightMode)
         applyDangerButton(btnDemoOrdinary, isNightMode)
 
-        // 1. AI SENSITIVITY
-        val currentSensitivity = prefs.getInt("ai_sensitivity", 1)
-        seekAi.progress = currentSensitivity
-        updateAiDesc(currentSensitivity, tvAiDesc)
+        // 1. ANOMALY PENALTY LOGIC
+        val currentPenalty = prefs.getInt("ai_anomaly_penalty", 1)
+        seekPenalty.progress = currentPenalty
+        updatePenaltyDesc(currentPenalty, tvPenaltyDesc)
 
-        seekAi.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        seekPenalty.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                updateAiDesc(progress, tvAiDesc)
-                prefs.edit { putInt("ai_sensitivity", progress) }
+                updatePenaltyDesc(progress, tvPenaltyDesc)
+                prefs.edit { putInt("ai_anomaly_penalty", progress) }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}
         })
 
-        // 2. PROXIMITY RADAR MUTUAL EXCLUSION
+        // 2. PROXIMITY RADAR LOGIC
         switchProximityArmed.isChecked = prefs.getBoolean("is_proximity_armed", true)
 
         val warnDist = prefs.getFloat("radar_warning_meters", 2.0f)
@@ -114,9 +119,6 @@ class SettingsFragment : Fragment() {
             else -> rbLock5.isChecked = true
         }
 
-        if (warnDist == 3.0f) rbLock3.isEnabled = false
-        if (lockDist == 3.0f) rbWarn3.isEnabled = false
-
         rgWarningDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
         rgLockDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
         for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = switchProximityArmed.isChecked
@@ -128,11 +130,6 @@ class SettingsFragment : Fragment() {
             rgLockDist.alpha = if(isChecked) 1f else 0.5f
             for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = isChecked
             for (i in 0 until rgLockDist.childCount) rgLockDist.getChildAt(i).isEnabled = isChecked
-
-            if (isChecked) {
-                if (rbWarn3.isChecked) rbLock3.isEnabled = false
-                if (rbLock3.isChecked) rbWarn3.isEnabled = false
-            }
         }
 
         rgWarningDist.setOnCheckedChangeListener { _, checkedId ->
@@ -143,16 +140,6 @@ class SettingsFragment : Fragment() {
                 else -> 2.0f
             }
             prefs.edit { putFloat("radar_warning_meters", dist) }
-
-            if (dist == 3.0f) {
-                rbLock3.isEnabled = false
-                if (rbLock3.isChecked) {
-                    rbLock4.isChecked = true
-                    showSentryToast("Lockdown shifted to 4m to prevent overlap.", false)
-                }
-            } else {
-                rbLock3.isEnabled = true
-            }
         }
 
         rgLockDist.setOnCheckedChangeListener { _, checkedId ->
@@ -163,19 +150,9 @@ class SettingsFragment : Fragment() {
                 else -> 5.0f
             }
             prefs.edit { putFloat("radar_threshold_meters", dist) }
-
-            if (dist == 3.0f) {
-                rbWarn3.isEnabled = false
-                if (rbWarn3.isChecked) {
-                    rbWarn2.isChecked = true
-                    showSentryToast("Warning shifted to 2m to prevent overlap.", false)
-                }
-            } else {
-                rbWarn3.isEnabled = true
-            }
         }
 
-        // 3. TOGGLE PROTOCOLS LOGIC
+        // 3. PROTOCOL LOGIC
         switchSiren.isChecked = prefs.getBoolean("protocol_siren", true)
         switchGps.isChecked = prefs.getBoolean("protocol_gps", true)
 
@@ -209,10 +186,7 @@ class SettingsFragment : Fragment() {
             val type = when (checkedId) {
                 R.id.rbScreenOff -> "SCREEN_OFF"
                 R.id.rbOrdinaryLock -> {
-                    if (!isDeviceAdminActive()) {
-                        requestDeviceAdmin()
-                        showSentryToast("Please activate Device Administrator to enable this lock.", true)
-                    }
+                    if (!isDeviceAdminActive()) requestDeviceAdmin()
                     "ORDINARY"
                 }
                 else -> "OVERLAY"
@@ -222,64 +196,44 @@ class SettingsFragment : Fragment() {
 
         switchStealth.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit { putBoolean("protocol_stealth", isChecked) }
-            if (isChecked) {
-                showSentryToast("Stealth Active: Dial *#8888# to open.", isLong = true)
-            }
         }
 
-        // Auto Case Lock Event Setup
-        if (switchAutoCaseLock != null) {
-            switchAutoCaseLock.isChecked = prefs.getBoolean("auto_case_lock", false)
-            switchAutoCaseLock.setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit { putBoolean("auto_case_lock", isChecked) }
-                if (isChecked) {
-                    showSentryToast("Auto Case Lock ON: Case will lock when screen goes dark.", false)
-                } else {
-                    showSentryToast("Auto Case Lock OFF: Manual mode active.", false)
+        switchAutoCaseLock.isChecked = prefs.getBoolean("auto_case_lock", false)
+        switchAutoCaseLock.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit { putBoolean("auto_case_lock", isChecked) }
+        }
+
+        switchFakeShutdown.isChecked = prefs.getBoolean("enable_fake_shutdown", false)
+        switchFakeShutdown.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit { putBoolean("enable_fake_shutdown", isChecked) }
+            tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
+        }
+
+        // 🚨 NEW: Spinner Logic
+        val styles = arrayOf("Xiaomi (MIUI)") // You can add more later (Samsung, Pixel, etc.)
+        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, styles)
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        spinnerDeviceStyle.adapter = adapter
+
+        val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi (MIUI)")
+        val position = styles.indexOf(savedStyle).takeIf { it >= 0 } ?: 0
+        spinnerDeviceStyle.setSelection(position)
+
+        spinnerDeviceStyle.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                prefs.edit { putString("fake_shutdown_style", styles[pos]) }
+                if (view is TextView) {
+                    view.setTextColor(Color.WHITE)
+                    view.textSize = 13f
                 }
             }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // 🚨 NEW: Fake Shutdown Event Setup
-        if (switchFakeShutdown != null) {
-            val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
-            switchFakeShutdown.isChecked = isFakeShutdownEnabled
-            tvFakeShutdownStatus?.text = if (isFakeShutdownEnabled) "Enabled" else "Disabled"
-
-            switchFakeShutdown.setOnCheckedChangeListener { _, isChecked ->
-                prefs.edit { putBoolean("enable_fake_shutdown", isChecked) }
-                tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
-
-                if (isChecked) {
-                    showSentryToast("Power Deception Active.", false)
-                }
-            }
-        }
-
-        // ==========================================
-        // 4. DYNAMIC MODAL TEST TRIGGERS
-        // ==========================================
-        btnDemoOverlay.setOnClickListener {
-            if (!Settings.canDrawOverlays(requireContext())) {
-                showSentryToast("Grant 'Display over other apps' to test.", isLong = true)
-                startActivity(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION).apply { data = "package:${requireContext().packageName}".toUri() })
-                return@setOnClickListener
-            }
-            showTestWarningDialog("OVERLAY", isNightMode)
-        }
-
-        btnDemoEnforcer.setOnClickListener {
-            showTestWarningDialog("SCREEN_OFF", isNightMode)
-        }
-
-        btnDemoOrdinary.setOnClickListener {
-            if (!isDeviceAdminActive()) {
-                requestDeviceAdmin()
-                showSentryToast("Action Blocked: Please enable Device Administrator first.", true)
-                return@setOnClickListener
-            }
-            showTestWarningDialog("ORDINARY", isNightMode)
-        }
+        // TEST TRIGGERS
+        btnDemoOverlay.setOnClickListener { showTestWarningDialog("OVERLAY", isNightMode) }
+        btnDemoEnforcer.setOnClickListener { showTestWarningDialog("SCREEN_OFF", isNightMode) }
+        btnDemoOrdinary.setOnClickListener { showTestWarningDialog("ORDINARY", isNightMode) }
 
         return view
     }
@@ -294,7 +248,7 @@ class SettingsFragment : Fragment() {
         val adminComponent = ComponentName(requireContext(), SecurityAdminReceiver::class.java)
         val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply {
             putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent)
-            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Sentry requires this permission to instantly lock the screen during a proximity breach or AI lockdown.")
+            putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, "Sentry requires this to lock the screen.")
         }
         startActivity(intent)
     }
@@ -303,100 +257,36 @@ class SettingsFragment : Fragment() {
     private fun showTestWarningDialog(testType: String, isNightMode: Boolean) {
         val dialogView = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_lockdown_test, null)
         val dialogRoot = dialogView.findViewById<LinearLayout>(R.id.dialogRoot)
-        val tvMessage = dialogView.findViewById<TextView>(R.id.tvDialogMessage)
-        val tvBypassInstructions = dialogView.findViewById<TextView>(R.id.tvBypassInstructions)
         val btnProceed = dialogView.findViewById<Button>(R.id.btnProceed)
         val btnCancel = dialogView.findViewById<Button>(R.id.btnCancel)
 
-        when (testType) {
-            "OVERLAY" -> {
-                tvMessage.text = "You are about to deploy the active Red Screen Overlay. This is a persistent graphical block designed to completely disable intruder interaction."
-                tvBypassInstructions.text = "Use your registered Biometrics (Fingerprint/Face) or enter your Master PIN into the secure prompt to dismiss the overlay and regain control."
-            }
-            "SCREEN_OFF" -> {
-                tvMessage.text = "You are about to test the Screen-Off Enforcer. This protocol instantly cuts power to the display to neutralize unauthorized access and tracking."
-                tvBypassInstructions.text = "Simply press your phone's physical power button to wake the screen, and unlock the device using your standard Android lock screen mechanism."
-            }
-            "ORDINARY" -> {
-                tvMessage.text = "You are about to test the Ordinary Lock. This will trigger your standard Android lock screen securely."
-                tvBypassInstructions.text = "Simply press your phone's physical power button to wake the screen, and unlock using your standard PIN/Pattern."
-            }
-        }
-
         val dialogBg = GradientDrawable().apply {
             cornerRadius = 60f
-            if (isNightMode) {
-                setColor("#FA0F172A".toColorInt())
-                setStroke(2, "#334155".toColorInt())
-            } else {
-                setColor("#FAFFFFFF".toColorInt())
-                setStroke(2, "#CBD5E1".toColorInt())
-            }
+            setColor(if (isNightMode) "#FA0F172A".toColorInt() else "#FAFFFFFF".toColorInt())
+            setStroke(2, if (isNightMode) "#334155".toColorInt() else "#CBD5E1".toColorInt())
         }
         dialogRoot.background = dialogBg
 
         applyDangerButton(btnProceed, isNightMode)
         applyGhostButton(btnCancel, isNightMode)
 
-        val dialog = AlertDialog.Builder(requireContext())
-            .setView(dialogView)
-            .setCancelable(false)
-            .create()
-
+        val dialog = AlertDialog.Builder(requireContext()).setView(dialogView).setCancelable(false).create()
         dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-
         btnCancel.setOnClickListener { dialog.dismiss() }
-
         btnProceed.setOnClickListener {
             dialog.dismiss()
-            SecurityEnforcer(requireContext()).lockDevice("Threat Simulation Demo", testType)
+            SecurityEnforcer(requireContext()).lockDevice("Demo", testType)
         }
-
         dialog.show()
     }
 
     @SuppressLint("SetTextI18n")
-    private fun updateAiDesc(progress: Int, tv: TextView) {
+    private fun updatePenaltyDesc(progress: Int, tv: TextView) {
         when (progress) {
-            0 -> tv.text = "Normal threshold. Highly tolerant of variations. Locks at 100% Risk."
-            1 -> tv.text = "Moderate threshold. Balanced security for daily use. Locks at 80% Risk."
-            2 -> tv.text = "Strict security. Highly sensitive to abnormal swipes. Locks at 60% Risk."
+            0 -> tv.text = "Normal Penalty: Detects anomalies with a 5% risk increase per event."
+            1 -> tv.text = "Moderate Penalty: Detects anomalies with a 10% risk increase per event."
+            2 -> tv.text = "Strict Penalty: Detects anomalies with a 15% risk increase per event."
         }
-    }
-
-    private fun showSentryToast(message: String, isLong: Boolean) {
-        val toast = Toast(requireContext())
-        toast.duration = if (isLong) Toast.LENGTH_LONG else Toast.LENGTH_SHORT
-
-        val customLayout = LinearLayout(requireContext()).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-            background = GradientDrawable().apply {
-                cornerRadius = 100f
-                setColor(Color.parseColor("#12151C"))
-                setStroke(3, Color.parseColor("#3B82F6"))
-            }
-            setPadding(50, 30, 50, 30)
-        }
-
-        val icon = ImageView(requireContext()).apply {
-            setImageResource(R.drawable.ic_sentry_half_gold)
-            layoutParams = LinearLayout.LayoutParams(60, 75).apply {
-                setMargins(0, 0, 30, 0)
-            }
-        }
-
-        val textView = TextView(requireContext()).apply {
-            text = message
-            setTextColor(Color.WHITE)
-            textSize = 15f
-            typeface = android.graphics.Typeface.DEFAULT_BOLD
-        }
-
-        customLayout.addView(icon)
-        customLayout.addView(textView)
-        toast.view = customLayout
-        toast.show()
     }
 
     private fun applyDangerButton(button: Button, isNightMode: Boolean) {

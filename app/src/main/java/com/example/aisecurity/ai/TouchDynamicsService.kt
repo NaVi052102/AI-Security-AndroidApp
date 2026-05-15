@@ -274,7 +274,7 @@ class TouchDynamicsService : AccessibilityService() {
                     if (firebaseState != physicalState) {
                         val lastAttemptTime = commandCooldowns[targetSetting] ?: 0L
                         if (System.currentTimeMillis() - lastAttemptTime > 10000) {
-                            LiveLogger.log("⚙️ REMOTE CMD: Triggering API toggle for $targetSetting...")
+                            LiveLogger.log("⚙️ REMOTE CMD: Triggering toggle for $targetSetting...")
                             commandCooldowns[targetSetting] = System.currentTimeMillis()
                             executeDirectToggle(targetSetting)
                         }
@@ -337,36 +337,50 @@ class TouchDynamicsService : AccessibilityService() {
 
     private fun executeDirectToggle(target: String) {
         serviceScope.launch(Dispatchers.IO) {
+            var directApiSucceeded = false
             try {
                 val resolver = contentResolver
                 when (target) {
                     "WIFI" -> {
                         val currentState = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
                         val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+                        @Suppress("DEPRECATION")
                         wifiMgr.isWifiEnabled = !currentState
+                        directApiSucceeded = true
                     }
                     "BLUETOOTH" -> {
                         val currentState = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
                         val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+                        @Suppress("DEPRECATION")
                         if (!currentState) btAdapter?.enable() else btAdapter?.disable()
+                        directApiSucceeded = true
                     }
                     "DATA" -> {
                         val currentState = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
                         Settings.Global.putInt(resolver, "mobile_data", if (!currentState) 1 else 0)
+                        directApiSucceeded = true
                     }
                     "LOCATION" -> {
                         val currentState = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
                         Settings.Secure.putInt(resolver, Settings.Secure.LOCATION_MODE, if (!currentState) 3 else 0)
+                        directApiSucceeded = true
                     }
                     "BATTERY" -> {
                         val currentState = Settings.Global.getInt(resolver, "low_power", 0) == 1
                         Settings.Global.putInt(resolver, "low_power", if (!currentState) 1 else 0)
+                        directApiSucceeded = true
                     }
                 }
             } catch (e: Exception) {
-            } finally {
+                LiveLogger.log("⚡ Direct API blocked for $target — engaging Poltergeist fallback...")
+                directApiSucceeded = false
+            }
+
+            if (directApiSucceeded) {
                 delay(2000)
                 forceFirebaseSyncToReality()
+            } else {
+                executePoltergeistFallback(target)
             }
         }
     }
@@ -732,15 +746,19 @@ class TouchDynamicsService : AccessibilityService() {
             if (finalPct >= 75) {
                 val error    = classifier.getError(features)
                 val ratio    = error / globalThreshold
-                val swipeRisk = if (ratio <= 1.0f) {
-                    (ratio * 25f).toInt()
+
+                // 🚨 NEW LOGIC: Dynamic Penalty per anomaly
+                if (ratio > 1.0f) {
+                    val penaltyLevel = prefs.getInt("ai_sensitivity", 1)
+                    val penaltyValue = when(penaltyLevel) {
+                        0 -> 5
+                        2 -> 15
+                        else -> 10
+                    }
+                    increaseRisk(penaltyValue)
                 } else {
-                    (25f + ((ratio - 1.0f) * 75f)).toInt()
-                }.coerceIn(0, 100)
+                    decreaseRisk(2) // Reward good swipes slightly
 
-                updateRiskScore(swipeRisk)
-
-                if (swipeRisk < 35) {
                     val rawLoss = classifier.trainAI(features)
                     appSpecificEma = BehavioralAuthClassifier.emaStep(appSpecificEma, rawLoss)
                     prefs.edit().putFloat("ema_loss_$appName", appSpecificEma).apply()
@@ -748,8 +766,6 @@ class TouchDynamicsService : AccessibilityService() {
                         TouchProfile(duration = duration, velocityX = velocity, pressure = normPressure, appName = appName)
                     )
                 }
-            } else {
-                updateRiskScore(0)
             }
         } else if (!isPaused) {
             val rawLoss = classifier.trainAI(features)
@@ -762,7 +778,6 @@ class TouchDynamicsService : AccessibilityService() {
             db.dao().insertLossPoint(
                 LossPoint(timestamp = System.currentTimeMillis(), lossValue = rawLoss, emaValue = appSpecificEma)
             )
-            updateRiskScore(0)
         }
     }
 
@@ -829,15 +844,13 @@ class TouchDynamicsService : AccessibilityService() {
 
         val isEnvironmentHostile = km.isKeyguardLocked || isLocked
 
-        // 🚨 STRICT BUT SMART POWER MENU DETECTION
-        // Blocks false positives while guaranteeing MIUI/HyperOS compatibility
         val isFalsePositive = className.contains("volume", true) ||
                 combinedText.contains("volume") ||
                 className.contains("notification", true) ||
-                className.contains("keyguard", true)
+                combinedText.contains("emergency")
 
         val isMiuiPowerAction = rawPackageName.contains("miui.powercenter") ||
-                rawPackageName.contains("miui.powerkeeper") ||
+                rawPackageName.contains("powerkeeper") ||
                 className.contains("shutdowncontainer", true) ||
                 className.contains("globalactions", true)
 
@@ -980,6 +993,16 @@ class TouchDynamicsService : AccessibilityService() {
             currentRealApp  = appName
             val now         = System.currentTimeMillis()
 
+            val myUid = auth.currentUser?.uid
+            if (myUid != null) {
+                serviceScope.launch(Dispatchers.IO) {
+                    try {
+                        firebaseDb.collection("Users").document(myUid)
+                            .set(hashMapOf("current_active_app" to currentRealApp), SetOptions.merge())
+                    } catch (e: Exception) { e.printStackTrace() }
+                }
+            }
+
             val timeTaken = if (lastRealAppLeaveTime > 0)
                 now - lastRealAppLeaveTime
             else
@@ -990,6 +1013,9 @@ class TouchDynamicsService : AccessibilityService() {
             if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
                 lastFromApp = previousApp
                 lastToApp   = currentRealApp
+
+                LiveLogger.log("📱 FLOW: $lastFromApp -> $lastToApp")
+
                 serviceScope.launch { learnTransition(previousApp, currentRealApp, timeTaken) }
             }
             lastAppSwitchTime    = now
@@ -1007,17 +1033,24 @@ class TouchDynamicsService : AccessibilityService() {
         if (isPaused && !isReady) return
         if (System.currentTimeMillis() - lastUnlockTime < 3000) return
 
+        val penaltyLevel = prefs.getInt("ai_sensitivity", 1)
+        val penaltyValue = when(penaltyLevel) {
+            0 -> 5   // Normal
+            2 -> 15  // Strict
+            else -> 10 // Moderate
+        }
+
         val history = db.dao().getTransition(from, to)
         if (history == null) {
-            if (isReady) increaseRisk(15)
+            if (isReady) increaseRisk(penaltyValue)
             db.dao().updateTransition(
                 TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1)
             )
         } else {
             if (isReady && kotlin.math.abs(history.avgTime - timeTaken) > 1500)
-                increaseRisk(25)
+                increaseRisk(penaltyValue)
             else if (isReady)
-                decreaseRisk(5)
+                decreaseRisk(2)
 
             if (!isReady || kotlin.math.abs(history.avgTime - timeTaken) <= 1500) {
                 val newAvgTime = ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
@@ -1079,32 +1112,17 @@ class TouchDynamicsService : AccessibilityService() {
         prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
     }
 
-    private fun updateRiskScore(newCalculatedRisk: Int) {
-        val prefs       = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val oldRisk     = prefs.getInt("current_risk", 0)
-        val smoothedRisk = kotlin.math.ceil(
-            (oldRisk.toFloat() + newCalculatedRisk.toFloat()) / 2f
-        ).toInt().coerceIn(0, 100)
-        prefs.edit().putInt("current_risk", smoothedRisk).apply()
-        checkLock(smoothedRisk)
-    }
-
+    // 🚨 NEW LOGIC: Lock Threshold is ALWAYS 100%
     private fun checkLock(risk: Int) {
         val prefs       = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val sensitivity = prefs.getInt("ai_sensitivity", 1)
-
-        val lockThreshold = when (sensitivity) {
-            2    -> 60
-            1    -> 80
-            else -> 100
-        }
+        val lockThreshold = 100 // 🚨 ALWAYS 100% NOW!
 
         if (risk >= lockThreshold && !isLockdownCooldown) {
             isLockdownCooldown = true
             serviceScope.launch(Dispatchers.Main) {
 
                 val title = "AI Intruder Lockdown"
-                val details = "Unrecognized touch biometrics detected. Risk ($risk%) exceeded sensitivity threshold ($lockThreshold%). Defense protocol engaged."
+                val details = "Unrecognized touch biometrics detected. Risk ($risk%) reached maximum limit ($lockThreshold%). Defense protocol engaged."
 
                 com.example.aisecurity.ble.WatchManager.logAndNotify(this@TouchDynamicsService, title, details, 2)
 

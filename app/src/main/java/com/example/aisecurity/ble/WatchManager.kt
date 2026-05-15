@@ -8,6 +8,10 @@ import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.content.Intent
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
 import android.location.Geocoder
 import android.location.Location
 import android.location.LocationListener
@@ -43,6 +47,7 @@ import java.util.*
 import java.util.concurrent.TimeUnit
 import kotlin.math.pow
 import kotlin.math.round
+import kotlin.math.sqrt
 
 @SuppressLint("MissingPermission")
 object WatchManager {
@@ -58,7 +63,7 @@ object WatchManager {
     val touchStatus = MutableLiveData<String>("Idle")
 
     private const val WATCH_NAME = "Watch Pro"
-    private const val WATCH_MAC = "FC:01:2C:FD:DD:76" // Change to your watch's MAC
+    private const val WATCH_MAC = "FC:01:2C:FD:DD:76"
 
     private val SERVICE_UUID = UUID.fromString("12345678-1234-1234-1234-123456789abc")
     private val TX_CHAR_UUID = UUID.fromString("abcdef12-1234-1234-1234-123456789abc")
@@ -71,22 +76,23 @@ object WatchManager {
     private var rssiPollingJob: Job? = null
     private var bioSyncJob: Job? = null
     private var systemStateJob: Job? = null
-
     private var activeRingtone: android.media.Ringtone? = null
     private var activePingJob: Job? = null
 
     private val scope = CoroutineScope(Dispatchers.Main)
     private var currentContext: Context? = null
 
-    private val distanceFilter = KalmanFilter(processNoise = 0.008, measurementNoise = 0.5)
+    // 🚨 SENSOR FUSION ENGINE VARIABLES (BLE + IMU)
+    private var sensorManager: SensorManager? = null
+    private var accelSensor: Sensor? = null
+    private var smoothedMovement = 0.0
 
-    private var lastLockTime = 0L
-    private var lastWarningTime = 0L
-    private const val LOCK_COOLDOWN_MS = 5000L
+    private val distanceFilter = KalmanFilter(processNoise = 0.005, measurementNoise = 0.8)
+    private val rawRssiBuffer = mutableListOf<Int>()
+    private const val BUFFER_SIZE = 6
+    private var smoothedEmaRssi = -50.0
 
-    // 🚨 STATE MACHINE: Prevents notification loops
     private var currentProximityState = "SAFE"
-
     private var locationManager: LocationManager? = null
     private var lastKnownCity = "Tracking Active"
     private var lastGeocodeTime = 0L
@@ -95,29 +101,17 @@ object WatchManager {
     private var pendingAuthMac = ""
     private var isConnectionInitialized = false
 
-    // =================================================================
-    // 🚨 THE UNIVERSAL SYNC ENGINE
-    // Guarantees DB Log and Watch Notification happen together!
-    // =================================================================
     fun logAndNotify(context: Context, title: String, details: String, severity: Int) {
         sendNotificationToWatch(title, details)
-
         val timeFormat = SimpleDateFormat("MMM dd, yyyy - hh:mm a", Locale.getDefault())
         val currentTimeStr = timeFormat.format(Date())
 
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val database = SecurityDatabase.get(context)
-                val logEntry = SecurityLog(
-                    timestamp = currentTimeStr,
-                    title = title,
-                    details = details,
-                    severity = severity
-                )
+                val logEntry = SecurityLog(timestamp = currentTimeStr, title = title, details = details, severity = severity)
                 database.securityLogDao().insertLog(logEntry)
-            } catch (e: Exception) {
-                Log.e("SentrySync", "Failed to write audit log: ${e.message}")
-            }
+            } catch (e: Exception) {}
         }
     }
 
@@ -132,9 +126,7 @@ object WatchManager {
 
         val appOps = context.getSystemService(Context.APP_OPS_SERVICE) as android.app.AppOpsManager
         val mode = appOps.checkOpNoThrow(android.app.AppOpsManager.OPSTR_GET_USAGE_STATS, android.os.Process.myUid(), context.packageName)
-        val hasUsage = mode == android.app.AppOpsManager.MODE_ALLOWED
-
-        return hasAcc && hasUsage
+        return hasAcc && mode == android.app.AppOpsManager.MODE_ALLOWED
     }
 
     fun connectToTarget(context: Context, macAddress: String) {
@@ -151,12 +143,10 @@ object WatchManager {
         bluetoothGatt?.disconnect()
         bluetoothGatt?.close()
         bluetoothGatt = null
-
         stopScan()
         liveStatus.postValue("Linking to Watch Pro...")
 
         val device = adapter.getRemoteDevice(macAddress)
-
         bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             device.connectGatt(currentContext, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
         } else {
@@ -167,12 +157,7 @@ object WatchManager {
     fun startScan(context: Context) {
         currentContext = context.applicationContext
         val bluetoothManager = context.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
-        val scanner = bluetoothManager.adapter?.bluetoothLeScanner
-
-        if (scanner == null) {
-            liveStatus.postValue("Error: Bluetooth is OFF")
-            return
-        }
+        val scanner = bluetoothManager.adapter?.bluetoothLeScanner ?: return
 
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
         liveStatus.postValue("Scanning for Watch Pro...")
@@ -183,11 +168,9 @@ object WatchManager {
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult?) {
             val device = result?.device ?: return
-
             if (device.address == WATCH_MAC || device.name == WATCH_NAME) {
                 stopScan()
                 liveStatus.postValue("Watch Pro Found! Connecting...")
-
                 currentContext?.let { ctx ->
                     bluetoothGatt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                         device.connectGatt(ctx, false, gattCallback, BluetoothDevice.TRANSPORT_LE)
@@ -205,17 +188,13 @@ object WatchManager {
                 liveStatus.postValue("Connected! Requesting Bandwidth...")
                 gatt.requestMtu(512)
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED || status != BluetoothGatt.GATT_SUCCESS) {
-                Log.e("BLE", "Connection dropped or failed. Status: $status")
                 disconnect()
             }
         }
 
         override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
             super.onMtuChanged(gatt, mtu, status)
-            if (status == BluetoothGatt.GATT_SUCCESS) {
-                liveStatus.postValue("Bandwidth Secured! Setting up...")
-                gatt.discoverServices()
-            }
+            if (status == BluetoothGatt.GATT_SUCCESS) gatt.discoverServices()
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
@@ -236,7 +215,6 @@ object WatchManager {
 
                 scope.launch {
                     delay(600)
-
                     val prefs = currentContext?.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
                     val trustedWatches = prefs?.getStringSet("trusted_watches", mutableSetOf()) ?: mutableSetOf()
                     val watchMac = gatt.device.address
@@ -250,7 +228,6 @@ object WatchManager {
                         pendingAuthMac = watchMac
                         isConnectionInitialized = false
                         liveStatus.postValue("Awaiting Watch Authentication...")
-
                         sendData("<AUTH_REQ>")
                     }
                 }
@@ -287,9 +264,7 @@ object WatchManager {
                     return
                 }
 
-                if (!isAuthenticated && payload.startsWith("<CMD:")) {
-                    return
-                }
+                if (!isAuthenticated && payload.startsWith("<CMD:")) return
 
                 if (payload.startsWith("<HR:")) {
                     liveHeartRate.postValue(payload.substringAfter(":").replace(">", ""))
@@ -325,28 +300,93 @@ object WatchManager {
             }
         }
 
+        // 🚨 SENSOR FUSION DISTANCE ENGINE (BLE + Accelerometer)
         override fun onReadRemoteRssi(gatt: BluetoothGatt, rssi: Int, status: Int) {
             if (status == BluetoothGatt.GATT_SUCCESS) {
-                liveRSSI.postValue(rssi)
 
-                val rawDistance = calculateDistance(rssi)
-                val stableDistance = distanceFilter.update(rawDistance)
-                val cleanDistance = round(stableDistance * 100) / 100.0
+                rawRssiBuffer.add(rssi)
+                if (rawRssiBuffer.size > BUFFER_SIZE) rawRssiBuffer.removeAt(0)
 
-                liveDistance.postValue(cleanDistance)
-                sendRadarCommandToWatch(cleanDistance)
+                if (rawRssiBuffer.size == BUFFER_SIZE) {
+                    val meanRssi = rawRssiBuffer.average()
 
-                currentContext?.let { checkDistanceAndLock(it, cleanDistance.toFloat()) }
+                    // 1. Is the phone physically moving?
+                    // If smoothedMovement is near 0, the phone is resting on a table or held perfectly still.
+                    val isPhoneMoving = smoothedMovement > 0.4
+
+                    if (!isPhoneMoving) {
+                        // 🛑 PHONE IS STILL: Ignore any sudden BLE drops as body/hand interference.
+                        // We lock the filter down so the distance UI doesn't jump wildly.
+                        distanceFilter.measurementNoise = 8.0
+                        distanceFilter.processNoise = 0.0001
+                        smoothedEmaRssi = (0.05 * meanRssi) + (0.95 * smoothedEmaRssi)
+                        Log.d("FUSION_ENGINE", "Phone Stationary. Locking Distance. (IMU: $smoothedMovement)")
+                    } else {
+                        // 🏃 PHONE IS MOVING: The person is actually walking away.
+                        // Open the filter up to track the changing BLE signal.
+                        distanceFilter.measurementNoise = 0.5
+                        distanceFilter.processNoise = 0.05
+
+                        val dynamicAlpha = if (meanRssi > smoothedEmaRssi) 0.6 else 0.2
+                        smoothedEmaRssi = (dynamicAlpha * meanRssi) + ((1.0 - dynamicAlpha) * smoothedEmaRssi)
+                        Log.d("FUSION_ENGINE", "Phone Moving. Tracking Distance. (IMU: $smoothedMovement)")
+                    }
+
+                    val rawDistance = calculateDistance(smoothedEmaRssi)
+                    val stableDistance = distanceFilter.update(rawDistance)
+                    val cleanDistance = round(stableDistance * 100) / 100.0
+
+                    liveRSSI.postValue(smoothedEmaRssi.toInt())
+                    liveDistance.postValue(cleanDistance)
+
+                    sendRadarCommandToWatch(cleanDistance)
+                    currentContext?.let { checkDistanceAndLock(it, cleanDistance.toFloat()) }
+                }
             } else {
                 disconnect()
             }
         }
     }
 
+    // 🚨 ACCELEROMETER LISTENER FOR SENSOR FUSION
+    private val sensorListener = object : SensorEventListener {
+        override fun onSensorChanged(event: SensorEvent) {
+            if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                val x = event.values[0]
+                val y = event.values[1]
+                val z = event.values[2]
+
+                // Calculate G-Force magnitude minus gravity (9.81 m/s^2)
+                val magnitude = sqrt((x * x + y * y + z * z).toDouble()) - SensorManager.STANDARD_GRAVITY
+
+                // Low-pass filter to smooth the physical movement data
+                smoothedMovement = (0.2 * Math.abs(magnitude)) + (0.8 * smoothedMovement)
+            }
+        }
+        override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+    }
+
+    private fun startSensorFusionEngine(context: Context) {
+        if (sensorManager == null) {
+            sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+            accelSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        }
+        accelSensor?.let {
+            sensorManager?.registerListener(sensorListener, it, SensorManager.SENSOR_DELAY_GAME)
+            Log.d("FUSION_ENGINE", "✅ IMU Accelerometer Bound to BLE Engine")
+        }
+    }
+
     private fun initializeTrustedConnection() {
         if (isConnectionInitialized) return
         isConnectionInitialized = true
+
         distanceFilter.reset()
+        rawRssiBuffer.clear()
+        smoothedEmaRssi = -50.0
+
+        // 🚨 Start the IMU Background Engine
+        currentContext?.let { startSensorFusionEngine(it) }
 
         startRssiPolling()
         startBiometricsSync()
@@ -629,20 +669,22 @@ object WatchManager {
         rssiPollingJob = scope.launch {
             delay(1000)
             var failedPings = 0
+
             while (isActive && bluetoothGatt != null) {
                 val pingSent = bluetoothGatt?.readRemoteRssi() == true
 
                 if (!pingSent) {
                     failedPings++
-                    if (failedPings >= 2) {
-                        Log.e("BLE", "Watch missed 2 heartbeats. Declaring connection dead.")
+                    if (failedPings >= 4) {
+                        Log.e("BLE", "Watch missed 4 heartbeats. Declaring connection dead.")
                         disconnect()
                         break
                     }
                 } else {
                     failedPings = 0
                 }
-                delay(1000)
+
+                delay(200)
             }
         }
     }
@@ -746,7 +788,6 @@ object WatchManager {
         }
     }
 
-    // 🚨 STATE MACHINE LOGIC
     private fun checkDistanceAndLock(context: Context, currentDistanceMeters: Float) {
         val prefs = context.getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
@@ -764,7 +805,6 @@ object WatchManager {
             isSystemLocked = false
         }
 
-        // 1. LOCKDOWN ZONE
         if (currentDistanceMeters >= thresholdMeters) {
             if (currentProximityState != "LOCKDOWN") {
                 currentProximityState = "LOCKDOWN"
@@ -795,7 +835,6 @@ object WatchManager {
                 SecurityEnforcer(context).lockDevice("Proximity Radar Breach", defenseType)
             }
         }
-        // 2. WARNING ZONE
         else if (currentDistanceMeters >= warningMeters) {
             if (currentProximityState != "WARNING") {
                 currentProximityState = "WARNING"
@@ -819,7 +858,6 @@ object WatchManager {
                 } catch (_: Exception) {}
             }
         }
-        // 3. SAFE ZONE
         else {
             if (currentProximityState != "SAFE") {
                 currentProximityState = "SAFE"
@@ -946,19 +984,19 @@ object WatchManager {
         sendData("<MUSIC:$safeTitle|$safeArtist|$safeAlbum|$stateInt>")
     }
 
-    // 🚨 BLUETOOTH TRAFFIC CONTROLLER (Prevents dropped packets)
     fun sendNotificationToWatch(title: String, text: String) {
         val safeTitle = title.replace("<", "").replace(">", "").replace("|", "").take(25)
         val safeText = text.replace("<", "").replace(">", "").replace("|", "").take(120)
 
         scope.launch(Dispatchers.Main) {
-            delay(200) // Small buffer to ensure the watch clears its <RADAR> queue
+            delay(200)
             sendData("<NOTIF:$safeTitle|$safeText>")
         }
     }
 
     fun disconnect() {
         stopScan()
+        sensorManager?.unregisterListener(sensorListener)
         rssiPollingJob?.cancel()
         bioSyncJob?.cancel()
         systemStateJob?.cancel()
@@ -974,6 +1012,7 @@ object WatchManager {
         liveStatus.postValue("Watch Disconnected")
         liveDistance.postValue(0.0)
         distanceFilter.reset()
+        rawRssiBuffer.clear()
     }
 
     private fun stopScan() {
@@ -983,35 +1022,30 @@ object WatchManager {
         isScanning = false
     }
 
-    /**
-     * 🚨 FORCED -50 dBm = 1.0 Meter CALIBRATION
-     * Empirical Piecewise Algorithm mapped smoothly.
-     */
-    private fun calculateDistance(rssi: Int): Double {
-        val signal = rssi.toDouble()
-
+    private fun calculateDistance(rssi: Double): Double {
         return when {
-            // Anchor exactly at -50 dBm for 1.0m
-            signal >= -50.0 -> {
-                val progress = (signal - (-30.0)) / (-50.0 - (-30.0))
+            rssi >= -50.0 -> {
+                val progress = (rssi - (-30.0)) / (-50.0 - (-30.0))
                 (0.1 + (progress * 0.9)).coerceIn(0.1, 1.0)
             }
-            signal >= -60.0 -> {
-                val progress = (signal - (-50.0)) / (-60.0 - (-50.0))
+            rssi >= -60.0 -> {
+                val progress = (rssi - (-50.0)) / (-60.0 - (-50.0))
                 1.0 + (progress * 1.0)
             }
-            signal >= -70.0 -> {
-                val progress = (signal - (-60.0)) / (-70.0 - (-60.0))
+            rssi >= -70.0 -> {
+                val progress = (rssi - (-60.0)) / (-70.0 - (-60.0))
                 2.0 + (progress * 1.0)
             }
-            signal >= -80.0 -> {
-                val progress = (signal - (-70.0)) / (-80.0 - (-70.0))
+            rssi >= -80.0 -> {
+                val progress = (rssi - (-70.0)) / (-80.0 - (-70.0))
                 3.0 + (progress * 1.0)
             }
             else -> {
-                val progress = (signal - (-80.0)) / (-100.0 - (-80.0))
+                val progress = (rssi - (-80.0)) / (-100.0 - (-80.0))
                 (4.0 + (progress * 2.0)).coerceAtMost(6.0)
             }
         }
     }
 }
+
+// 🚨 Internal Kalman Filter Implementation to ensure no missing dependencies

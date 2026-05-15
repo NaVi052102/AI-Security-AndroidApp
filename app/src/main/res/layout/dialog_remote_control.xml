@@ -220,7 +220,7 @@
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="190dp"
-                        android:layout_marginTop="104dp"
+                        android:layout_marginTop="85dp"
                         android:layout_marginBottom="10dp"
                         android:baselineAligned="false"
                         android:clipChildren="false"
@@ -532,7 +532,6 @@
                             android:layout_weight="1"
                             android:clipChildren="false">
 
-                            <!-- 🚨 HERE IS THE REPLACEMENT FOR THE LOAD BALANCE CARD -->
                             <com.google.android.material.card.MaterialCardView
                                 android:id="@+id/cardGallery"
                                 android:layout_width="match_parent"
@@ -567,7 +566,6 @@
                                         app:cardBackgroundColor="#12172B"
                                         app:cardElevation="0dp">
 
-                                        <!-- The ImageView for the photo -->
                                         <ImageView
                                             android:id="@+id/ivGalleryImage"
                                             android:layout_width="match_parent"
@@ -778,144 +776,27 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:orientation="vertical"
-                            android:padding="16dp">
+                            android:gravity="center"
+                            android:padding="22dp">
 
-                            <LinearLayout
-                                android:layout_width="match_parent"
+                            <TextView
+                                android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:orientation="horizontal"
-                                android:gravity="center_vertical"
-                                android:layout_marginBottom="12dp">
+                                android:text="ACTIVE APP"
+                                android:textColor="#5A7090"
+                                android:textSize="9sp"
+                                android:textStyle="bold"
+                                android:layout_marginBottom="4dp"/>
 
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="AI DETECTION"
-                                    android:textColor="#5A7090"
-                                    android:textSize="9sp"
-                                    android:textStyle="bold"
-                                    android:letterSpacing="0.18" />
-
-                                <View
-                                    android:layout_width="0dp"
-                                    android:layout_height="0dp"
-                                    android:layout_weight="1" />
-
-                                <LinearLayout
-                                    android:id="@+id/btnAiSensitivityDrop"
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:orientation="horizontal"
-                                    android:gravity="center_vertical"
-                                    android:clickable="true"
-                                    android:focusable="true">
-
-                                    <TextView
-                                        android:id="@+id/tvAiSensitivityValue"
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="Strict"
-                                        android:textColor="#FFFFFF"
-                                        android:textSize="10sp"
-                                        android:textStyle="bold" />
-
-                                    <ImageView
-                                        android:id="@+id/ivAiChevron"
-                                        android:layout_width="14dp"
-                                        android:layout_height="14dp"
-                                        android:src="@drawable/ic_arrow_drop_down"
-                                        app:tint="#5A7090" />
-                                </LinearLayout>
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:id="@+id/dropPanelAi"
-                                android:layout_width="match_parent"
+                            <TextView
+                                android:id="@+id/tvCurrentActiveApp"
+                                android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:visibility="gone">
-
-                                <View
-                                    android:layout_width="match_parent"
-                                    android:layout_height="1dp"
-                                    android:background="#252F48"
-                                    android:layout_marginTop="7dp"
-                                    android:layout_marginBottom="12dp" />
-                                <LinearLayout android:id="@+id/optAiStrict" android:layout_width="match_parent" android:layout_height="28dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                    <ImageView android:id="@+id/chkAiStrict" android:layout_width="10dp" android:layout_height="10dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
-                                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Strict" android:textColor="#00D8FF" android:textSize="10sp" android:textStyle="bold"/>
-                                </LinearLayout>
-
-                                <LinearLayout android:id="@+id/optAiLenient" android:layout_width="match_parent" android:layout_height="28dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                    <ImageView android:id="@+id/chkAiLenient" android:layout_width="10dp" android:layout_height="10dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Lenient" android:textColor="#8899BB" android:textSize="10sp"/>
-                                </LinearLayout>
-
-                                <View
-                                    android:layout_width="match_parent"
-                                    android:layout_height="1dp"
-                                    android:background="#252F48"
-                                    android:layout_marginTop="7dp"
-                                    android:layout_marginBottom="12dp" />
-                            </LinearLayout>
-
-                            <LinearLayout
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:orientation="horizontal"
-                                android:gravity="center_vertical"
-                                android:layout_marginBottom="8dp">
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="MESSENGER"
-                                    android:textColor="#FFFFFF"
-                                    android:textSize="13.5sp"
-                                    android:textStyle="bold" />
-
-                                <View
-                                    android:layout_width="0dp"
-                                    android:layout_height="0dp"
-                                    android:layout_weight="1" />
-
-                                <androidx.appcompat.widget.AppCompatButton
-                                    android:id="@+id/btnUseAiToggle"
-                                    android:layout_width="65dp"
-                                    android:layout_height="24dp"
-                                    android:backgroundTint="#0284C7"
-                                    android:text="USE AI"
-                                    android:textColor="#FFFFFF"
-                                    android:textSize="9sp"
-                                    android:textStyle="bold"
-                                    android:padding="0dp"
-                                    android:minWidth="0dp"
-                                    android:minHeight="0dp"
-                                    android:layout_marginEnd="10dp" />
-
-                                <TextView
-                                    android:layout_width="wrap_content"
-                                    android:layout_height="wrap_content"
-                                    android:text="100%"
-                                    android:textColor="#00D8FF"
-                                    android:textSize="12sp"
-                                    android:textStyle="bold" />
-                            </LinearLayout>
-
-                            <androidx.cardview.widget.CardView
-                                android:layout_width="match_parent"
-                                android:layout_height="6dp"
-                                app:cardBackgroundColor="#252F48"
-                                app:cardCornerRadius="3dp"
-                                app:cardElevation="0dp">
-
-                                <androidx.cardview.widget.CardView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="match_parent"
-                                    app:cardBackgroundColor="#00D8FF"
-                                    app:cardCornerRadius="3dp"
-                                    app:cardElevation="0dp" />
-                            </androidx.cardview.widget.CardView>
+                                android:text="MESSENGER"
+                                android:textColor="#FFFFFF"
+                                android:textSize="15sp"
+                                android:textStyle="bold"
+                                android:letterSpacing="0.1" />
 
                         </LinearLayout>
                     </androidx.cardview.widget.CardView>
@@ -1029,7 +910,7 @@
                                     android:id="@+id/tvRemoteDistance"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="8.7 km"
+                                    text="8.7 km"
                                     android:textColor="#FFFFFF"
                                     android:textSize="11sp" />
                             </LinearLayout>

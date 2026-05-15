@@ -91,8 +91,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
     private lateinit var btnSettings: Button
     private lateinit var btnSos: androidx.appcompat.widget.AppCompatButton
 
-    // 🚨 NEW: Toggle Tracking Elements
+    // 🚨 Toggle Tracking Elements
     private lateinit var btnToggleTracking: androidx.appcompat.widget.AppCompatButton
+    private lateinit var tvSyncPausedWarning: TextView
     private var isCloudSyncPaused = false
 
     private lateinit var btnNavMode: View
@@ -152,7 +153,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         auth = FirebaseAuth.getInstance()
         db = FirebaseFirestore.getInstance()
 
-        // 🚨 Read Paused State
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
         isCloudSyncPaused = prefs.getBoolean("cloud_sync_paused", false)
 
@@ -162,6 +162,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSettings = view.findViewById(R.id.btnSettings)
         btnSos = view.findViewById(R.id.btnSos)
         btnToggleTracking = view.findViewById(R.id.btnToggleTracking)
+        tvSyncPausedWarning = view.findViewById(R.id.tvSyncPausedWarning)
         recyclerMapContacts = view.findViewById(R.id.recyclerMapContacts)
 
         btnNavMode = view.findViewById(R.id.btnNavMode)
@@ -179,7 +180,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             override fun onAvailable(network: Network) {
                 activity?.runOnUiThread {
                     if (!isAdded) return@runOnUiThread
-                    if (!isCloudSyncPaused) { // Only show online if we aren't paused
+                    if (!isCloudSyncPaused) {
                         tvNetworkStatus.text = "ONLINE"
                         tvNetworkStatus.setTextColor(Color.parseColor("#10B981"))
                         tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1A10B981")) }
@@ -409,14 +410,15 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         btnSos.background = sosBg
         applyGlassButton(btnSettings, isNightMode)
 
-        // 🚨 PAUSE CLOUD SYNC UI SETUP
         if (isCloudSyncPaused) {
+            tvSyncPausedWarning.visibility = View.VISIBLE
             btnToggleTracking.text = "RESUME CLOUD SYNC"
             btnToggleTracking.setTextColor(Color.parseColor("#F59E0B"))
             tvNetworkStatus.text = "SYNC PAUSED"
             tvNetworkStatus.setTextColor(Color.parseColor("#F59E0B"))
             tvNetworkStatus.background = GradientDrawable().apply { cornerRadius = 50f; setColor(Color.parseColor("#1AF59E0B")) }
         } else {
+            tvSyncPausedWarning.visibility = View.GONE
             btnToggleTracking.text = "PAUSE CLOUD SYNC"
             applyGlassButton(btnToggleTracking, isNightMode)
         }
@@ -427,11 +429,13 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 .edit().putBoolean("cloud_sync_paused", isCloudSyncPaused).apply()
 
             if (isCloudSyncPaused) {
+                tvSyncPausedWarning.visibility = View.VISIBLE
                 btnToggleTracking.text = "RESUME CLOUD SYNC"
                 btnToggleTracking.background = null
                 btnToggleTracking.setTextColor(Color.parseColor("#F59E0B"))
                 pauseFirebaseSync()
             } else {
+                tvSyncPausedWarning.visibility = View.GONE
                 btnToggleTracking.text = "PAUSE CLOUD SYNC"
                 applyGlassButton(btnToggleTracking, isDarkMode())
                 resumeFirebaseSync()
@@ -538,11 +542,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
             dialog.dismiss()
             isSosActive = true
 
-            // 🚨 OVERRIDE: If we are paused, automatically resume sync to ensure SOS locations are sent
             if (isCloudSyncPaused) {
                 isCloudSyncPaused = false
                 requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
                     .edit().putBoolean("cloud_sync_paused", false).apply()
+                tvSyncPausedWarning.visibility = View.GONE
                 btnToggleTracking.text = "PAUSE CLOUD SYNC"
                 applyGlassButton(btnToggleTracking, isDarkMode())
                 resumeFirebaseSync()
@@ -555,7 +559,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         dialog.show()
     }
 
-    // 🚨 PAUSE LOGIC: Stop Readers and Location
     private fun pauseFirebaseSync() {
         activeFirebaseListeners.forEach { it.remove() }
         activeFirebaseListeners.clear()
@@ -566,7 +569,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         showSentryToast("Firebase Sync Paused. Saving battery and data.", isLong = false)
     }
 
-    // 🚨 RESUME LOGIC: Restart Readers and Location
     private fun resumeFirebaseSync() {
         val userId = auth.currentUser?.uid ?: return
         startMyProfileListener(userId)
@@ -586,7 +588,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         showSentryToast("Firebase Sync Resumed.", isLong = false)
     }
 
-    // Extracted Profile Listener so it can be called on Resume
     private fun startMyProfileListener(userId: String) {
         val myRegistration = db.collection("Users").document(userId).addSnapshotListener { doc, e ->
             if (e != null || doc == null || !doc.exists()) return@addSnapshotListener
@@ -677,11 +678,11 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         val tvRemoteDistance = dialogView.findViewById<TextView>(R.id.tvRemoteDistance)
         val ivGalleryImage = dialogView.findViewById<ImageView>(R.id.ivGalleryImage)
 
+        val tvCurrentActiveApp = dialogView.findViewById<TextView>(R.id.tvCurrentActiveApp)
+
         setupToggles(dialogView, targetUid, dialog)
-        setupAiSensitivityDropdown(dialogView)
         setupCameraDropdown(dialogView, targetUid)
         setupLockDropdown(dialogView, targetUid)
-        setupAiButton(dialogView)
 
         val isLocalDevice = (targetUid == auth.currentUser?.uid)
 
@@ -770,6 +771,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 val placeName = snapshot.getString("placeName") ?: "Unknown Location"
                 val photoUri = snapshot.getString("photoUri") ?: ""
 
+                val activeApp = snapshot.getString("current_active_app") ?: "UNKNOWN APP"
+                tvCurrentActiveApp?.text = activeApp.uppercase(Locale.getDefault())
+
                 val latestCapturedPhoto = snapshot.getString("latestSecretSnap") ?: ""
                 loadGalleryImage(latestCapturedPhoto)
 
@@ -821,6 +825,9 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
                 if (snapshot != null && snapshot.exists()) {
                     val latestCapturedPhoto = snapshot.getString("latestSecretSnap") ?: ""
                     loadGalleryImage(latestCapturedPhoto)
+
+                    val activeApp = snapshot.getString("current_active_app") ?: "UNKNOWN APP"
+                    tvCurrentActiveApp?.text = activeApp.uppercase(Locale.getDefault())
                 }
             }
 
@@ -1071,46 +1078,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         dialogView.findViewById<LinearLayout>(R.id.rowLocation)?.setOnClickListener { switchLoc?.toggle() }
         dialogView.findViewById<LinearLayout>(R.id.rowBluetooth)?.setOnClickListener { switchBluetooth?.toggle() }
         dialogView.findViewById<LinearLayout>(R.id.rowBatterySaver)?.setOnClickListener { switchBatterySaver?.toggle() }
-    }
-
-    private fun setupAiSensitivityDropdown(dialogView: View) {
-        val panel = dialogView.findViewById<LinearLayout>(R.id.dropPanelAi)
-        val chevron = dialogView.findViewById<ImageView>(R.id.ivAiChevron)
-        val tvValue = dialogView.findViewById<TextView>(R.id.tvAiSensitivityValue)
-        val trigger = dialogView.findViewById<View>(R.id.btnAiSensitivityDrop)
-
-        val options = listOf(
-            R.id.optAiStrict to Pair(R.id.chkAiStrict, "Strict"),
-            R.id.optAiLenient to Pair(R.id.chkAiLenient, "Lenient")
-        )
-
-        trigger?.setOnClickListener { toggleDropdown(panel, chevron) }
-
-        options.forEach { (optId, pair) ->
-            val (chkId, label) = pair
-            dialogView.findViewById<LinearLayout>(optId)?.setOnClickListener {
-                tvValue?.text = label
-                selectOption(dialogView, options, chkId)
-                collapsePanel(panel, chevron)
-                showSentryToast("Command: Setting Sensitivity to $label", isLong = false)
-            }
-        }
-    }
-
-    private fun setupAiButton(dialogView: View) {
-        val btnUseAi = dialogView.findViewById<Button>(R.id.btnUseAiToggle)
-        btnUseAi?.setOnClickListener {
-            isRemoteAiActive = !isRemoteAiActive
-            if (isRemoteAiActive) {
-                btnUseAi.text = "STOP"
-                btnUseAi.setBackgroundColor(Color.parseColor("#EF4444"))
-                showSentryToast("AI Detection Stopped", isLong = false)
-            } else {
-                btnUseAi.text = "USE AI"
-                btnUseAi.setBackgroundColor(Color.parseColor("#0284C7"))
-                showSentryToast("AI Detection Activated", isLong = false)
-            }
-        }
     }
 
     private fun toggleDropdown(panel: LinearLayout?, chevron: ImageView?) {
@@ -1731,7 +1698,6 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
             val userId = auth.currentUser?.uid ?: return@launch
 
-            // 🚨 ONLY write to Firebase if SOS is active OR we are NOT paused
             if (isSosActive || !isCloudSyncPaused) {
                 val locationData = hashMapOf(
                     "currentLat" to currentLat,

@@ -48,7 +48,7 @@
         android:paddingTop="12dp"
         android:paddingHorizontal="24dp"
         android:elevation="24dp"
-        app:behavior_peekHeight="100dp"
+        app:behavior_peekHeight="115dp"
         app:behavior_hideable="false"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
@@ -57,7 +57,21 @@
             android:layout_width="40dp"
             android:layout_height="4dp"
             android:layout_gravity="center_horizontal"
-            android:layout_marginBottom="16dp" />
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:id="@+id/tvSyncPausedWarning"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="YOUR SYNC IS PAUSED"
+            android:textColor="#EF4444"
+            android:textSize="10sp"
+            android:fontFamily="@font/inter"
+            android:textStyle="bold"
+            android:gravity="center"
+            android:letterSpacing="0.1"
+            android:layout_marginBottom="12dp"
+            android:visibility="gone" />
 
         <LinearLayout
             android:layout_width="match_parent"

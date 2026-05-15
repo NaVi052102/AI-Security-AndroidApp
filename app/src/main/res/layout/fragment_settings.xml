@@ -507,8 +507,33 @@
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
                 android:layout_marginTop="16dp"
+                android:background="#0AFFFFFF"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Device Style:"
+                    android:textColor="@color/ig_text_secondary"
+                    android:textStyle="bold"
+                    android:textSize="13sp" />
+
+                <Spinner
+                    android:id="@+id/spinnerDeviceStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:backgroundTint="#3B82F6" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="12dp"
                 android:background="#1A3B82F6"
                 android:padding="12dp">
 

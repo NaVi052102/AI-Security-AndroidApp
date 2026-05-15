@@ -1,5 +1,7 @@
 package com.example.aisecurity.ui
 
+import android.animation.ObjectAnimator
+import android.animation.PropertyValuesHolder
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -13,6 +15,7 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.view.animation.AccelerateDecelerateInterpolator
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -28,11 +31,16 @@ class FakeShutdownActivity : AppCompatActivity() {
     private val escapeTimestamps = mutableListOf<Long>()
     private var isDeadStateActive = false
     private var isBootlooping = false
-    private var autoCloseJob: Job? = null // 🚨 Timer to close the menu if idling
+    private var autoCloseJob: Job? = null
 
     private val escapeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
+
+            if (action == "com.example.aisecurity.TRIGGER_FAKE_BOOT" && isDeadStateActive) {
+                forceBringToFrontAndBoot(context)
+                return
+            }
 
             if (action == Intent.ACTION_SCREEN_OFF && !isDeadStateActive) {
                 exitFakeShutdown()
@@ -42,7 +50,7 @@ class FakeShutdownActivity : AppCompatActivity() {
             if (!isDeadStateActive) return
 
             if (action == Intent.ACTION_SCREEN_ON) {
-                triggerFakeBootSequence()
+                forceBringToFrontAndBoot(context)
             }
 
             if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_POWER_CONNECTED) {
@@ -64,9 +72,13 @@ class FakeShutdownActivity : AppCompatActivity() {
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
             setShowWhenLocked(true)
+            setTurnScreenOn(true)
         } else {
             @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED)
+            window.addFlags(
+                WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
+                        WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+            )
         }
 
         window.addFlags(WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS)
@@ -79,20 +91,35 @@ class FakeShutdownActivity : AppCompatActivity() {
             window.attributes.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
+        val prefs = getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("is_fake_dead_state", false)) {
+            isDeadStateActive = true
+            setContentView(R.layout.activity_fake_shutdown)
+            hideSystemUI()
+            triggerFakeBootSequence()
+            return
+        }
+
         setContentView(R.layout.activity_fake_shutdown)
         hideSystemUI()
 
-        val btnPowerOff = findViewById<LinearLayout>(R.id.btnPowerOff)
+        val layoutPowerMenu = findViewById<LinearLayout>(R.id.layoutPowerMenu)
         val layoutShuttingDown = findViewById<LinearLayout>(R.id.layoutShuttingDown)
 
-        // 🚨 START THE 8-SECOND AUTO-DESTRUCT TIMER
-        // If they don't click anything, the menu vanishes (Fixes the idle popup bug!)
+        // 🚨 CRASH FIX: Changed to generic View to handle the new FrameLayouts in XML
+        val btnPowerOff = findViewById<View>(R.id.btnPowerOff)
+        val btnRestart = findViewById<View>(R.id.btnRestart)
+
         startAutoCloseTimer()
 
-        btnPowerOff.setOnClickListener {
-            autoCloseJob?.cancel() // Stop the timer since they interacted with it
-            triggerShutdownAnimation(btnPowerOff, layoutShuttingDown)
+        // Both buttons trigger the same fake shutdown trap
+        val clickListener = View.OnClickListener {
+            autoCloseJob?.cancel()
+            triggerShutdownAnimation(layoutPowerMenu, layoutShuttingDown)
         }
+
+        btnPowerOff.setOnClickListener(clickListener)
+        btnRestart.setOnClickListener(clickListener)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() { }
@@ -102,39 +129,83 @@ class FakeShutdownActivity : AppCompatActivity() {
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
+            addAction("com.example.aisecurity.TRIGGER_FAKE_BOOT")
         }
-        registerReceiver(escapeReceiver, filter)
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(escapeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(escapeReceiver, filter)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (isDeadStateActive) {
+            triggerFakeBootSequence()
+        }
+    }
+
+    private fun forceBringToFrontAndBoot(context: Context?) {
+        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
+            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
+        })
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
+            keyguardManager.requestDismissKeyguard(this, null)
+        }
+
+        val bringToFrontIntent = Intent(context, FakeShutdownActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+            putExtra("START_BOOT_SEQUENCE", true)
+        }
+        context?.startActivity(bringToFrontIntent)
     }
 
     private fun startAutoCloseTimer() {
         autoCloseJob?.cancel()
         autoCloseJob = lifecycleScope.launch {
-            delay(8000) // Wait 8 seconds
+            delay(15000)
             if (!isDeadStateActive) {
-                exitFakeShutdown() // Silently kill the UI
+                exitFakeShutdown()
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        if (isDeadStateActive) {
+        if (isDeadStateActive && !isBootlooping) {
             hideSystemUI()
             triggerFakeBootSequence()
         }
     }
 
-    private fun triggerShutdownAnimation(btnPowerOff: LinearLayout, layoutShuttingDown: LinearLayout) {
-        btnPowerOff.visibility = View.GONE
-        findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
-        window.decorView.setBackgroundColor(Color.BLACK)
-        layoutShuttingDown.visibility = View.VISIBLE
+    private fun triggerShutdownAnimation(layoutPowerMenu: LinearLayout, layoutShuttingDown: LinearLayout) {
+        layoutPowerMenu.animate()
+            .alpha(0f)
+            .setDuration(300)
+            .withEndAction {
+                layoutPowerMenu.visibility = View.GONE
 
-        lifecycleScope.launch {
-            delay(2500)
-            layoutShuttingDown.visibility = View.GONE
-            activateDeadStateTraps()
-        }
+                findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
+                window.decorView.setBackgroundColor(Color.BLACK)
+
+                layoutShuttingDown.alpha = 0f
+                layoutShuttingDown.visibility = View.VISIBLE
+                layoutShuttingDown.animate().alpha(1f).setDuration(400).start()
+
+                lifecycleScope.launch {
+                    delay(3000)
+
+                    layoutShuttingDown.animate().alpha(0f).setDuration(300).withEndAction {
+                        layoutShuttingDown.visibility = View.GONE
+                        activateDeadStateTraps()
+                    }.start()
+                }
+            }
+            .start()
     }
 
     private fun activateDeadStateTraps() {
@@ -148,15 +219,22 @@ class FakeShutdownActivity : AppCompatActivity() {
         window.decorView.setOnTouchListener { _, _ -> true }
     }
 
-    // ==========================================
-    // 🎬 HARDWARE-FORCED FAKE BOOT SEQUENCE
-    // ==========================================
     private fun triggerFakeBootSequence() {
         if (isBootlooping) return
         isBootlooping = true
 
-        // 🚨 HARDWARE WAKELOCK (Redmi Fix)
-        // This violently forces the screen to turn on at the hardware level, bypassing MIUI's blocks.
+        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
+            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
+        })
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
+            setTurnScreenOn(true)
+        } else {
+            @Suppress("DEPRECATION")
+            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
+        }
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             @Suppress("DEPRECATION")
@@ -164,22 +242,41 @@ class FakeShutdownActivity : AppCompatActivity() {
                 PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
                 "Sentry::FakeBootWake"
             )
-            wl.acquire(5000) // Hold the screen on for 5 seconds
+            wl.acquire(6000)
         } catch (e: Exception) {
             e.printStackTrace()
         }
 
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val layoutFakeBoot = findViewById<View>(R.id.layoutFakeBoot)
+        val ivBootLogo = findViewById<View>(R.id.ivBootLogo)
 
-        val layoutFakeBoot = findViewById<LinearLayout>(R.id.layoutFakeBoot)
+        layoutFakeBoot.alpha = 0f
         layoutFakeBoot.visibility = View.VISIBLE
+        layoutFakeBoot.animate().alpha(1f).setDuration(500).start()
+
+        val pulseAnimation = ObjectAnimator.ofPropertyValuesHolder(
+            ivBootLogo,
+            PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.15f, 1.0f),
+            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.15f, 1.0f),
+            PropertyValuesHolder.ofFloat(View.ALPHA, 0.7f, 1.0f, 0.7f)
+        ).apply {
+            duration = 2000
+            repeatCount = ObjectAnimator.INFINITE
+            interpolator = AccelerateDecelerateInterpolator()
+        }
+        pulseAnimation.start()
 
         lifecycleScope.launch {
-            delay(4500)
+            delay(5000)
 
-            layoutFakeBoot.visibility = View.GONE
-            isBootlooping = false
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            layoutFakeBoot.animate().alpha(0f).setDuration(400).withEndAction {
+                pulseAnimation.cancel()
+                layoutFakeBoot.visibility = View.GONE
+                isBootlooping = false
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+
+                exitFakeShutdown()
+            }.start()
         }
     }
 

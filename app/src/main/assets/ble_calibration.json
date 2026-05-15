@@ -1,0 +1,40 @@
+{
+  "profiles": [
+    {
+      "name": "Line of Sight",
+      "points": [
+        {"distance": 1.0, "rssi": -61.0},
+        {"distance": 2.0, "rssi": -65.0},
+        {"distance": 3.0, "rssi": -70.0},
+        {"distance": 4.0, "rssi": -72.0}
+      ]
+    },
+    {
+      "name": "Light Interference (Human Body)",
+      "points": [
+        {"distance": 1.0, "rssi": -65.0},
+        {"distance": 2.0, "rssi": -71.0},
+        {"distance": 3.0, "rssi": -75.0},
+        {"distance": 4.0, "rssi": -77.0}
+      ]
+    },
+    {
+      "name": "Medium Interference (Walls/Wood)",
+      "points": [
+        {"distance": 1.0, "rssi": -69.0},
+        {"distance": 2.0, "rssi": -76.0},
+        {"distance": 3.0, "rssi": -80.0},
+        {"distance": 4.0, "rssi": -83.0}
+      ]
+    },
+    {
+      "name": "Heavy Interference (Concrete)",
+      "points": [
+        {"distance": 1.0, "rssi": -75.0},
+        {"distance": 2.0, "rssi": -81.0},
+        {"distance": 3.0, "rssi": -84.0},
+        {"distance": 4.0, "rssi": -88.0}
+      ]
+    }
+  ]
+}
