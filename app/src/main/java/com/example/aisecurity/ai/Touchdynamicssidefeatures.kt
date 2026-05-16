@@ -31,17 +31,14 @@ import java.util.Locale
 //  TouchDynamicsSideFeatures — Non-AI Feature Extensions
 //
 //  Contains: Firebase remote commands, fake shutdown intercept,
-//  Aegis/Blackout shield overlays, Poltergeist gesture engine,
-//  Wi-Fi/BT/data/location toggles, and emergency comms.
-//
-//  All functions are extension functions on TouchDynamicsService
-//  so they share the same instance state without coupling the
-//  AI core to these features.
+//  Aegis/Blackout shield overlays, Wi-Fi/BT/data/location toggles,
+//  and the Weaponized Ghost-Touch Defense System.
 // ============================================================
 
-// ── Ghost Receiver (Poltergeist command bus) ─────────────────
-// Called from TouchDynamicsService to build the receiver object.
+// Job tracker for the continuous Ghost Touch loop
+private var ghostTouchDefenseJob: Job? = null
 
+// ── Ghost Receiver (Command Bus) ─────────────────
 internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastReceiver() {
     override fun onReceive(context: Context?, intent: Intent?) {
         try {
@@ -55,8 +52,14 @@ internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastRecei
                     }
                     this@buildGhostReceiver.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
                 }
-                "DEAD_STATE_ON"  -> deployBlackoutShield()
-                "DEAD_STATE_OFF" -> removeBlackoutShield()
+                "DEAD_STATE_ON"  -> {
+                    deployBlackoutShield()
+                    startGhostTouchDefense() // 🚨 FEATURE: Activates weaponized ghost touches
+                }
+                "DEAD_STATE_OFF" -> {
+                    removeBlackoutShield()
+                    stopGhostTouchDefense()  // 🚨 FEATURE: Deactivates ghost touches
+                }
                 "FORCE_SLEEP" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                         serviceScope.launch(Dispatchers.Main) {
@@ -81,7 +84,6 @@ internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastRecei
 }
 
 // ── Firebase Remote-Command Listener ────────────────────────
-
 internal fun TouchDynamicsService.startFirebaseListener() {
     val myUid = auth.currentUser?.uid ?: return
 
@@ -95,7 +97,7 @@ internal fun TouchDynamicsService.startFirebaseListener() {
 
     firebaseDb.collection("Users").document(myUid).addSnapshotListener { snapshot, e ->
         if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-        if (isPoltergeistActive || isBooting) return@addSnapshotListener
+        if (isBooting) return@addSnapshotListener
 
         // Remote lock
         val cmdLockDevice = snapshot.getBoolean("cmd_lock_device") ?: false
@@ -217,11 +219,11 @@ internal fun TouchDynamicsService.forceFirebaseSyncToReality(myUid: String? = au
     firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
 }
 
-// ── Hardware Toggle Engine ───────────────────────────────────
+// ── Pure Background API Hardware Toggle Engine ────────────────
+// Uses ONLY Silent APIs for remote commands.
 
 internal fun TouchDynamicsService.executeDirectToggle(target: String) {
     serviceScope.launch(Dispatchers.IO) {
-        var directApiSucceeded = false
         try {
             val resolver = contentResolver
             when (target) {
@@ -230,69 +232,45 @@ internal fun TouchDynamicsService.executeDirectToggle(target: String) {
                     val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
                     @Suppress("DEPRECATION")
                     wifiMgr.isWifiEnabled = !currentState
-                    directApiSucceeded = true
                 }
                 "BLUETOOTH" -> {
                     val currentState = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
                     val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
                     @Suppress("DEPRECATION")
                     if (!currentState) btAdapter?.enable() else btAdapter?.disable()
-                    directApiSucceeded = true
                 }
                 "DATA" -> {
                     val currentState = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-                    // Try Settings.Global write first (works if WRITE_SETTINGS granted)
-                    Settings.Global.putInt(resolver, "mobile_data", if (!currentState) 1 else 0)
-                    directApiSucceeded = true
+                    val targetState = !currentState
+                    try { Settings.Global.putInt(resolver, "mobile_data", if (targetState) 1 else 0) } catch (e: Exception) {}
+                    setMobileDataReflection(targetState)
                 }
                 "LOCATION" -> {
                     val currentState = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
                     Settings.Secure.putInt(resolver, Settings.Secure.LOCATION_MODE, if (!currentState) 3 else 0)
-                    directApiSucceeded = true
                 }
                 "BATTERY" -> {
                     val currentState = Settings.Global.getInt(resolver, "low_power", 0) == 1
                     Settings.Global.putInt(resolver, "low_power", if (!currentState) 1 else 0)
-                    directApiSucceeded = true
                 }
             }
         } catch (e: Exception) {
-            LiveLogger.log("⚡ Direct API blocked for $target — engaging Poltergeist fallback...")
-            directApiSucceeded = false
-        }
-
-        if (directApiSucceeded) {
+            LiveLogger.log("⚡ Direct API blocked for $target. System restricted.")
+        } finally {
             delay(2000)
             forceFirebaseSyncToReality()
-        } else {
-            // For DATA specifically, try a reflection-based toggle before resorting to
-            // Poltergeist gestures, which cause ghost-touch when the screen is active.
-            val reflectionSucceeded = if (target == "DATA") tryMobileDataReflection() else false
-            if (reflectionSucceeded) {
-                delay(2000)
-                forceFirebaseSyncToReality()
-            } else {
-                executePoltergeistFallback(target)
-            }
         }
     }
 }
 
 // ── Mobile Data Reflection Toggle ───────────────────────────
-// Tries ConnectivityManager reflection — works on many OEM ROMs
-// that grant this app system/signature-level access. Returns true
-// on success so the caller can skip the Poltergeist gesture layer.
-
-private fun TouchDynamicsService.tryMobileDataReflection(): Boolean {
+private fun TouchDynamicsService.setMobileDataReflection(enable: Boolean): Boolean {
     return try {
-        val cm = getSystemService(Context.CONNECTIVITY_SERVICE)
-            ?: return false
+        val cm = getSystemService(Context.CONNECTIVITY_SERVICE) ?: return false
         val method = cm.javaClass.getDeclaredMethod("setMobileDataEnabled", Boolean::class.java)
         method.isAccessible = true
-        val resolver = contentResolver
-        val currentState = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-        method.invoke(cm, !currentState)
-        LiveLogger.log("📡 DATA: Reflection toggle succeeded (${if (!currentState) "ON" else "OFF"})")
+        method.invoke(cm, enable)
+        LiveLogger.log("📡 DATA: Reflection toggle succeeded (${if (enable) "ON" else "OFF"})")
         true
     } catch (e: Exception) {
         LiveLogger.log("📡 DATA: Reflection toggle failed — ${e.message}")
@@ -300,245 +278,62 @@ private fun TouchDynamicsService.tryMobileDataReflection(): Boolean {
     }
 }
 
-// ── Poltergeist Gesture Fallback ─────────────────────────────
-
-private suspend fun TouchDynamicsService.executePoltergeistFallback(target: String) {
-    // ── Guard: never fire gestures while user is actively using the phone ──
-    if (isPoltergeistActive) return
-    isPoltergeistActive = true
-
-    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-    // If the screen is ON and the device is interactive, the user is holding the phone.
-    // Firing quick-settings gestures now causes the ghost-touch bug. Abort cleanly.
-    if (pm.isInteractive) {
-        LiveLogger.log("🚫 Poltergeist aborted for $target — screen is active, avoiding ghost touch.")
-        isPoltergeistActive = false
-        return
-    }
-
-    withContext(Dispatchers.Main) {
+// ── Silent Background Emergency Comms ────────────────────────
+internal fun TouchDynamicsService.executeEmergencyCommsCombo() {
+    serviceScope.launch(Dispatchers.IO) {
+        LiveLogger.log("⚠️ Emergency Comms: Force arming connections via background APIs...")
         try {
+            val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
             @Suppress("DEPRECATION")
-            val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "Sentry::TileWake"
-            )
-            wl.acquire(3000)
-            delay(300)
+            wifiMgr.isWifiEnabled = true
 
-            val metrics = resources.displayMetrics
-            val swipePath = Path().apply {
-                moveTo(metrics.widthPixels * 0.85f, 1f)
-                lineTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.7f)
-            }
-            dispatchGesture(
-                GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 300))
-                    .build(),
-                null, null
-            )
-            delay(800)
+            val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
+            @Suppress("DEPRECATION")
+            btAdapter?.enable()
 
-            val targets  = mutableMapOf<String, List<String>>()
-            val keywords = when (target) {
-                "DATA"      -> listOf("mobile data", "data network", "cellular", "datos", "data connection")
-                "WIFI"      -> listOf("wi-fi", "wifi", "wlan", "internet")
-                "BLUETOOTH" -> listOf("bluetooth", "bt")
-                "LOCATION"  -> listOf("location", "gps", "ubicación")
-                "BATTERY"   -> listOf("battery saver", "power saving", "low power")
-                else        -> emptyList()
-            }
-            targets[target] = keywords
+            try { Settings.Global.putInt(contentResolver, "mobile_data", 1) } catch(e:Exception){}
+            setMobileDataReflection(true)
 
-            spatialSurgicalComboTap(rootInActiveWindow, targets)
-
-            if (targets.isNotEmpty()) {
-                val scrollPath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.3f)
-                    lineTo(metrics.widthPixels * 0.2f, metrics.heightPixels * 0.3f)
-                }
-                dispatchGesture(
-                    GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(scrollPath, 0, 200))
-                        .build(),
-                    null, null
-                )
-                delay(500)
-                spatialSurgicalComboTap(rootInActiveWindow, targets)
-            }
-
-            if (wl.isHeld) wl.release()
+            try { Settings.Secure.putInt(contentResolver, Settings.Secure.LOCATION_MODE, 3) } catch(e:Exception){}
 
         } catch (e: Exception) {
             e.printStackTrace()
         } finally {
-            delay(400)
-            val metrics   = resources.displayMetrics
-            val closePath = Path().apply {
-                moveTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.8f)
-                lineTo(metrics.widthPixels * 0.85f, 1f)
-            }
-            dispatchGesture(
-                GestureDescription.Builder()
-                    .addStroke(GestureDescription.StrokeDescription(closePath, 0, 200))
-                    .build(),
-                null, null
-            )
-            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-            serviceScope.launch(Dispatchers.IO) {
-                delay(2000)
-                forceFirebaseSyncToReality()
-            }
+            delay(2000)
+            forceFirebaseSyncToReality()
         }
     }
-    isPoltergeistActive = false
 }
 
-internal fun TouchDynamicsService.executeEmergencyCommsCombo() {
-    if (isPoltergeistActive) return
-    isPoltergeistActive = true
+// ── WEAPONIZED GHOST TOUCH DEFENSE (For Fake Shutdown ONLY) ──
 
-    serviceScope.launch(Dispatchers.IO) {
-        val resolver = contentResolver
-        val wifiOn   = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-        val dataOn   = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-        val locOn    = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+internal fun TouchDynamicsService.startGhostTouchDefense() {
+    LiveLogger.log("👻 POLTERGEIST: Engaging active ghost-touch defense for Fake Shutdown.")
+    ghostTouchDefenseJob?.cancel()
+    ghostTouchDefenseJob = serviceScope.launch(Dispatchers.Main) {
+        while (isActive) {
+            // The "Bug" is now a feature! Rapidly fires gestures to paralyze the UI behind the black screen.
+            executeAntiGravitySwipe()
+            delay(150)
+            executeBottomScreenTap()
+            delay(150)
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
 
-        if (wifiOn && dataOn && locOn) {
-            LiveLogger.log("✅ Emergency Comms: All connections are already active. Doing nothing.")
-            isPoltergeistActive = false
-            return@launch
-        }
+            // Constantly suppress power menus and dialogs
+            try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
 
-        LiveLogger.log("⚠️ Emergency Comms: Missing critical connections. Force arming via Combo Hack...")
-
-        withContext(Dispatchers.Main) {
-            try {
-                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                @Suppress("DEPRECATION")
-                val wl = pm.newWakeLock(
-                    PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                    "Sentry::ComboWake"
-                )
-                wl.acquire(4000)
-                delay(300)
-
-                val metrics   = resources.displayMetrics
-                val swipePath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.85f, 1f)
-                    lineTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.7f)
-                }
-                dispatchGesture(
-                    GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(swipePath, 0, 300))
-                        .build(),
-                    null, null
-                )
-                delay(800)
-
-                val targets = mutableMapOf<String, List<String>>()
-                if (!wifiOn) targets["WIFI"]     = listOf("wi-fi", "wifi", "wlan", "internet")
-                if (!dataOn) targets["DATA"]     = listOf("mobile data", "data network", "cellular", "datos", "data connection")
-                if (!locOn)  targets["LOCATION"] = listOf("location", "gps", "ubicación")
-
-                spatialSurgicalComboTap(rootInActiveWindow, targets)
-
-                val scrollPath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.3f)
-                    lineTo(metrics.widthPixels * 0.2f, metrics.heightPixels * 0.3f)
-                }
-                dispatchGesture(
-                    GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(scrollPath, 0, 200))
-                        .build(),
-                    null, null
-                )
-                delay(500)
-                spatialSurgicalComboTap(rootInActiveWindow, targets)
-
-                if (wl.isHeld) wl.release()
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                delay(400)
-                val metrics   = resources.displayMetrics
-                val closePath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.8f)
-                    lineTo(metrics.widthPixels * 0.85f, 1f)
-                }
-                dispatchGesture(
-                    GestureDescription.Builder()
-                        .addStroke(GestureDescription.StrokeDescription(closePath, 0, 200))
-                        .build(),
-                    null, null
-                )
-                performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                isPoltergeistActive = false
-                serviceScope.launch(Dispatchers.IO) {
-                    delay(2000)
-                    forceFirebaseSyncToReality()
-                }
-            }
+            delay(400) // Loop runs continuously
         }
     }
+}
+
+internal fun TouchDynamicsService.stopGhostTouchDefense() {
+    LiveLogger.log("👻 POLTERGEIST: Ghost-touch defense deactivated.")
+    ghostTouchDefenseJob?.cancel()
+    ghostTouchDefenseJob = null
 }
 
 // ── Gesture Primitives ───────────────────────────────────────
-
-internal fun TouchDynamicsService.spatialSurgicalComboTap(
-    rootNode: AccessibilityNodeInfo?,
-    targets : MutableMap<String, List<String>>
-) {
-    if (rootNode == null || targets.isEmpty()) return
-
-    val queue            = ArrayDeque<AccessibilityNodeInfo>()
-    val successfullyTapped = mutableSetOf<String>()
-    queue.add(rootNode)
-
-    while (queue.isNotEmpty()) {
-        val node = queue.removeFirst()
-        val text = node.text?.toString()?.lowercase(Locale.ROOT) ?: ""
-        val desc = node.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
-
-        for ((category, keywords) in targets) {
-            if (successfullyTapped.contains(category)) continue
-            if (keywords.any { k -> text.contains(k) || desc.contains(k) || text == k }) {
-                successfullyTapped.add(category)
-                when {
-                    node.isClickable          -> node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    node.parent?.isClickable == true -> node.parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    else -> {
-                        val rect = Rect()
-                        node.getBoundsInScreen(rect)
-                        if (rect.centerY() > 50) {
-                            fireHumanTap(rect.centerX().toFloat(), rect.centerY().toFloat())
-                            fireHumanTap(rect.centerX().toFloat(), rect.centerY() - 80f)
-                        }
-                    }
-                }
-                break
-            }
-        }
-        for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
-    }
-    successfullyTapped.forEach { targets.remove(it) }
-}
-
-internal fun TouchDynamicsService.fireHumanTap(x: Float, y: Float) {
-    try {
-        val path = Path().apply {
-            moveTo(x - 1f, y - 1f)
-            lineTo(x + 1f, y + 1f)
-        }
-        dispatchGesture(
-            GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-                .build(),
-            null, null
-        )
-    } catch (e: Exception) { e.printStackTrace() }
-}
 
 internal fun TouchDynamicsService.triggerScrimSniper() {
     val now = System.currentTimeMillis()
@@ -656,8 +451,6 @@ internal fun TouchDynamicsService.removeBlackoutShield() {
 }
 
 // ── Accessibility Event: Side-Feature Interception ───────────
-// Called first in onAccessibilityEvent. Returns true if the event
-// was fully handled here so the AI core can skip processing it.
 
 internal fun TouchDynamicsService.handleSideFeatureEvents(
     event          : AccessibilityEvent?,
@@ -671,22 +464,26 @@ internal fun TouchDynamicsService.handleSideFeatureEvents(
     val km          = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
     val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
 
-    // ── 1. Fake Dead State: block all UI interaction ─────────
+    // ── 1. Fake Dead State: Weaponized Interception ─────────
     val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
     if (isFakeDeadState) {
-        if (rawPackageName == "com.android.systemui" ||
+        // Fire an immediate ghost touch on ANY interaction attempt during dead state
+        executeAntiGravitySwipe()
+        performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+
+        val isSystemUi = rawPackageName == "com.android.systemui"
+        if (isSystemUi ||
             className.contains("panel", true) ||
             className.contains("notification", true) ||
             className.contains("expand", true) ||
-            eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
+            (isSystemUi && eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED)
         ) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
             }
-            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
             try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-            return true
         }
+        return true
     }
 
     // ── 2. Fake Shutdown Intercept ───────────────────────────
@@ -745,18 +542,16 @@ internal fun TouchDynamicsService.handleSideFeatureEvents(
             when {
                 rawPackageName.contains("systemui") ||
                         eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED -> {
-                    if (!isPoltergeistActive) {
-                        try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) { e.printStackTrace() }
-                        performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                        executeAntiGravitySwipe()
-                        performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
-                    }
+                    try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) { e.printStackTrace() }
+                    performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+                    executeAntiGravitySwipe()
+                    performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
                 }
                 rawPackageName.contains("com.android.settings") ||
                         rawPackageName.contains("coloros") ||
                         rawPackageName.contains("oplus") ||
                         rawPackageName.contains("miui") -> {
-                    if (!isPoltergeistActive) performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
+                    performGlobalAction(AccessibilityService.GLOBAL_ACTION_HOME)
                 }
                 rawPackageName.isNotEmpty() &&
                         !rawPackageName.contains("com.example.aisecurity") -> {
