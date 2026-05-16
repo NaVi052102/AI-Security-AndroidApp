@@ -543,7 +543,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="24dp"
-                    android:text="1. Press the Power Button 3 times rapidly\n2. OR tap the black screen 5 times quickly"
+                    android:text="1. Press the Power Button 3 times rapidly"
                     android:textColor="#3B82F6"
                     android:textSize="11sp" />
             </LinearLayout>

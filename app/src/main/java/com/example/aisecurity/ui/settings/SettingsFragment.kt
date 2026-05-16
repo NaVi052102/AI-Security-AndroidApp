@@ -8,13 +8,13 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.provider.Settings
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
@@ -40,6 +40,9 @@ class SettingsFragment : Fragment() {
         val view = inflater.inflate(R.layout.fragment_settings, container, false)
         val prefs = requireContext().getSharedPreferences("ai_prefs", Context.MODE_PRIVATE)
 
+        // 🚨 CRITICAL BUG FIX: Clear stuck dead states!
+        prefs.edit().putBoolean("is_fake_dead_state", false).apply()
+
         val seekPenalty = view.findViewById<SeekBar>(R.id.seekAiSensitivity)
         val tvPenaltyDesc = view.findViewById<TextView>(R.id.tvAiDesc)
 
@@ -61,22 +64,15 @@ class SettingsFragment : Fragment() {
 
         val switchDefense = view.findViewById<SwitchCompat>(R.id.switchDefense)
         val rgDefenseType = view.findViewById<RadioGroup>(R.id.rgDefenseType)
-        val rbOrdinaryLock = view.findViewById<RadioButton>(R.id.rbOrdinaryLock)
 
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
         val switchAutoCaseLock = view.findViewById<SwitchCompat>(R.id.switchAutoCaseLock)
 
         val switchFakeShutdown = view.findViewById<SwitchCompat>(R.id.switchFakeShutdown)
         val tvFakeShutdownStatus = view.findViewById<TextView>(R.id.tvFakeShutdownStatus)
-
-        // Spinner Bindings
         val spinnerDeviceStyle = view.findViewById<Spinner>(R.id.spinnerDeviceStyle)
 
-        val btnDemoOrdinary = view.findViewById<Button>(R.id.btnDemoOrdinary)
-
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
-
-        applyDangerButton(btnDemoOrdinary, isNightMode)
 
         // 1. ANOMALY PENALTY LOGIC
         val currentPenalty = prefs.getInt("ai_anomaly_penalty", 1)
@@ -93,37 +89,38 @@ class SettingsFragment : Fragment() {
         })
 
         // 2. PROXIMITY RADAR LOGIC
-        switchProximityArmed.isChecked = prefs.getBoolean("is_proximity_armed", true)
+        switchProximityArmed?.isChecked = prefs.getBoolean("is_proximity_armed", true)
 
         val warnDist = prefs.getFloat("radar_warning_meters", 2.0f)
         when (warnDist) {
-            1.0f -> rbWarn1.isChecked = true
-            3.0f -> rbWarn3.isChecked = true
-            else -> rbWarn2.isChecked = true
+            1.0f -> rbWarn1?.isChecked = true
+            3.0f -> rbWarn3?.isChecked = true
+            else -> rbWarn2?.isChecked = true
         }
 
         val lockDist = prefs.getFloat("radar_threshold_meters", 5.0f)
         when (lockDist) {
-            3.0f -> rbLock3.isChecked = true
-            4.0f -> rbLock4.isChecked = true
-            else -> rbLock5.isChecked = true
+            3.0f -> rbLock3?.isChecked = true
+            4.0f -> rbLock4?.isChecked = true
+            else -> rbLock5?.isChecked = true
         }
 
-        rgWarningDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
-        rgLockDist.alpha = if(switchProximityArmed.isChecked) 1f else 0.5f
-        for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = switchProximityArmed.isChecked
-        for (i in 0 until rgLockDist.childCount) rgLockDist.getChildAt(i).isEnabled = switchProximityArmed.isChecked
+        val isArmed = switchProximityArmed?.isChecked == true
+        rgWarningDist?.alpha = if(isArmed) 1f else 0.5f
+        rgLockDist?.alpha = if(isArmed) 1f else 0.5f
+        rgWarningDist?.let { for (i in 0 until it.childCount) it.getChildAt(i).isEnabled = isArmed }
+        rgLockDist?.let { for (i in 0 until it.childCount) it.getChildAt(i).isEnabled = isArmed }
 
-        switchProximityArmed.setOnCheckedChangeListener { _, isChecked ->
+        switchProximityArmed?.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit { putBoolean("is_proximity_armed", isChecked) }
-            rgWarningDist.alpha = if(isChecked) 1f else 0.5f
-            rgLockDist.alpha = if(isChecked) 1f else 0.5f
-            for (i in 0 until rgWarningDist.childCount) rgWarningDist.getChildAt(i).isEnabled = isChecked
-            for (i in 0 until rgLockDist.childCount) rgLockDist.getChildAt(i).isEnabled = isChecked
+            rgWarningDist?.alpha = if(isChecked) 1f else 0.5f
+            rgLockDist?.alpha = if(isChecked) 1f else 0.5f
+            rgWarningDist?.let { for (i in 0 until it.childCount) it.getChildAt(i).isEnabled = isChecked }
+            rgLockDist?.let { for (i in 0 until it.childCount) it.getChildAt(i).isEnabled = isChecked }
         }
 
-        rgWarningDist.setOnCheckedChangeListener { _, checkedId ->
-            if (!switchProximityArmed.isChecked) return@setOnCheckedChangeListener
+        rgWarningDist?.setOnCheckedChangeListener { _, checkedId ->
+            if (switchProximityArmed?.isChecked != true) return@setOnCheckedChangeListener
             val dist = when (checkedId) {
                 R.id.rbWarn1 -> 1.0f
                 R.id.rbWarn3 -> 3.0f
@@ -132,8 +129,8 @@ class SettingsFragment : Fragment() {
             prefs.edit { putFloat("radar_warning_meters", dist) }
         }
 
-        rgLockDist.setOnCheckedChangeListener { _, checkedId ->
-            if (!switchProximityArmed.isChecked) return@setOnCheckedChangeListener
+        rgLockDist?.setOnCheckedChangeListener { _, checkedId ->
+            if (switchProximityArmed?.isChecked != true) return@setOnCheckedChangeListener
             val dist = when (checkedId) {
                 R.id.rbLock3 -> 3.0f
                 R.id.rbLock4 -> 4.0f
@@ -143,20 +140,13 @@ class SettingsFragment : Fragment() {
         }
 
         // 3. PROTOCOL LOGIC
-        switchSiren.isChecked = prefs.getBoolean("protocol_siren", true)
-        switchGps.isChecked = prefs.getBoolean("protocol_gps", true)
+        switchSiren?.isChecked = prefs.getBoolean("protocol_siren", true)
+        switchGps?.isChecked = prefs.getBoolean("protocol_gps", true)
 
-        switchDefense.isChecked = prefs.getBoolean("protocol_defense_active", true)
-        rgDefenseType.visibility = if (switchDefense.isChecked) View.VISIBLE else View.GONE
+        switchSiren?.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_siren", isChecked) } }
+        switchGps?.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_gps", isChecked) } }
 
-        // Since it's the only option left, enforce it:
-        prefs.edit { putString("protocol_defense_type", "ORDINARY") }
-        rbOrdinaryLock.isChecked = true
-
-        switchSiren.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_siren", isChecked) } }
-        switchGps.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_gps", isChecked) } }
-
-        tvManageContactsLink.setOnClickListener {
+        tvManageContactsLink?.setOnClickListener {
             requireActivity().supportFragmentManager.beginTransaction()
                 .hide(this@SettingsFragment)
                 .add(R.id.fragment_container, TrustedContactsFragment())
@@ -164,53 +154,97 @@ class SettingsFragment : Fragment() {
                 .commit()
         }
 
-        switchDefense.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit { putBoolean("protocol_defense_active", isChecked) }
-            rgDefenseType.visibility = if (isChecked) View.VISIBLE else View.GONE
-        }
+        switchStealth?.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_stealth", isChecked) } }
+        switchAutoCaseLock?.isChecked = prefs.getBoolean("auto_case_lock", false)
+        switchAutoCaseLock?.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("auto_case_lock", isChecked) } }
 
-        rgDefenseType.setOnCheckedChangeListener { _, _ ->
-            if (!isDeviceAdminActive()) requestDeviceAdmin()
-            prefs.edit { putString("protocol_defense_type", "ORDINARY") }
-        }
-
-        switchStealth.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit { putBoolean("protocol_stealth", isChecked) }
-        }
-
-        switchAutoCaseLock.isChecked = prefs.getBoolean("auto_case_lock", false)
-        switchAutoCaseLock.setOnCheckedChangeListener { _, isChecked ->
-            prefs.edit { putBoolean("auto_case_lock", isChecked) }
-        }
-
-        switchFakeShutdown.isChecked = prefs.getBoolean("enable_fake_shutdown", false)
-        switchFakeShutdown.setOnCheckedChangeListener { _, isChecked ->
+        switchFakeShutdown?.isChecked = prefs.getBoolean("enable_fake_shutdown", false)
+        switchFakeShutdown?.setOnCheckedChangeListener { _, isChecked ->
             prefs.edit { putBoolean("enable_fake_shutdown", isChecked) }
             tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
         }
 
-        val styles = arrayOf("Xiaomi / Generic", "Vivo V40 Lite")
-        val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, styles)
-        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        spinnerDeviceStyle.adapter = adapter
+        // SPINNER LOGIC
+        spinnerDeviceStyle?.let { spinner ->
+            val styles = arrayOf("Xiaomi / Generic", "Vivo V40 Lite")
+            val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, styles)
+            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+            spinner.adapter = adapter
 
-        val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi / Generic")
-        val position = styles.indexOf(savedStyle).takeIf { it >= 0 } ?: 0
-        spinnerDeviceStyle.setSelection(position)
+            val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi / Generic")
+            val position = styles.indexOf(savedStyle).takeIf { it >= 0 } ?: 0
+            spinner.setSelection(position)
 
-        spinnerDeviceStyle.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
-                prefs.edit { putString("fake_shutdown_style", styles[pos]) }
-                if (view is TextView) {
-                    view.setTextColor(Color.WHITE)
-                    view.textSize = 13f
+            spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(parent: AdapterView<*>?, view: View?, pos: Int, id: Long) {
+                    prefs.edit { putString("fake_shutdown_style", styles[pos]) }
+                    if (view is TextView) {
+                        view.setTextColor(Color.WHITE)
+                        view.textSize = 13f
+                    }
                 }
+                override fun onNothingSelected(parent: AdapterView<*>?) {}
             }
-            override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // TEST TRIGGER
-        btnDemoOrdinary.setOnClickListener { showTestWarningDialog("ORDINARY", isNightMode) }
+        // =========================================================================
+        // 🚨 COMPILER FIX: Dynamic Identifiers to bypass "Unresolved Reference"
+        // =========================================================================
+        val pkg = requireContext().packageName
+        val idOverlay = resources.getIdentifier("rbOverlay", "id", pkg)
+        val idScreenOff = resources.getIdentifier("rbScreenOff", "id", pkg)
+        val idOrdinary = resources.getIdentifier("rbOrdinaryLock", "id", pkg)
+
+        val savedDefenseType = prefs.getString("protocol_defense_type", "OVERLAY")
+
+        switchDefense?.isChecked = prefs.getBoolean("protocol_defense_active", true)
+        rgDefenseType?.visibility = if (switchDefense?.isChecked == true) View.VISIBLE else View.GONE
+
+        // Set active radio button dynamically
+        if (idScreenOff != 0 && savedDefenseType == "SCREEN_OFF") rgDefenseType?.check(idScreenOff)
+        else if (idOrdinary != 0 && savedDefenseType == "ORDINARY") rgDefenseType?.check(idOrdinary)
+        else if (idOverlay != 0) rgDefenseType?.check(idOverlay)
+
+        switchDefense?.setOnCheckedChangeListener { _, isChecked ->
+            prefs.edit { putBoolean("protocol_defense_active", isChecked) }
+            rgDefenseType?.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        rgDefenseType?.setOnCheckedChangeListener { _, checkedId ->
+            val type = when (checkedId) {
+                idScreenOff -> "SCREEN_OFF"
+                idOrdinary -> {
+                    if (!isDeviceAdminActive()) requestDeviceAdmin()
+                    "ORDINARY"
+                }
+                else -> "OVERLAY"
+            }
+            prefs.edit { putString("protocol_defense_type", type) }
+        }
+
+        // Bind Demo Buttons Dynamically
+        val idBtnOverlay = resources.getIdentifier("btnDemoOverlay", "id", pkg)
+        val idBtnEnforcer = resources.getIdentifier("btnDemoEnforcer", "id", pkg)
+        val idBtnOrdinary = resources.getIdentifier("btnDemoOrdinary", "id", pkg)
+
+        if (idBtnOverlay != 0) {
+            view.findViewById<Button>(idBtnOverlay)?.apply {
+                applyDangerButton(this, isNightMode)
+                setOnClickListener { showTestWarningDialog("OVERLAY", isNightMode) }
+            }
+        }
+        if (idBtnEnforcer != 0) {
+            view.findViewById<Button>(idBtnEnforcer)?.apply {
+                applyDangerButton(this, isNightMode)
+                setOnClickListener { showTestWarningDialog("SCREEN_OFF", isNightMode) }
+            }
+        }
+        if (idBtnOrdinary != 0) {
+            view.findViewById<Button>(idBtnOrdinary)?.apply {
+                applyDangerButton(this, isNightMode)
+                setOnClickListener { showTestWarningDialog("ORDINARY", isNightMode) }
+            }
+        }
 
         return view
     }
@@ -258,11 +292,11 @@ class SettingsFragment : Fragment() {
     }
 
     @SuppressLint("SetTextI18n")
-    private fun updatePenaltyDesc(progress: Int, tv: TextView) {
+    private fun updatePenaltyDesc(progress: Int, tv: TextView?) {
         when (progress) {
-            0 -> tv.text = "Normal Penalty: Detects anomalies with a 5% risk increase per event."
-            1 -> tv.text = "Moderate Penalty: Detects anomalies with a 10% risk increase per event."
-            2 -> tv.text = "Strict Penalty: Detects anomalies with a 15% risk increase per event."
+            0 -> tv?.text = "Normal Penalty: Detects anomalies with a 5% risk increase per event."
+            1 -> tv?.text = "Moderate Penalty: Detects anomalies with a 10% risk increase per event."
+            2 -> tv?.text = "Strict Penalty: Detects anomalies with a 15% risk increase per event."
         }
     }
 

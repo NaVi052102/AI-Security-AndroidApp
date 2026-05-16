@@ -30,84 +30,62 @@
             app:cardCornerRadius="36dp"
             app:cardElevation="0dp">
 
-            <LinearLayout
+            <FrameLayout
                 android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:orientation="vertical"
-                android:gravity="center_horizontal"
-                android:weightSum="3">
+                android:layout_height="match_parent">
 
-                <FrameLayout
-                    android:id="@+id/btnPowerOff"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="top|center_horizontal"
+                    android:layout_marginTop="32dp"
+                    android:src="@android:drawable/ic_lock_power_off"
+                    app:tint="#FFFFFF" />
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:layout_gravity="bottom|center_horizontal"
+                    android:layout_marginBottom="32dp"
+                    android:src="@android:drawable/ic_popup_sync"
+                    app:tint="#FFFFFF" />
+
+                <androidx.cardview.widget.CardView
+                    android:id="@+id/btnDraggablePower"
+                    android:layout_width="56dp"
+                    android:layout_height="56dp"
+                    android:layout_gravity="center"
+                    app:cardBackgroundColor="#FFFFFF"
+                    app:cardCornerRadius="28dp"
+                    app:cardElevation="4dp"
                     android:clickable="true"
                     android:focusable="true">
 
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@android:drawable/ic_lock_power_off"
-                        app:tint="#FFFFFF" />
-                </FrameLayout>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:orientation="vertical"
+                        android:gravity="center">
 
-                <FrameLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1">
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="˄"
+                            android:textColor="#3B82F6"
+                            android:textSize="18sp"
+                            android:layout_marginBottom="-8dp"
+                            android:textStyle="bold"/>
 
-                    <androidx.cardview.widget.CardView
-                        android:layout_width="56dp"
-                        android:layout_height="56dp"
-                        android:layout_gravity="center"
-                        app:cardBackgroundColor="#FFFFFF"
-                        app:cardCornerRadius="28dp"
-                        app:cardElevation="4dp">
-
-                        <LinearLayout
-                            android:layout_width="match_parent"
-                            android:layout_height="match_parent"
-                            android:orientation="vertical"
-                            android:gravity="center">
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="˄"
-                                android:textColor="#3B82F6"
-                                android:textSize="18sp"
-                                android:layout_marginBottom="-8dp"
-                                android:textStyle="bold"/>
-
-                            <TextView
-                                android:layout_width="wrap_content"
-                                android:layout_height="wrap_content"
-                                android:text="˅"
-                                android:textColor="#3B82F6"
-                                android:textSize="18sp"
-                                android:textStyle="bold"/>
-                        </LinearLayout>
-                    </androidx.cardview.widget.CardView>
-                </FrameLayout>
-
-                <FrameLayout
-                    android:id="@+id/btnRestart"
-                    android:layout_width="match_parent"
-                    android:layout_height="0dp"
-                    android:layout_weight="1"
-                    android:clickable="true"
-                    android:focusable="true">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="center"
-                        android:src="@android:drawable/ic_popup_sync"
-                        app:tint="#FFFFFF" />
-                </FrameLayout>
-            </LinearLayout>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="˅"
+                            android:textColor="#3B82F6"
+                            android:textSize="18sp"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+                </androidx.cardview.widget.CardView>
+            </FrameLayout>
         </androidx.cardview.widget.CardView>
 
         <TextView
@@ -165,7 +143,7 @@
                             android:layout_height="wrap_content"
                             android:layout_gravity="center"
                             android:text="*"
-                            android:textColor="#000000"
+                            android:textColor="#FFFFFF"
                             android:textSize="56sp"
                             android:includeFontPadding="false"
                             android:layout_marginTop="12dp"/>
@@ -175,7 +153,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:text="Emergency"
-                        android:textColor="#FFFFFF"
+                        android:textColor="#F0F0F0"
                         android:textSize="14sp"
                         android:layout_marginTop="16dp"
                         android:fontFamily="sans-serif"/>
@@ -352,41 +330,6 @@
         android:clickable="true"
         android:focusable="true">
 
-        <ImageView
-            android:id="@+id/ivBootLogo"
-            android:layout_width="72dp"
-            android:layout_height="72dp"
-            android:layout_gravity="center"
-            android:src="@drawable/ic_android_logo"
-            app:tint="#FFFFFF" />
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom|center_horizontal"
-            android:orientation="vertical"
-            android:gravity="center"
-            android:layout_marginBottom="40dp">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Powered by"
-                android:textColor="#888888"
-                android:textSize="13sp"
-                android:fontFamily="sans-serif"
-                android:layout_marginBottom="2dp"/>
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="android"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:fontFamily="sans-serif-medium"
-                android:letterSpacing="0.15"/>
-        </LinearLayout>
     </FrameLayout>
 
 </FrameLayout>

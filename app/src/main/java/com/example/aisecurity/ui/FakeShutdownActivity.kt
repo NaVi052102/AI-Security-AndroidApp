@@ -2,6 +2,7 @@ package com.example.aisecurity.ui
 
 import android.animation.ObjectAnimator
 import android.animation.PropertyValuesHolder
+import android.annotation.SuppressLint
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -11,11 +12,13 @@ import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
+import android.view.MotionEvent
 import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.view.animation.AccelerateDecelerateInterpolator
+import android.view.animation.OvershootInterpolator
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -30,17 +33,11 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     private val escapeTimestamps = mutableListOf<Long>()
     private var isDeadStateActive = false
-    private var isBootlooping = false
     private var autoCloseJob: Job? = null
 
     private val escapeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             val action = intent?.action
-
-            if (action == "com.example.aisecurity.TRIGGER_FAKE_BOOT" && isDeadStateActive) {
-                forceBringToFrontAndBoot(context)
-                return
-            }
 
             if (action == Intent.ACTION_SCREEN_OFF && !isDeadStateActive) {
                 exitFakeShutdown()
@@ -49,10 +46,7 @@ class FakeShutdownActivity : AppCompatActivity() {
 
             if (!isDeadStateActive) return
 
-            if (action == Intent.ACTION_SCREEN_ON) {
-                forceBringToFrontAndBoot(context)
-            }
-
+            // Hidden escape sequence: 3 power actions (screen on/off/power connected) within 10 seconds
             if (action == Intent.ACTION_SCREEN_ON || action == Intent.ACTION_SCREEN_OFF || action == Intent.ACTION_POWER_CONNECTED) {
                 val now = System.currentTimeMillis()
                 escapeTimestamps.add(now)
@@ -67,6 +61,7 @@ class FakeShutdownActivity : AppCompatActivity() {
         }
     }
 
+    @SuppressLint("ClickableViewAccessibility")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -96,7 +91,10 @@ class FakeShutdownActivity : AppCompatActivity() {
             isDeadStateActive = true
             setContentView(R.layout.activity_fake_shutdown)
             hideSystemUI()
-            triggerFakeBootSequence()
+
+            // Keep the screen completely black
+            findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
+            window.decorView.setBackgroundColor(Color.BLACK)
             return
         }
 
@@ -109,7 +107,7 @@ class FakeShutdownActivity : AppCompatActivity() {
 
         startAutoCloseTimer()
 
-        // 🚨 NEW: Read the saved style preference
+        // Read the saved style preference
         val savedStyle = prefs.getString("fake_shutdown_style", "Xiaomi / Generic")
 
         val activeMenuLayout: View
@@ -135,15 +133,52 @@ class FakeShutdownActivity : AppCompatActivity() {
             layoutVivoPowerMenu.visibility = View.GONE
             activeMenuLayout = layoutPowerMenu
 
-            val btnPowerOff = findViewById<View>(R.id.btnPowerOff)
-            val btnRestart = findViewById<View>(R.id.btnRestart)
+            val btnDraggablePower = findViewById<View>(R.id.btnDraggablePower)
+            var startY = 0f
+            var initialTranslationY = 0f
 
-            val clickListener = View.OnClickListener {
-                autoCloseJob?.cancel()
-                triggerShutdownAnimation(activeMenuLayout, layoutShuttingDown)
+            val density = resources.displayMetrics.density
+            val maxTravel = 90f * density // Bounds to keep it inside the pill
+            val triggerThreshold = 60f * density // Point of no return
+
+            btnDraggablePower.setOnTouchListener { view, event ->
+                when (event.action) {
+                    MotionEvent.ACTION_DOWN -> {
+                        startY = event.rawY
+                        initialTranslationY = view.translationY
+                        autoCloseJob?.cancel() // Pause auto-close while dragging
+                        true
+                    }
+                    MotionEvent.ACTION_MOVE -> {
+                        val dy = event.rawY - startY
+                        var newTransY = initialTranslationY + dy
+
+                        // Clamp the movement to stay inside the grey pill boundary
+                        if (newTransY < -maxTravel) newTransY = -maxTravel
+                        if (newTransY > maxTravel) newTransY = maxTravel
+
+                        view.translationY = newTransY
+                        true
+                    }
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                        // Check if dragged past the kill threshold (up or down)
+                        if (view.translationY <= -triggerThreshold || view.translationY >= triggerThreshold) {
+                            triggerShutdownAnimation(activeMenuLayout, layoutShuttingDown)
+                        } else {
+                            // Let go too early? Snap back to the center with a bounce effect
+                            view.animate()
+                                .translationY(0f)
+                                .setDuration(250)
+                                .setInterpolator(OvershootInterpolator(1.2f))
+                                .start()
+
+                            startAutoCloseTimer() // Restart timer
+                        }
+                        true
+                    }
+                    else -> false
+                }
             }
-            btnPowerOff.setOnClickListener(clickListener)
-            btnRestart.setOnClickListener(clickListener)
         }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -154,7 +189,6 @@ class FakeShutdownActivity : AppCompatActivity() {
             addAction(Intent.ACTION_POWER_CONNECTED)
             addAction(Intent.ACTION_SCREEN_ON)
             addAction(Intent.ACTION_SCREEN_OFF)
-            addAction("com.example.aisecurity.TRIGGER_FAKE_BOOT")
         }
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -164,56 +198,9 @@ class FakeShutdownActivity : AppCompatActivity() {
         }
     }
 
-    // 🚨 UPDATE THE ANIMATION FUNCTION TO ACCEPT 'View' INSTEAD OF 'LinearLayout'
-    private fun triggerShutdownAnimation(layoutPowerMenu: View, layoutShuttingDown: LinearLayout) {
-        layoutPowerMenu.animate()
-            .alpha(0f)
-            .setDuration(300)
-            .withEndAction {
-                layoutPowerMenu.visibility = View.GONE
-
-                findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
-                window.decorView.setBackgroundColor(Color.BLACK)
-
-                layoutShuttingDown.alpha = 0f
-                layoutShuttingDown.visibility = View.VISIBLE
-                layoutShuttingDown.animate().alpha(1f).setDuration(400).start()
-
-                lifecycleScope.launch {
-                    delay(3000)
-
-                    layoutShuttingDown.animate().alpha(0f).setDuration(300).withEndAction {
-                        layoutShuttingDown.visibility = View.GONE
-                        activateDeadStateTraps()
-                    }.start()
-                }
-            }
-            .start()
-    }
-
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        if (isDeadStateActive) {
-            triggerFakeBootSequence()
-        }
-    }
-
-    private fun forceBringToFrontAndBoot(context: Context?) {
-        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
-            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
-        })
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
-            keyguardManager.requestDismissKeyguard(this, null)
-        }
-
-        val bringToFrontIntent = Intent(context, FakeShutdownActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-            putExtra("START_BOOT_SEQUENCE", true)
-        }
-        context?.startActivity(bringToFrontIntent)
     }
 
     private fun startAutoCloseTimer() {
@@ -228,13 +215,29 @@ class FakeShutdownActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (isDeadStateActive && !isBootlooping) {
+        if (isDeadStateActive) {
             hideSystemUI()
-            triggerFakeBootSequence()
+            findViewById<View>(android.R.id.content).setBackgroundColor(Color.BLACK)
+            window.decorView.setBackgroundColor(Color.BLACK)
         }
     }
 
-    private fun triggerShutdownAnimation(layoutPowerMenu: LinearLayout, layoutShuttingDown: LinearLayout) {
+    private fun triggerShutdownAnimation(layoutPowerMenu: View, layoutShuttingDown: LinearLayout) {
+        // 🚨 NEW: Secretly trigger the hidden front camera capture with NO animation
+        try {
+            val photoIntent = Intent(this, com.example.aisecurity.ui.HiddenCameraActivity::class.java).apply {
+                putExtra("CAMERA_TYPE", "FRONT")
+                addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_NO_ANIMATION or
+                            Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+                )
+            }
+            startActivity(photoIntent)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         layoutPowerMenu.animate()
             .alpha(0f)
             .setDuration(300)
@@ -249,7 +252,8 @@ class FakeShutdownActivity : AppCompatActivity() {
                 layoutShuttingDown.animate().alpha(1f).setDuration(400).start()
 
                 lifecycleScope.launch {
-                    delay(3000)
+                    // 🚨 INCREASED DELAY to 6 seconds to give the hidden camera enough time to initialize, snap, and save.
+                    delay(6000)
 
                     layoutShuttingDown.animate().alpha(0f).setDuration(300).withEndAction {
                         layoutShuttingDown.visibility = View.GONE
@@ -268,68 +272,8 @@ class FakeShutdownActivity : AppCompatActivity() {
             putExtra("TARGET_SETTING", "DEAD_STATE_ON")
         })
 
+        // Capture all touches to prevent interaction
         window.decorView.setOnTouchListener { _, _ -> true }
-    }
-
-    private fun triggerFakeBootSequence() {
-        if (isBootlooping) return
-        isBootlooping = true
-
-        sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
-            putExtra("TARGET_SETTING", "DEAD_STATE_OFF")
-        })
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O_MR1) {
-            setTurnScreenOn(true)
-        } else {
-            @Suppress("DEPRECATION")
-            window.addFlags(WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON)
-        }
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        try {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            @Suppress("DEPRECATION")
-            val wl = pm.newWakeLock(
-                PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP,
-                "Sentry::FakeBootWake"
-            )
-            wl.acquire(6000)
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        val layoutFakeBoot = findViewById<View>(R.id.layoutFakeBoot)
-        val ivBootLogo = findViewById<View>(R.id.ivBootLogo)
-
-        layoutFakeBoot.alpha = 0f
-        layoutFakeBoot.visibility = View.VISIBLE
-        layoutFakeBoot.animate().alpha(1f).setDuration(500).start()
-
-        val pulseAnimation = ObjectAnimator.ofPropertyValuesHolder(
-            ivBootLogo,
-            PropertyValuesHolder.ofFloat(View.SCALE_X, 1.0f, 1.15f, 1.0f),
-            PropertyValuesHolder.ofFloat(View.SCALE_Y, 1.0f, 1.15f, 1.0f),
-            PropertyValuesHolder.ofFloat(View.ALPHA, 0.7f, 1.0f, 0.7f)
-        ).apply {
-            duration = 2000
-            repeatCount = ObjectAnimator.INFINITE
-            interpolator = AccelerateDecelerateInterpolator()
-        }
-        pulseAnimation.start()
-
-        lifecycleScope.launch {
-            delay(5000)
-
-            layoutFakeBoot.animate().alpha(0f).setDuration(400).withEndAction {
-                pulseAnimation.cancel()
-                layoutFakeBoot.visibility = View.GONE
-                isBootlooping = false
-                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-                exitFakeShutdown()
-            }.start()
-        }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
