@@ -175,7 +175,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Watch vibrates and warns user."
+                android:text="the watch warns user."
                 android:textColor="@color/ig_text_secondary"
                 android:textSize="12sp"
                 android:layout_marginBottom="8dp"/>
