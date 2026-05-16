@@ -15,23 +15,19 @@ import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.widget.SwitchCompat
 import androidx.core.content.edit
 import androidx.core.graphics.toColorInt
-import androidx.core.net.toUri
 import androidx.fragment.app.Fragment
 import com.example.aisecurity.R
 import com.example.aisecurity.SecurityAdminReceiver
-import com.example.aisecurity.ui.LockOverlayService
 import com.example.aisecurity.ai.SecurityEnforcer
 
 class SettingsFragment : Fragment() {
@@ -65,8 +61,6 @@ class SettingsFragment : Fragment() {
 
         val switchDefense = view.findViewById<SwitchCompat>(R.id.switchDefense)
         val rgDefenseType = view.findViewById<RadioGroup>(R.id.rgDefenseType)
-        val rbOverlay = view.findViewById<RadioButton>(R.id.rbOverlay)
-        val rbScreenOff = view.findViewById<RadioButton>(R.id.rbScreenOff)
         val rbOrdinaryLock = view.findViewById<RadioButton>(R.id.rbOrdinaryLock)
 
         val switchStealth = view.findViewById<SwitchCompat>(R.id.switchStealth)
@@ -78,14 +72,10 @@ class SettingsFragment : Fragment() {
         // Spinner Bindings
         val spinnerDeviceStyle = view.findViewById<Spinner>(R.id.spinnerDeviceStyle)
 
-        val btnDemoOverlay = view.findViewById<Button>(R.id.btnDemoOverlay)
-        val btnDemoEnforcer = view.findViewById<Button>(R.id.btnDemoEnforcer)
         val btnDemoOrdinary = view.findViewById<Button>(R.id.btnDemoOrdinary)
 
         val isNightMode = (requireContext().resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) == android.content.res.Configuration.UI_MODE_NIGHT_YES
 
-        applyDangerButton(btnDemoOverlay, isNightMode)
-        applyDangerButton(btnDemoEnforcer, isNightMode)
         applyDangerButton(btnDemoOrdinary, isNightMode)
 
         // 1. ANOMALY PENALTY LOGIC
@@ -159,12 +149,9 @@ class SettingsFragment : Fragment() {
         switchDefense.isChecked = prefs.getBoolean("protocol_defense_active", true)
         rgDefenseType.visibility = if (switchDefense.isChecked) View.VISIBLE else View.GONE
 
-        val savedDefenseType = prefs.getString("protocol_defense_type", "OVERLAY")
-        when (savedDefenseType) {
-            "SCREEN_OFF" -> rbScreenOff.isChecked = true
-            "ORDINARY" -> rbOrdinaryLock.isChecked = true
-            else -> rbOverlay.isChecked = true
-        }
+        // Since it's the only option left, enforce it:
+        prefs.edit { putString("protocol_defense_type", "ORDINARY") }
+        rbOrdinaryLock.isChecked = true
 
         switchSiren.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_siren", isChecked) } }
         switchGps.setOnCheckedChangeListener { _, isChecked -> prefs.edit { putBoolean("protocol_gps", isChecked) } }
@@ -182,16 +169,9 @@ class SettingsFragment : Fragment() {
             rgDefenseType.visibility = if (isChecked) View.VISIBLE else View.GONE
         }
 
-        rgDefenseType.setOnCheckedChangeListener { _, checkedId ->
-            val type = when (checkedId) {
-                R.id.rbScreenOff -> "SCREEN_OFF"
-                R.id.rbOrdinaryLock -> {
-                    if (!isDeviceAdminActive()) requestDeviceAdmin()
-                    "ORDINARY"
-                }
-                else -> "OVERLAY"
-            }
-            prefs.edit { putString("protocol_defense_type", type) }
+        rgDefenseType.setOnCheckedChangeListener { _, _ ->
+            if (!isDeviceAdminActive()) requestDeviceAdmin()
+            prefs.edit { putString("protocol_defense_type", "ORDINARY") }
         }
 
         switchStealth.setOnCheckedChangeListener { _, isChecked ->
@@ -209,7 +189,6 @@ class SettingsFragment : Fragment() {
             tvFakeShutdownStatus?.text = if (isChecked) "Enabled" else "Disabled"
         }
 
-        // 🚨 UPDATED: Spinner Logic with Vivo V40 Lite Option
         val styles = arrayOf("Xiaomi / Generic", "Vivo V40 Lite")
         val adapter = ArrayAdapter(requireContext(), android.R.layout.simple_spinner_dropdown_item, styles)
         adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
@@ -230,9 +209,7 @@ class SettingsFragment : Fragment() {
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
 
-        // TEST TRIGGERS
-        btnDemoOverlay.setOnClickListener { showTestWarningDialog("OVERLAY", isNightMode) }
-        btnDemoEnforcer.setOnClickListener { showTestWarningDialog("SCREEN_OFF", isNightMode) }
+        // TEST TRIGGER
         btnDemoOrdinary.setOnClickListener { showTestWarningDialog("ORDINARY", isNightMode) }
 
         return view

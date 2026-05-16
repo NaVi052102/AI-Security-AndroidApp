@@ -79,20 +79,6 @@
                     android:layout_marginBottom="2dp">
 
                     <ImageView
-                        android:layout_width="14dp"
-                        android:layout_height="14dp"
-                        android:layout_marginEnd="6dp"
-                        android:src="@drawable/ic_wifi"
-                        app:tint="#FFFFFF" />
-
-                    <ImageView
-                        android:layout_width="14dp"
-                        android:layout_height="14dp"
-                        android:layout_marginEnd="6dp"
-                        android:src="@drawable/ic_bluetooth"
-                        app:tint="#FFFFFF" />
-
-                    <ImageView
                         android:id="@+id/ivSignalBars"
                         android:layout_width="14dp"
                         android:layout_height="14dp"
@@ -217,549 +203,240 @@
                     android:layout_height="wrap_content"
                     android:clipChildren="false">
 
-                    <LinearLayout
+                    <FrameLayout
                         android:layout_width="match_parent"
                         android:layout_height="190dp"
                         android:layout_marginTop="85dp"
                         android:layout_marginBottom="10dp"
-                        android:baselineAligned="false"
-                        android:clipChildren="false"
-                        android:weightSum="2.15">
+                        android:clipChildren="false">
 
-                        <androidx.cardview.widget.CardView
-                            android:id="@+id/cardConnectivity"
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_weight="1.15"
-                            android:layout_marginEnd="8dp"
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/cardGallery"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="128dp"
+                            android:translationZ="4dp"
                             app:cardBackgroundColor="#1C2237"
-                            app:cardCornerRadius="20dp"
-                            app:cardElevation="0dp">
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="6dp"
+                            app:strokeColor="#252F48"
+                            app:strokeWidth="1dp">
 
-                            <ScrollView
-                                android:layout_width="match_parent"
-                                android:layout_height="match_parent"
-                                android:scrollbars="none"
-                                android:overScrollMode="never">
-
-                                <LinearLayout
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:orientation="vertical"
-                                    android:padding="15dp">
-
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="CONNECTIVITY"
-                                        android:textColor="#5A7090"
-                                        android:textSize="9sp"
-                                        android:textStyle="bold"
-                                        android:letterSpacing="0.18"
-                                        android:layout_marginBottom="13dp" />
-
-                                    <LinearLayout
-                                        android:id="@+id/rowWifi"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:layout_marginBottom="14dp">
-
-                                        <androidx.cardview.widget.CardView
-                                            android:id="@+id/iconWifi"
-                                            android:layout_width="34dp"
-                                            android:layout_height="34dp"
-                                            app:cardBackgroundColor="#12172B"
-                                            app:cardCornerRadius="10dp"
-                                            app:cardElevation="0dp">
-                                            <ImageView
-                                                android:layout_width="18dp"
-                                                android:layout_height="18dp"
-                                                android:layout_gravity="center"
-                                                android:src="@drawable/ic_wifi"
-                                                app:tint="#00D8FF" />
-                                        </androidx.cardview.widget.CardView>
-
-                                        <LinearLayout
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:orientation="vertical"
-                                            android:layout_marginStart="10dp">
-                                            <TextView
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Wi-Fi"
-                                                android:textColor="#FFFFFF"
-                                                android:textSize="12.5sp"
-                                                android:textStyle="bold" />
-                                            <TextView
-                                                android:id="@+id/tvWifiStatus"
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Connected"
-                                                android:textColor="#7A90AA"
-                                                android:textSize="10.5sp" />
-                                        </LinearLayout>
-
-                                        <com.google.android.material.switchmaterial.SwitchMaterial
-                                            android:id="@+id/switchWifi"
-                                            android:layout_width="wrap_content"
-                                            android:layout_height="wrap_content"
-                                            android:checked="true"
-                                            app:theme="@style/Theme.AppCompat.Light" />
-                                    </LinearLayout>
-
-                                    <LinearLayout
-                                        android:id="@+id/rowBluetooth"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:layout_marginBottom="14dp">
-
-                                        <androidx.cardview.widget.CardView
-                                            android:id="@+id/iconBluetooth"
-                                            android:layout_width="34dp"
-                                            android:layout_height="34dp"
-                                            app:cardBackgroundColor="#12172B"
-                                            app:cardCornerRadius="10dp"
-                                            app:cardElevation="0dp">
-                                            <ImageView
-                                                android:layout_width="18dp"
-                                                android:layout_height="18dp"
-                                                android:layout_gravity="center"
-                                                android:src="@drawable/ic_bluetooth"
-                                                app:tint="#00D8FF" />
-                                        </androidx.cardview.widget.CardView>
-
-                                        <LinearLayout
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:orientation="vertical"
-                                            android:layout_marginStart="10dp">
-                                            <TextView
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Bluetooth"
-                                                android:textColor="#FFFFFF"
-                                                android:textSize="12.5sp"
-                                                android:textStyle="bold" />
-                                            <TextView
-                                                android:id="@+id/tvBluetoothStatus"
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="On"
-                                                android:textColor="#7A90AA"
-                                                android:textSize="10.5sp" />
-                                        </LinearLayout>
-
-                                        <com.google.android.material.switchmaterial.SwitchMaterial
-                                            android:id="@+id/switchBluetooth"
-                                            android:layout_width="wrap_content"
-                                            android:layout_height="wrap_content"
-                                            android:checked="true"
-                                            app:theme="@style/Theme.AppCompat.Light" />
-                                    </LinearLayout>
-
-                                    <LinearLayout
-                                        android:id="@+id/rowMobileData"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:layout_marginBottom="14dp">
-
-                                        <androidx.cardview.widget.CardView
-                                            android:id="@+id/iconData"
-                                            android:layout_width="34dp"
-                                            android:layout_height="34dp"
-                                            app:cardBackgroundColor="#12172B"
-                                            app:cardCornerRadius="10dp"
-                                            app:cardElevation="0dp">
-                                            <ImageView
-                                                android:layout_width="20dp"
-                                                android:layout_height="20dp"
-                                                android:layout_gravity="center"
-                                                android:src="@drawable/ic_signal_bars"
-                                                app:tint="#00D8FF" />
-                                        </androidx.cardview.widget.CardView>
-
-                                        <LinearLayout
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:orientation="vertical"
-                                            android:layout_marginStart="10dp">
-                                            <TextView
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Mobile Data"
-                                                android:textColor="#FFFFFF"
-                                                android:textSize="12.5sp"
-                                                android:textStyle="bold" />
-                                            <TextView
-                                                android:id="@+id/tvMobileDataStatus"
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="4G LTE"
-                                                android:textColor="#7A90AA"
-                                                android:textSize="10.5sp" />
-                                        </LinearLayout>
-
-                                        <com.google.android.material.switchmaterial.SwitchMaterial
-                                            android:id="@+id/switchData"
-                                            android:layout_width="wrap_content"
-                                            android:layout_height="wrap_content"
-                                            android:checked="true"
-                                            app:theme="@style/Theme.AppCompat.Light" />
-                                    </LinearLayout>
-
-                                    <LinearLayout
-                                        android:id="@+id/rowLocation"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:layout_marginBottom="14dp">
-
-                                        <androidx.cardview.widget.CardView
-                                            android:id="@+id/iconLoc"
-                                            android:layout_width="34dp"
-                                            android:layout_height="34dp"
-                                            app:cardBackgroundColor="#12172B"
-                                            app:cardCornerRadius="10dp"
-                                            app:cardElevation="0dp">
-                                            <ImageView
-                                                android:layout_width="18dp"
-                                                android:layout_height="18dp"
-                                                android:layout_gravity="center"
-                                                android:src="@drawable/ic_location_on"
-                                                app:tint="#5A7090" />
-                                        </androidx.cardview.widget.CardView>
-
-                                        <LinearLayout
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:orientation="vertical"
-                                            android:layout_marginStart="10dp">
-                                            <TextView
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Location"
-                                                android:textColor="#FFFFFF"
-                                                android:textSize="12.5sp"
-                                                android:textStyle="bold" />
-                                            <TextView
-                                                android:id="@+id/tvLocationStatus"
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Off"
-                                                android:textColor="#7A90AA"
-                                                android:textSize="10.5sp" />
-                                        </LinearLayout>
-
-                                        <com.google.android.material.switchmaterial.SwitchMaterial
-                                            android:id="@+id/switchLocation"
-                                            android:layout_width="wrap_content"
-                                            android:layout_height="wrap_content"
-                                            android:checked="false"
-                                            app:theme="@style/Theme.AppCompat.Light" />
-                                    </LinearLayout>
-
-                                    <LinearLayout
-                                        android:id="@+id/rowBatterySaver"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical">
-
-                                        <androidx.cardview.widget.CardView
-                                            android:id="@+id/iconBatterySaver"
-                                            android:layout_width="34dp"
-                                            android:layout_height="34dp"
-                                            app:cardBackgroundColor="#12172B"
-                                            app:cardCornerRadius="10dp"
-                                            app:cardElevation="0dp">
-                                            <ImageView
-                                                android:layout_width="18dp"
-                                                android:layout_height="18dp"
-                                                android:layout_gravity="center"
-                                                android:src="@drawable/ic_battery_saver"
-                                                app:tint="#5A7090" />
-                                        </androidx.cardview.widget.CardView>
-
-                                        <LinearLayout
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:orientation="vertical"
-                                            android:layout_marginStart="10dp">
-                                            <TextView
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Battery Saver"
-                                                android:textColor="#FFFFFF"
-                                                android:textSize="12.5sp"
-                                                android:textStyle="bold" />
-                                            <TextView
-                                                android:id="@+id/tvBatterySaverStatus"
-                                                android:layout_width="wrap_content"
-                                                android:layout_height="wrap_content"
-                                                android:text="Off"
-                                                android:textColor="#7A90AA"
-                                                android:textSize="10.5sp" />
-                                        </LinearLayout>
-
-                                        <com.google.android.material.switchmaterial.SwitchMaterial
-                                            android:id="@+id/switchBatterySaver"
-                                            android:layout_width="wrap_content"
-                                            android:layout_height="wrap_content"
-                                            android:checked="false"
-                                            app:theme="@style/Theme.AppCompat.Light" />
-                                    </LinearLayout>
-
-                                </LinearLayout>
-                            </ScrollView>
-                        </androidx.cardview.widget.CardView>
-
-                        <FrameLayout
-                            android:layout_width="0dp"
-                            android:layout_height="match_parent"
-                            android:layout_weight="1"
-                            android:clipChildren="false">
-
-                            <com.google.android.material.card.MaterialCardView
-                                android:id="@+id/cardGallery"
+                            <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="128dp"
-                                android:translationZ="4dp"
-                                app:cardBackgroundColor="#1C2237"
-                                app:cardCornerRadius="16dp"
-                                app:cardElevation="6dp"
-                                app:strokeColor="#252F48"
-                                app:strokeWidth="1dp">
+                                android:orientation="vertical"
+                                android:padding="12dp">
 
-                                <LinearLayout
-                                    android:layout_width="match_parent"
+                                <TextView
+                                    android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:orientation="vertical"
-                                    android:padding="12dp">
+                                    android:text="LATEST CAPTURE"
+                                    android:textColor="#5A7090"
+                                    android:textSize="9sp"
+                                    android:textStyle="bold"
+                                    android:layout_marginBottom="7dp" />
 
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="LATEST CAPTURE"
-                                        android:textColor="#5A7090"
-                                        android:textSize="9sp"
-                                        android:textStyle="bold"
-                                        android:layout_marginBottom="7dp" />
+                                <androidx.cardview.widget.CardView
+                                    android:layout_width="match_parent"
+                                    android:layout_height="100dp"
+                                    app:cardCornerRadius="8dp"
+                                    app:cardBackgroundColor="#12172B"
+                                    app:cardElevation="0dp">
 
-                                    <androidx.cardview.widget.CardView
+                                    <ImageView
+                                        android:id="@+id/ivGalleryImage"
                                         android:layout_width="match_parent"
-                                        android:layout_height="100dp"
-                                        app:cardCornerRadius="8dp"
-                                        app:cardBackgroundColor="#12172B"
-                                        app:cardElevation="0dp">
+                                        android:layout_height="match_parent"
+                                        android:scaleType="centerCrop"
+                                        android:src="@drawable/ic_camera_alt"
+                                        app:tint="#334155"
+                                        android:padding="30dp"/>
+                                </androidx.cardview.widget.CardView>
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
 
-                                        <ImageView
-                                            android:id="@+id/ivGalleryImage"
-                                            android:layout_width="match_parent"
-                                            android:layout_height="match_parent"
-                                            android:scaleType="centerCrop"
-                                            android:src="@drawable/ic_camera_alt"
-                                            app:tint="#334155"
-                                            android:padding="30dp"/>
-                                    </androidx.cardview.widget.CardView>
-                                </LinearLayout>
-                            </com.google.android.material.card.MaterialCardView>
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/cardCamera"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="64dp"
+                            android:translationZ="8dp"
+                            app:cardBackgroundColor="#1C2237"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="8dp"
+                            app:strokeColor="#252F48"
+                            app:strokeWidth="1dp">
 
-                            <com.google.android.material.card.MaterialCardView
-                                android:id="@+id/cardCamera"
+                            <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="64dp"
-                                android:translationZ="8dp"
-                                app:cardBackgroundColor="#1C2237"
-                                app:cardCornerRadius="16dp"
-                                app:cardElevation="8dp"
-                                app:strokeColor="#252F48"
-                                app:strokeWidth="1dp">
+                                android:orientation="vertical"
+                                android:padding="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="CAMERA CONTROL"
+                                    android:textColor="#5A7090"
+                                    android:textSize="9sp"
+                                    android:textStyle="bold"
+                                    android:layout_marginBottom="7dp" />
 
                                 <LinearLayout
+                                    android:id="@+id/btnCameraDrop"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal"
+                                    android:gravity="center_vertical"
+                                    android:clickable="true"
+                                    android:focusable="true">
+
+                                    <ImageView
+                                        android:layout_width="16dp"
+                                        android:layout_height="16dp"
+                                        android:src="@drawable/ic_camera_alt"
+                                        app:tint="#00D8FF" />
+
+                                    <TextView
+                                        android:id="@+id/tvCameraValue"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="Back"
+                                        android:textColor="#FFFFFF"
+                                        android:textSize="13.5sp"
+                                        android:textStyle="bold"
+                                        android:layout_marginStart="8dp" />
+
+                                    <ImageView
+                                        android:id="@+id/ivCameraChevron"
+                                        android:layout_width="16dp"
+                                        android:layout_height="16dp"
+                                        android:src="@drawable/ic_arrow_drop_down"
+                                        app:tint="#5A7090" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:id="@+id/dropPanelCamera"
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:orientation="vertical"
-                                    android:padding="12dp">
+                                    android:visibility="gone">
 
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="CAMERA CONTROL"
-                                        android:textColor="#5A7090"
-                                        android:textSize="9sp"
-                                        android:textStyle="bold"
+                                    <View
+                                        android:layout_width="match_parent"
+                                        android:layout_height="1dp"
+                                        android:background="#252F48"
+                                        android:layout_marginTop="9dp"
                                         android:layout_marginBottom="7dp" />
 
-                                    <LinearLayout
-                                        android:id="@+id/btnCameraDrop"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:clickable="true"
-                                        android:focusable="true">
-
-                                        <ImageView
-                                            android:layout_width="16dp"
-                                            android:layout_height="16dp"
-                                            android:src="@drawable/ic_camera_alt"
-                                            app:tint="#00D8FF" />
-
-                                        <TextView
-                                            android:id="@+id/tvCameraValue"
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:text="Back"
-                                            android:textColor="#FFFFFF"
-                                            android:textSize="13.5sp"
-                                            android:textStyle="bold"
-                                            android:layout_marginStart="8dp" />
-
-                                        <ImageView
-                                            android:id="@+id/ivCameraChevron"
-                                            android:layout_width="16dp"
-                                            android:layout_height="16dp"
-                                            android:src="@drawable/ic_arrow_drop_down"
-                                            app:tint="#5A7090" />
+                                    <LinearLayout android:id="@+id/optCameraBack" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                        <ImageView android:id="@+id/chkCameraBack" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
+                                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
                                     </LinearLayout>
 
-                                    <LinearLayout
-                                        android:id="@+id/dropPanelCamera"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="vertical"
-                                        android:visibility="gone">
-
-                                        <View
-                                            android:layout_width="match_parent"
-                                            android:layout_height="1dp"
-                                            android:background="#252F48"
-                                            android:layout_marginTop="9dp"
-                                            android:layout_marginBottom="7dp" />
-
-                                        <LinearLayout android:id="@+id/optCameraBack" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkCameraBack" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Back" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
-                                        </LinearLayout>
-
-                                        <LinearLayout android:id="@+id/optCameraFront" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkCameraFront" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Front" android:textColor="#8899BB" android:textSize="11sp"/>
-                                        </LinearLayout>
+                                    <LinearLayout android:id="@+id/optCameraFront" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                        <ImageView android:id="@+id/chkCameraFront" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
+                                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Front" android:textColor="#8899BB" android:textSize="11sp"/>
                                     </LinearLayout>
                                 </LinearLayout>
-                            </com.google.android.material.card.MaterialCardView>
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
 
-                            <com.google.android.material.card.MaterialCardView
-                                android:id="@+id/cardLockType"
+                        <com.google.android.material.card.MaterialCardView
+                            android:id="@+id/cardLockType"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="0dp"
+                            android:translationZ="12dp"
+                            app:cardBackgroundColor="#1C2237"
+                            app:cardCornerRadius="16dp"
+                            app:cardElevation="10dp"
+                            app:strokeColor="#252F48"
+                            app:strokeWidth="1dp">
+
+                            <LinearLayout
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:layout_marginTop="0dp"
-                                android:translationZ="12dp"
-                                app:cardBackgroundColor="#1C2237"
-                                app:cardCornerRadius="16dp"
-                                app:cardElevation="10dp"
-                                app:strokeColor="#252F48"
-                                app:strokeWidth="1dp">
+                                android:orientation="vertical"
+                                android:padding="12dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="LOCK PROTOCOL"
+                                    android:textColor="#5A7090"
+                                    android:textSize="9sp"
+                                    android:textStyle="bold"
+                                    android:layout_marginBottom="7dp" />
 
                                 <LinearLayout
+                                    android:id="@+id/btnLockDrop"
+                                    android:layout_width="match_parent"
+                                    android:layout_height="wrap_content"
+                                    android:orientation="horizontal"
+                                    android:gravity="center_vertical"
+                                    android:clickable="true"
+                                    android:focusable="true">
+
+                                    <ImageView
+                                        android:layout_width="16dp"
+                                        android:layout_height="16dp"
+                                        android:src="@drawable/ic_lock"
+                                        app:tint="#00D8FF" />
+
+                                    <TextView
+                                        android:id="@+id/tvLockValue"
+                                        android:layout_width="0dp"
+                                        android:layout_height="wrap_content"
+                                        android:layout_weight="1"
+                                        android:text="Ordinary Lock"
+                                        android:textColor="#FFFFFF"
+                                        android:textSize="13.5sp"
+                                        android:textStyle="bold"
+                                        android:layout_marginStart="8dp" />
+
+                                    <ImageView
+                                        android:id="@+id/ivLockChevron"
+                                        android:layout_width="16dp"
+                                        android:layout_height="16dp"
+                                        android:src="@drawable/ic_arrow_drop_down"
+                                        app:tint="#5A7090" />
+                                </LinearLayout>
+
+                                <LinearLayout
+                                    android:id="@+id/dropPanelLock"
                                     android:layout_width="match_parent"
                                     android:layout_height="wrap_content"
                                     android:orientation="vertical"
-                                    android:padding="12dp">
+                                    android:visibility="gone">
 
-                                    <TextView
-                                        android:layout_width="wrap_content"
-                                        android:layout_height="wrap_content"
-                                        android:text="LOCK PROTOCOL"
-                                        android:textColor="#5A7090"
-                                        android:textSize="9sp"
-                                        android:textStyle="bold"
+                                    <View
+                                        android:layout_width="match_parent"
+                                        android:layout_height="1dp"
+                                        android:background="#252F48"
+                                        android:layout_marginTop="9dp"
                                         android:layout_marginBottom="7dp" />
 
-                                    <LinearLayout
-                                        android:id="@+id/btnLockDrop"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="horizontal"
-                                        android:gravity="center_vertical"
-                                        android:clickable="true"
-                                        android:focusable="true">
-
-                                        <ImageView
-                                            android:layout_width="16dp"
-                                            android:layout_height="16dp"
-                                            android:src="@drawable/ic_lock"
-                                            app:tint="#00D8FF" />
-
-                                        <TextView
-                                            android:id="@+id/tvLockValue"
-                                            android:layout_width="0dp"
-                                            android:layout_height="wrap_content"
-                                            android:layout_weight="1"
-                                            android:text="Ordinary Lock"
-                                            android:textColor="#FFFFFF"
-                                            android:textSize="13.5sp"
-                                            android:textStyle="bold"
-                                            android:layout_marginStart="8dp" />
-
-                                        <ImageView
-                                            android:id="@+id/ivLockChevron"
-                                            android:layout_width="16dp"
-                                            android:layout_height="16dp"
-                                            android:src="@drawable/ic_arrow_drop_down"
-                                            app:tint="#5A7090" />
+                                    <LinearLayout android:id="@+id/optLockOrdinary" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                        <ImageView android:id="@+id/chkLockOrdinary" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
+                                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ordinary Lock" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
                                     </LinearLayout>
 
-                                    <LinearLayout
-                                        android:id="@+id/dropPanelLock"
-                                        android:layout_width="match_parent"
-                                        android:layout_height="wrap_content"
-                                        android:orientation="vertical"
-                                        android:visibility="gone">
+                                    <LinearLayout android:id="@+id/optLockPersistent" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                        <ImageView android:id="@+id/chkLockPersistent" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
+                                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Persistent" android:textColor="#8899BB" android:textSize="11sp"/>
+                                    </LinearLayout>
 
-                                        <View
-                                            android:layout_width="match_parent"
-                                            android:layout_height="1dp"
-                                            android:background="#252F48"
-                                            android:layout_marginTop="9dp"
-                                            android:layout_marginBottom="7dp" />
-
-                                        <LinearLayout android:id="@+id/optLockOrdinary" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockOrdinary" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" />
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Ordinary Lock" android:textColor="#00D8FF" android:textSize="11sp" android:textStyle="bold"/>
-                                        </LinearLayout>
-
-                                        <LinearLayout android:id="@+id/optLockPersistent" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockPersistent" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Persistent" android:textColor="#8899BB" android:textSize="11sp"/>
-                                        </LinearLayout>
-
-                                        <LinearLayout android:id="@+id/optLockAggressive" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
-                                            <ImageView android:id="@+id/chkLockAggressive" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
-                                            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aggressive" android:textColor="#8899BB" android:textSize="11sp"/>
-                                        </LinearLayout>
+                                    <LinearLayout android:id="@+id/optLockAggressive" android:layout_width="match_parent" android:layout_height="32dp" android:orientation="horizontal" android:gravity="center_vertical">
+                                        <ImageView android:id="@+id/chkLockAggressive" android:layout_width="12dp" android:layout_height="12dp" android:src="@drawable/ic_check" app:tint="#00D8FF" android:layout_marginEnd="6dp" android:visibility="invisible"/>
+                                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Aggressive" android:textColor="#8899BB" android:textSize="11sp"/>
                                     </LinearLayout>
                                 </LinearLayout>
-                            </com.google.android.material.card.MaterialCardView>
-                        </FrameLayout>
-                    </LinearLayout>
+                            </LinearLayout>
+                        </com.google.android.material.card.MaterialCardView>
+                    </FrameLayout>
 
                     <androidx.cardview.widget.CardView
                         android:id="@+id/cardAiDetection"
@@ -792,7 +469,7 @@
                                 android:id="@+id/tvCurrentActiveApp"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="MESSENGER"
+                                android:text="WAITING..."
                                 android:textColor="#FFFFFF"
                                 android:textSize="15sp"
                                 android:textStyle="bold"
@@ -807,6 +484,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="14dp"
+                    android:layout_marginTop="14dp"
                     app:cardBackgroundColor="#1C2237"
                     app:cardCornerRadius="24dp"
                     app:cardElevation="0dp">
@@ -844,7 +522,7 @@
                                 android:id="@+id/tvLocationCity"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:text="Cebu City, PH"
+                                android:text="Locating..."
                                 android:textColor="#FFFFFF"
                                 android:textSize="17sp"
                                 android:textStyle="bold"
@@ -868,7 +546,7 @@
                                     android:id="@+id/tvLatitude"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="10.3157° N"
+                                    android:text="--° N"
                                     android:textColor="#FFFFFF"
                                     android:textSize="11sp"
                                     android:layout_marginEnd="14dp" />
@@ -886,7 +564,7 @@
                                     android:id="@+id/tvLongitude"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    android:text="123.8854° E"
+                                    android:text="--° E"
                                     android:textColor="#FFFFFF"
                                     android:textSize="11sp" />
                             </LinearLayout>
@@ -910,7 +588,7 @@
                                     android:id="@+id/tvRemoteDistance"
                                     android:layout_width="wrap_content"
                                     android:layout_height="wrap_content"
-                                    text="8.7 km"
+                                    android:text="-- km"
                                     android:textColor="#FFFFFF"
                                     android:textSize="11sp" />
                             </LinearLayout>

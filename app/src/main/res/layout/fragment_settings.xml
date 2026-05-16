@@ -364,27 +364,6 @@
                 android:visibility="visible">
 
                 <RadioButton
-                    android:id="@+id/rbOverlay"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Red Screen Overlay (Persistent Block)"
-                    android:textColor="@color/ig_text_secondary"
-                    android:fontFamily="@font/inter"
-                    android:textSize="13sp"
-                    android:buttonTint="#3B82F6"/>
-
-                <RadioButton
-                    android:id="@+id/rbScreenOff"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Aggressive Screen-Off (Device Enforcer)"
-                    android:textColor="@color/ig_text_secondary"
-                    android:fontFamily="@font/inter"
-                    android:textSize="13sp"
-                    android:layout_marginTop="8dp"
-                    android:buttonTint="#3B82F6"/>
-
-                <RadioButton
                     android:id="@+id/rbOrdinaryLock"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -392,7 +371,7 @@
                     android:textColor="@color/ig_text_secondary"
                     android:fontFamily="@font/inter"
                     android:textSize="13sp"
-                    android:layout_marginTop="8dp"
+                    android:checked="true"
                     android:buttonTint="#3B82F6"/>
             </RadioGroup>
 
@@ -626,39 +605,9 @@
         </LinearLayout>
 
         <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/btnDemoOverlay"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="12dp"
-            android:text="TEST RED SCREEN OVERLAY"
-            android:fontFamily="@font/inter"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            android:letterSpacing="0.08"
-            android:stateListAnimator="@null"
-            android:background="@null" />
-
-        <androidx.appcompat.widget.AppCompatButton
-            android:id="@+id/btnDemoEnforcer"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="12dp"
-            android:text="TEST SCREEN-OFF ENFORCER"
-            android:fontFamily="@font/inter"
-            android:textSize="13sp"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold"
-            android:letterSpacing="0.08"
-            android:stateListAnimator="@null"
-            android:background="@null" />
-
-        <androidx.appcompat.widget.AppCompatButton
             android:id="@+id/btnDemoOrdinary"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="52dp"
             android:layout_marginHorizontal="20dp"
             android:layout_marginBottom="40dp"
             android:background="@null"

@@ -437,3 +437,4 @@ class RssiChartView @JvmOverloads constructor(context: Context, attrs: Attribute
         canvas.drawPath(path, linePaint)
     }
 }
+

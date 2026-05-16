@@ -62,10 +62,11 @@ class BehavioralAuthClassifier(private val context: Context) {
 
             var mseError = 0f
 
-            // 🚨 THE FIX: Weighted Error Calculation
-            // Index 0 (Velocity) and Index 1 (Duration) get a 5.0x penalty multiplier!
-            val weights = floatArrayOf(5.0f, 5.0f, 1.0f, 1.0f, 1.0f, 1.0f)
-            val totalWeight = 14.0f
+            // 🚨 MASSIVE UPGRADE: Physical Biometrics are now heavily weighted.
+            // Velocity (Index 0) is now 15x. Pressure/Duration (Index 1) is 10x.
+            // This forces the AI to instantly catch unfamiliar, erratic, or fast swipes.
+            val weights = floatArrayOf(15.0f, 10.0f, 1.0f, 1.0f, 1.0f, 1.0f)
+            val totalWeight = 29.0f
 
             for (i in 0..5) {
                 val diff = features[i] - reconstruction[i]
@@ -138,8 +139,9 @@ class BehavioralAuthClassifier(private val context: Context) {
             val mean = errors.average()
             val stdDev = sqrt(errors.map { (it - mean).pow(2) }.average())
 
-            // 🚨 THE FIX: Dropped to 1.5. Highly intolerant of sloppy swipes.
-            val sensitivity = 1.5
+            // 🚨 TIGHTENED: Lowered from 1.5 to 1.0.
+            // The standard deviation allowance is now razor-thin.
+            val sensitivity = 1.0
             return (mean + (sensitivity * stdDev)).toFloat()
         }
     }

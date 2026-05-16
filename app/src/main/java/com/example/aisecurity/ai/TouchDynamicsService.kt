@@ -1,38 +1,28 @@
 package com.example.aisecurity.ai
 
 import android.accessibilityservice.AccessibilityService
-import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
-import android.app.KeyguardManager
-import android.bluetooth.BluetoothManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
-import android.graphics.Path
-import android.graphics.PixelFormat
-import android.graphics.Rect
-import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.PowerManager
-import android.provider.Settings
-import android.util.Log
-import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
-import com.example.aisecurity.ui.HiddenCameraActivity
 import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
+
+// ============================================================
+//  TouchDynamicsService — AI Swipe Recognition Core
+//  UPGRADED: Equalized but RUTHLESS penalties (15/30/50).
+//  Strict mode now guarantees a lockdown in 1 to 2 bad swipes.
+// ============================================================
 
 @SuppressLint("MissingPermission")
 @Suppress(
@@ -46,35 +36,32 @@ import java.util.Locale
 )
 class TouchDynamicsService : AccessibilityService() {
 
-    private val classifier by lazy { BehavioralAuthClassifier(this) }
-    private val enforcer by lazy { SecurityEnforcer(this) }
-    private val db by lazy { SecurityDatabase.get(this) }
+    internal val classifier by lazy { BehavioralAuthClassifier(this) }
+    internal val enforcer   by lazy { SecurityEnforcer(this) }
+    internal val db         by lazy { SecurityDatabase.get(this) }
 
-    private lateinit var auth: FirebaseAuth
-    private lateinit var firebaseDb: FirebaseFirestore
+    internal lateinit var auth: FirebaseAuth
+    internal lateinit var firebaseDb: FirebaseFirestore
 
-    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    internal val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    private var swipeJob: Job? = null
-    private var swipeStartTime = 0L
-    private var eventCount = 0
+    internal var swipeJob       : Job? = null
+    internal var swipeStartTime = 0L
+    internal var eventCount     = 0
 
-    private var currentVisibleScreen = "Home Screen"
-    private var currentRealApp = ""
-    private var lastAppSwitchTime = System.currentTimeMillis()
-    private var currentTransitionSpeed = 0.5f
+    internal var currentVisibleScreen  = "Home Screen"
+    internal var currentRealApp        = ""
+    internal var lastAppSwitchTime     = System.currentTimeMillis()
+    internal var currentTransitionSpeed = 0.5f
+    internal var lastRealAppLeaveTime  = 0L
+    internal var isCurrentlyInNoise    = false
+    internal var lastFromApp           = "System UI"
+    internal var lastToApp             = "Monitoring..."
 
-    private var lastGuillotineTime = 0L
-    private var lastRealAppLeaveTime = 0L
-    private var isCurrentlyInNoise = false
+    internal var isLockdownCooldown = false
+    internal var lastUnlockTime     = 0L
 
-    private var lastFromApp = "System UI"
-    private var lastToApp = "Monitoring..."
-
-    private var isLockdownCooldown = false
-    private var lastUnlockTime = 0L
-
-    private val systemNoiseList = listOf(
+    internal val systemNoiseList = listOf(
         "com.android.systemui",
         "com.android.systemui.plugin",
         "com.google.android.googlequicksearchbox",
@@ -84,7 +71,7 @@ class TouchDynamicsService : AccessibilityService() {
         "android"
     )
 
-    private val homeLaunchers = listOf(
+    internal val homeLaunchers = listOf(
         "com.miui.home",
         "com.mi.android.globallauncher",
         "com.mi.ui.poco.home",
@@ -97,36 +84,34 @@ class TouchDynamicsService : AccessibilityService() {
         "com.bbk.launcher2"
     )
 
-    private val knownAppOverrides = mapOf(
-        "com.facebook.katana" to "Facebook",
-        "com.facebook.orca" to "Messenger",
-        "com.zhiliaoapp.musically" to "TikTok",
-        "com.ss.android.ugc.trill" to "TikTok",
-        "com.instagram.android" to "Instagram",
+    internal val knownAppOverrides = mapOf(
+        "com.facebook.katana"        to "Facebook",
+        "com.facebook.orca"          to "Messenger",
+        "com.zhiliaoapp.musically"   to "TikTok",
+        "com.ss.android.ugc.trill"   to "TikTok",
+        "com.instagram.android"      to "Instagram",
         "com.google.android.youtube" to "YouTube",
-        "com.whatsapp" to "WhatsApp",
-        "com.twitter.android" to "X (Twitter)",
-        "com.mobile.legends" to "Mobile Legends"
+        "com.whatsapp"               to "WhatsApp",
+        "com.twitter.android"        to "X (Twitter)",
+        "com.mobile.legends"         to "Mobile Legends"
     )
 
-    private var windowManager: WindowManager? = null
-    private var aegisShieldView: View? = null
-    private var isAegisDeployed = false
-
-    private var blackoutShieldView: View? = null
-
-    private var isPoltergeistActive = false
-    private var isWatchSyncLoopRunning = false
-
-    private var isBooting = true
-    private val commandCooldowns = mutableMapOf<String, Long>()
-    private val lastFirebaseStates = mutableMapOf<String, Boolean>()
+    internal var windowManager      : WindowManager? = null
+    internal var aegisShieldView    : View?          = null
+    internal var isAegisDeployed    = false
+    internal var blackoutShieldView : View?          = null
+    internal var isPoltergeistActive      = false
+    internal var isWatchSyncLoopRunning   = false
+    internal var isBooting                = true
+    internal val commandCooldowns         = mutableMapOf<String, Long>()
+    internal val lastFirebaseStates       = mutableMapOf<String, Boolean>()
+    internal var lastGuillotineTime       = 0L
 
     private val osBiometricSyncReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_USER_PRESENT) {
                 val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-                lastUnlockTime = System.currentTimeMillis()
+                lastUnlockTime     = System.currentTimeMillis()
                 isLockdownCooldown = false
 
                 LiveLogger.log("🔓 OS UNLOCK: True Owner Verified. 3-Second Grace Period Started.")
@@ -137,60 +122,19 @@ class TouchDynamicsService : AccessibilityService() {
                     .apply()
 
                 try {
-                    val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
-                    stopService(lockIntent)
+                    stopService(Intent(this@TouchDynamicsService, LockOverlayService::class.java))
                 } catch (e: Exception) { e.printStackTrace() }
             }
         }
     }
 
-    private val ghostReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            try {
-                if (intent?.action == "com.example.aisecurity.WAKE_MASTER_POLTERGEIST") {
-                    val target = intent.getStringExtra("TARGET_SETTING") ?: return
-
-                    if (target == "SLAM_SHADE") {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
-                        }
-                        this@TouchDynamicsService.performGlobalAction(GLOBAL_ACTION_BACK)
-                        return
-                    }
-                    else if (target == "DEAD_STATE_ON") {
-                        deployBlackoutShield()
-                    } else if (target == "DEAD_STATE_OFF") {
-                        removeBlackoutShield()
-                    }
-                    else if (target == "FORCE_SLEEP") {
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                            serviceScope.launch(Dispatchers.Main) {
-                                delay(300)
-                                performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-                            }
-                        }
-                    } else if (target == "EMERGENCY_COMMS") {
-                        executeEmergencyCommsCombo()
-                    } else if (target in listOf("DATA", "WIFI", "BLUETOOTH", "LOCATION", "BATTERY")) {
-                        commandCooldowns[target] = System.currentTimeMillis()
-                        executeDirectToggle(target)
-                    } else if (target == "LOCK_AND_RECOVER_AIRPLANE") {
-                        try {
-                            val lockIntent = Intent(this@TouchDynamicsService, LockOverlayService::class.java)
-                            this@TouchDynamicsService.startService(lockIntent)
-                        } catch (_: Exception) { }
-                    }
-                }
-            } catch (e: Exception) { e.printStackTrace() }
-        }
-    }
+    internal val ghostReceiver = buildGhostReceiver()
 
     @SuppressLint("UnspecifiedRegisterReceiverFlag")
     override fun onServiceConnected() {
         super.onServiceConnected()
-
-        auth = FirebaseAuth.getInstance()
-        firebaseDb = FirebaseFirestore.getInstance()
+        auth        = FirebaseAuth.getInstance()
+        firebaseDb  = FirebaseFirestore.getInstance()
         windowManager = getSystemService(WINDOW_SERVICE) as WindowManager
 
         val filter = IntentFilter("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
@@ -199,526 +143,249 @@ class TouchDynamicsService : AccessibilityService() {
         } else {
             registerReceiver(ghostReceiver, filter)
         }
-
-        val userPresentFilter = IntentFilter(Intent.ACTION_USER_PRESENT)
-        registerReceiver(osBiometricSyncReceiver, userPresentFilter)
+        registerReceiver(osBiometricSyncReceiver, IntentFilter(Intent.ACTION_USER_PRESENT))
 
         startWatchSyncLoop()
         startFirebaseListener()
     }
 
-    private fun startFirebaseListener() {
-        val myUid = auth.currentUser?.uid ?: return
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        startWatchSyncLoop()
 
-        serviceScope.launch(Dispatchers.IO) {
-            try {
-                forceFirebaseSyncToReality(myUid)
-                delay(3000)
-                isBooting = false
-            } catch (e: Exception) { e.printStackTrace() }
+        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        if (prefs.getBoolean("is_auth_in_progress", false)) return
+
+        val isLocked       = prefs.getBoolean("is_system_locked", false)
+        val rawPackageName = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val className      = event?.className?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val eventType      = event?.eventType
+        val textNodes      = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val contentDesc    = event?.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
+        val combinedText   = "$textNodes $contentDesc"
+
+        if (handleSideFeatureEvents(event, rawPackageName, className, eventType, combinedText, isLocked, prefs)) return
+
+        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            if (systemNoiseList.contains(rawPackageName)) return
+            updateContext(rawPackageName)
         }
 
-        firebaseDb.collection("Users").document(myUid).addSnapshotListener { snapshot, e ->
-            if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-            if (isPoltergeistActive || isBooting) return@addSnapshotListener
-
-            val cmdLockDevice = snapshot.getBoolean("cmd_lock_device") ?: false
-            if (cmdLockDevice) {
-                LiveLogger.log("🔒 POLTERGEIST: Ordinary Lock Command Received. Locking OS...")
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-                }
-                firebaseDb.collection("Users").document(myUid).set(
-                    hashMapOf("cmd_lock_device" to false), SetOptions.merge()
-                )
+        if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
+            if (!systemNoiseList.contains(rawPackageName) &&
+                !homeLaunchers.contains(rawPackageName) &&
+                !rawPackageName.contains("launcher")
+            ) {
+                val actualApp = getReadableAppName(rawPackageName)
+                if (actualApp != currentVisibleScreen) updateContext(rawPackageName)
             }
 
-            val cmdTakePhoto = snapshot.getString("cmd_take_photo") ?: ""
-            if (cmdTakePhoto.isNotEmpty()) {
-                firebaseDb.collection("Users").document(myUid).set(
-                    hashMapOf("cmd_take_photo" to ""), SetOptions.merge()
-                )
-                serviceScope.launch(Dispatchers.Main) {
+            if (swipeStartTime == 0L) swipeStartTime = System.currentTimeMillis()
+            eventCount++
+            swipeJob?.cancel()
+
+            swipeJob = serviceScope.launch {
+                delay(200)
+                val totalDuration   = System.currentTimeMillis() - swipeStartTime
+                val estimatedPixels = (eventCount * 100).toFloat()
+                val velocity        = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
+
+                if (!systemNoiseList.contains(rawPackageName) && currentVisibleScreen.isNotEmpty()) {
+                    processSwipe(totalDuration.toFloat(), velocity, currentVisibleScreen)
+                }
+                swipeStartTime = 0L
+                eventCount     = 0
+            }
+        }
+    }
+
+    override fun onInterrupt() {}
+
+    override fun onDestroy() {
+        super.onDestroy()
+        removeAegisShield()
+        removeBlackoutShield()
+        isWatchSyncLoopRunning = false
+        try {
+            unregisterReceiver(ghostReceiver)
+            unregisterReceiver(osBiometricSyncReceiver)
+        } catch (_: IllegalArgumentException) {}
+        serviceScope.cancel()
+    }
+
+    private fun updateContext(packageName: String) {
+        val appName = getReadableAppName(packageName)
+        getSharedPreferences("app_icons", MODE_PRIVATE).edit()
+            .putString(appName, packageName).apply()
+
+        val isNoise = appName.contains("System", ignoreCase = true) ||
+                appName.contains("quicksearchbox", ignoreCase = true) ||
+                systemNoiseList.contains(packageName)
+
+        if (isNoise) {
+            isCurrentlyInNoise = true
+            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
+            return
+        }
+
+        isCurrentlyInNoise   = false
+        currentVisibleScreen = appName
+
+        if (appName == "Home Screen") {
+            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
+            return
+        }
+
+        if (appName != currentRealApp) {
+            val previousApp = currentRealApp
+            currentRealApp  = appName
+
+            val myUid = auth.currentUser?.uid
+            if (myUid != null) {
+                serviceScope.launch(Dispatchers.IO) {
                     try {
-                        val pm = getSystemService(POWER_SERVICE) as PowerManager
-                        @Suppress("DEPRECATION")
-                        val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "AISecurity::PreCameraWake")
-                        wl.acquire(5_000L)
-                        delay(300)
-
-                        val photoIntent = Intent(this@TouchDynamicsService, HiddenCameraActivity::class.java).apply {
-                            putExtra("CAMERA_TYPE", cmdTakePhoto)
-                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                        }
-                        startActivity(photoIntent)
-
-                        delay(2000)
-                        if (wl.isHeld) wl.release()
+                        firebaseDb.collection("Users").document(myUid)
+                            .set(hashMapOf("current_active_app" to currentRealApp), SetOptions.merge())
                     } catch (e: Exception) { e.printStackTrace() }
                 }
             }
 
-            val resolver = contentResolver
+            val now      = System.currentTimeMillis()
+            val timeTaken = if (lastRealAppLeaveTime > 0)
+                now - lastRealAppLeaveTime
+            else
+                now - lastAppSwitchTime
 
-            fun checkMirrorState(stateField: String, targetSetting: String, physicalState: Boolean) {
-                val firebaseState = snapshot.getBoolean(stateField) ?: return
-                val lastState = lastFirebaseStates[stateField]
+            currentTransitionSpeed =
+                (timeTaken.coerceAtLeast(100L).toFloat() / 10000f).coerceIn(0f, 1f)
 
-                if (lastState == null) {
-                    lastFirebaseStates[stateField] = firebaseState
-                    if (firebaseState != physicalState) forceFirebaseSyncToReality(myUid)
-                    return
-                }
-
-                if (firebaseState != lastState) {
-                    if (firebaseState != physicalState) {
-                        val lastAttemptTime = commandCooldowns[targetSetting] ?: 0L
-                        if (System.currentTimeMillis() - lastAttemptTime > 10000) {
-                            LiveLogger.log("⚙️ REMOTE CMD: Triggering toggle for $targetSetting...")
-                            commandCooldowns[targetSetting] = System.currentTimeMillis()
-                            executeDirectToggle(targetSetting)
-                        }
-                    }
-                }
-                else if (firebaseState != physicalState) {
-                    LiveLogger.log("📱 LOCAL CMD: User manually changed $targetSetting. Syncing to Cloud...")
-                    forceFirebaseSyncToReality(myUid)
-                }
-
-                lastFirebaseStates[stateField] = firebaseState
+            if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
+                lastFromApp = previousApp
+                lastToApp   = currentRealApp
+                LiveLogger.log("📱 FLOW: $lastFromApp -> $lastToApp")
+                serviceScope.launch { learnTransition(previousApp, currentRealApp, timeTaken) }
             }
-
-            try {
-                val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-                checkMirrorState("state_wifi", "WIFI", wifiOn)
-
-                val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-                checkMirrorState("state_mobile_data", "DATA", dataOn)
-
-                val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
-                checkMirrorState("state_bluetooth", "BLUETOOTH", btOn)
-
-                val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-                checkMirrorState("state_location", "LOCATION", locOn)
-
-                val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
-                checkMirrorState("state_battery_saver", "BATTERY", saverOn)
-            } catch (ex: Exception) {
-                ex.printStackTrace()
-            }
+            lastAppSwitchTime    = now
+            lastRealAppLeaveTime = 0L
+        } else {
+            lastRealAppLeaveTime = 0L
         }
     }
 
-    private fun forceFirebaseSyncToReality(myUid: String? = auth.currentUser?.uid) {
-        if (myUid == null) return
-        val resolver = contentResolver
-        val wifiOn  = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-        val dataOn  = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-        val btOn    = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
-        val locOn   = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
+    private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
+        val prefs    = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val isReady  = prefs.getBoolean("ai_ready", false)
+        val isPaused = prefs.getBoolean("training_paused", true)
 
-        lastFirebaseStates["state_wifi"] = wifiOn
-        lastFirebaseStates["state_mobile_data"] = dataOn
-        lastFirebaseStates["state_bluetooth"] = btOn
-        lastFirebaseStates["state_location"] = locOn
-        lastFirebaseStates["state_battery_saver"] = saverOn
+        if (isPaused && !isReady) return
+        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
 
-        val updates = hashMapOf<String, Any>(
-            "state_wifi"          to wifiOn,
-            "state_mobile_data"   to dataOn,
-            "state_bluetooth"     to btOn,
-            "state_location"      to locOn,
-            "state_battery_saver" to saverOn,
-            "lastHardwareUpdate"  to com.google.firebase.Timestamp.now()
-        )
-        firebaseDb.collection("Users").document(myUid).set(updates, SetOptions.merge())
-    }
+        // 🚨 MASSIVELY INCREASED TRANSITION PENALTIES
+        val penaltyLevel = prefs.getInt("ai_sensitivity", 1)
+        val penaltyValue = when (penaltyLevel) {
+            0    -> 15  // Normal: +15%
+            2    -> 50  // Strict: +50%
+            else -> 30  // Moderate: +30%
+        }
 
-    private fun executeDirectToggle(target: String) {
-        serviceScope.launch(Dispatchers.IO) {
-            var directApiSucceeded = false
-            try {
-                val resolver = contentResolver
-                when (target) {
-                    "WIFI" -> {
-                        val currentState = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-                        val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-                        @Suppress("DEPRECATION")
-                        wifiMgr.isWifiEnabled = !currentState
-                        directApiSucceeded = true
-                    }
-                    "BLUETOOTH" -> {
-                        val currentState = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
-                        val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-                        @Suppress("DEPRECATION")
-                        if (!currentState) btAdapter?.enable() else btAdapter?.disable()
-                        directApiSucceeded = true
-                    }
-                    "DATA" -> {
-                        val currentState = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-                        Settings.Global.putInt(resolver, "mobile_data", if (!currentState) 1 else 0)
-                        directApiSucceeded = true
-                    }
-                    "LOCATION" -> {
-                        val currentState = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-                        Settings.Secure.putInt(resolver, Settings.Secure.LOCATION_MODE, if (!currentState) 3 else 0)
-                        directApiSucceeded = true
-                    }
-                    "BATTERY" -> {
-                        val currentState = Settings.Global.getInt(resolver, "low_power", 0) == 1
-                        Settings.Global.putInt(resolver, "low_power", if (!currentState) 1 else 0)
-                        directApiSucceeded = true
-                    }
-                }
-            } catch (e: Exception) {
-                LiveLogger.log("⚡ Direct API blocked for $target — engaging Poltergeist fallback...")
-                directApiSucceeded = false
+        val history = db.dao().getTransition(from, to)
+        if (history == null) {
+            if (isReady) {
+                increaseRisk(penaltyValue)
+                LiveLogger.log("🚨 ANOMALY: Unrecognized App Route! Penalty: +$penaltyValue%")
+            }
+            db.dao().updateTransition(
+                TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1)
+            )
+        } else {
+            if (isReady && kotlin.math.abs(history.avgTime - timeTaken) > 1500) {
+                increaseRisk(penaltyValue)
+                LiveLogger.log("🚨 ANOMALY: Erratically slow/fast App Switch! Penalty: +$penaltyValue%")
+            }
+            else if (isReady) {
+                decreaseRisk(1) // Ruthless forgiveness limit
             }
 
-            if (directApiSucceeded) {
-                delay(2000)
-                forceFirebaseSyncToReality()
+            if (!isReady || kotlin.math.abs(history.avgTime - timeTaken) <= 1500) {
+                val newAvgTime =
+                    ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
+                db.dao().updateTransition(
+                    history.copy(avgTime = newAvgTime, frequency = history.frequency + 1)
+                )
+            }
+        }
+
+        runContextualAI(velocity = 0f, duration = 0f, appName = to, fromApp = from, transitionTime = timeTaken)
+    }
+
+    private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
+        if (duration < 20) return
+        val prefs    = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val isReady  = prefs.getBoolean("ai_ready", false)
+        val isPaused = prefs.getBoolean("training_paused", true)
+
+        if (isPaused && !isReady) return
+        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
+
+        if (!isReady) {
+            val oldStats = db.dao().getAppStats(appLabel)
+            val newStats = if (oldStats == null) {
+                AppUsageProfile(appLabel, velocity, duration, 1)
             } else {
-                executePoltergeistFallback(target)
+                val count     = oldStats.interactionCount
+                val newAvgVel = ((oldStats.avgVelocity * count) + velocity) / (count + 1)
+                val newAvgDur = ((oldStats.avgDuration * count) + duration) / (count + 1)
+                AppUsageProfile(appLabel, newAvgVel, newAvgDur, count + 1)
+            }
+            db.dao().updateAppStats(newStats)
+        }
+
+        runContextualAI(velocity = velocity, duration = duration, appName = appLabel, fromApp = lastFromApp, transitionTime = (lastAppSwitchTime - lastRealAppLeaveTime).coerceAtLeast(100L))
+        serviceScope.launch { syncBiometricsToWatch(-1) }
+    }
+
+    internal fun increaseRisk(amount: Int) {
+        val prefs   = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val current = prefs.getInt("current_risk", 0)
+        val newRisk = (current + amount).coerceIn(0, 100)
+        prefs.edit().putInt("current_risk", newRisk).apply()
+        checkLock(newRisk)
+    }
+
+    internal fun decreaseRisk(amount: Int) {
+        val prefs   = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val current = prefs.getInt("current_risk", 0)
+        prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
+    }
+
+    private fun checkLock(risk: Int) {
+        val lockThreshold = 100
+        if (risk >= lockThreshold && !isLockdownCooldown) {
+            isLockdownCooldown = true
+            serviceScope.launch(Dispatchers.Main) {
+                val title   = "AI Intruder Lockdown"
+                val details = "Unrecognized touch biometrics detected. Risk ($risk%) reached maximum limit ($lockThreshold%). Defense protocol engaged."
+                com.example.aisecurity.ble.WatchManager.logAndNotify(this@TouchDynamicsService, title, details, 2)
+
+                val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+                prefs.edit().putInt("current_risk", 50).apply()
+                enforcer.lockDevice("AI Touch Dynamics Threat Detected")
             }
         }
     }
 
-    private suspend fun executePoltergeistFallback(target: String) {
-        withContext(Dispatchers.Main) {
-            var toggled = false
-            try {
-                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                @Suppress("DEPRECATION")
-                val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "Sentry::TileWake")
-                wl.acquire(3000)
-                delay(300)
-
-                val metrics = resources.displayMetrics
-                val swipePath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.85f, 1f)
-                    lineTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.7f)
-                }
-                val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(swipePath, 0, 300)).build()
-                dispatchGesture(gesture, null, null)
-
-                delay(800)
-
-                val targets = mutableMapOf<String, List<String>>()
-                val keywords = when (target) {
-                    "DATA" -> listOf("mobile data", "data network", "cellular", "datos", "data connection")
-                    "WIFI" -> listOf("wi-fi", "wifi", "wlan", "internet")
-                    "BLUETOOTH" -> listOf("bluetooth", "bt")
-                    "LOCATION" -> listOf("location", "gps", "ubicación")
-                    "BATTERY" -> listOf("battery saver", "power saving", "low power")
-                    else -> emptyList()
-                }
-                targets[target] = keywords
-
-                spatialSurgicalComboTap(rootInActiveWindow, targets)
-                toggled = targets.isEmpty()
-
-                if (!toggled) {
-                    val scrollPath = Path().apply {
-                        moveTo(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.3f)
-                        lineTo(metrics.widthPixels * 0.2f, metrics.heightPixels * 0.3f)
-                    }
-                    val scrollGesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(scrollPath, 0, 200)).build()
-                    dispatchGesture(scrollGesture, null, null)
-
-                    delay(500)
-                    spatialSurgicalComboTap(rootInActiveWindow, targets)
-                }
-
-                if (wl.isHeld) wl.release()
-
-            } catch (e: Exception) {
-                e.printStackTrace()
-            } finally {
-                delay(400)
-
-                val metrics = resources.displayMetrics
-                val closePath = Path().apply {
-                    moveTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.8f)
-                    lineTo(metrics.widthPixels * 0.85f, 1f)
-                }
-                val closeGesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(closePath, 0, 200)).build()
-                dispatchGesture(closeGesture, null, null)
-
-                performGlobalAction(GLOBAL_ACTION_BACK)
-
-                serviceScope.launch(Dispatchers.IO) {
-                    delay(2000)
-                    forceFirebaseSyncToReality()
-                }
-            }
-        }
-    }
-
-    private fun executeEmergencyCommsCombo() {
-        if (isPoltergeistActive) return
-        isPoltergeistActive = true
-
-        serviceScope.launch(Dispatchers.IO) {
-            val resolver = contentResolver
-            val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-            val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-            val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-
-            if (wifiOn && dataOn && locOn) {
-                LiveLogger.log("✅ Emergency Comms: All connections are already active. Doing nothing.")
-                isPoltergeistActive = false
-                return@launch
-            }
-
-            LiveLogger.log("⚠️ Emergency Comms: Missing critical connections. Force arming via Combo Hack...")
-
-            withContext(Dispatchers.Main) {
-                try {
-                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                    @Suppress("DEPRECATION")
-                    val wl = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "Sentry::ComboWake")
-                    wl.acquire(4000)
-                    delay(300)
-
-                    val metrics = resources.displayMetrics
-                    val swipePath = Path().apply {
-                        moveTo(metrics.widthPixels * 0.85f, 1f)
-                        lineTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.7f)
-                    }
-                    val gesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(swipePath, 0, 300)).build()
-                    dispatchGesture(gesture, null, null)
-
-                    delay(800)
-
-                    val targets = mutableMapOf<String, List<String>>()
-                    if (!wifiOn) targets["WIFI"] = listOf("wi-fi", "wifi", "wlan", "internet")
-                    if (!dataOn) targets["DATA"] = listOf("mobile data", "data network", "cellular", "datos", "data connection")
-                    if (!locOn) targets["LOCATION"] = listOf("location", "gps", "ubicación")
-
-                    spatialSurgicalComboTap(rootInActiveWindow, targets)
-
-                    val scrollPath = Path().apply {
-                        moveTo(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.3f)
-                        lineTo(metrics.widthPixels * 0.2f, metrics.heightPixels * 0.3f)
-                    }
-                    val scrollGesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(scrollPath, 0, 200)).build()
-                    dispatchGesture(scrollGesture, null, null)
-
-                    delay(500)
-                    spatialSurgicalComboTap(rootInActiveWindow, targets)
-
-                    if (wl.isHeld) wl.release()
-
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    delay(400)
-
-                    val metrics = resources.displayMetrics
-                    val closePath = Path().apply {
-                        moveTo(metrics.widthPixels * 0.85f, metrics.heightPixels * 0.8f)
-                        lineTo(metrics.widthPixels * 0.85f, 1f)
-                    }
-                    val closeGesture = GestureDescription.Builder().addStroke(GestureDescription.StrokeDescription(closePath, 0, 200)).build()
-                    dispatchGesture(closeGesture, null, null)
-
-                    performGlobalAction(GLOBAL_ACTION_BACK)
-
-                    isPoltergeistActive = false
-                    serviceScope.launch(Dispatchers.IO) {
-                        delay(2000)
-                        forceFirebaseSyncToReality()
-                    }
-                }
-            }
-        }
-    }
-
-    private fun spatialSurgicalComboTap(rootNode: AccessibilityNodeInfo?, targets: MutableMap<String, List<String>>) {
-        if (rootNode == null || targets.isEmpty()) return
-
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(rootNode)
-
-        val successfullyTapped = mutableSetOf<String>()
-
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-            val text = node.text?.toString()?.lowercase(Locale.ROOT) ?: ""
-            val desc = node.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
-
-            for ((category, keywords) in targets) {
-                if (successfullyTapped.contains(category)) continue
-
-                if (keywords.any { k -> text.contains(k) || desc.contains(k) || text == k }) {
-                    successfullyTapped.add(category)
-
-                    if (node.isClickable) {
-                        node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    } else if (node.parent?.isClickable == true) {
-                        node.parent.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-                    } else {
-                        val rect = Rect()
-                        node.getBoundsInScreen(rect)
-                        if (rect.centerY() > 50) {
-                            val x = rect.centerX().toFloat()
-                            val y = rect.centerY().toFloat()
-                            fireHumanTap(x, y)
-                            fireHumanTap(x, y - 80f)
-                        }
-                    }
-                    break
-                }
-            }
-
-            for (i in 0 until node.childCount) {
-                node.getChild(i)?.let { queue.add(it) }
-            }
-        }
-
-        successfullyTapped.forEach { targets.remove(it) }
-    }
-
-    private fun fireHumanTap(x: Float, y: Float) {
-        try {
-            val path = Path().apply {
-                moveTo(x - 1f, y - 1f)
-                lineTo(x + 1f, y + 1f)
-            }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-                .build()
-            dispatchGesture(gesture, null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun triggerScrimSniper() {
-        val now = System.currentTimeMillis()
-        if (now - lastGuillotineTime < 300) return
-        lastGuillotineTime = now
-
-        serviceScope.launch(Dispatchers.Main) {
-            repeat(5) {
-                executeBottomScreenTap()
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-                delay(50)
-            }
-        }
-    }
-
-    private fun executeBottomScreenTap() {
-        try {
-            val metrics = resources.displayMetrics
-            val midX   = metrics.widthPixels / 2f
-            val bottomY = metrics.heightPixels * 0.85f
-            val path = Path().apply {
-                moveTo(midX, bottomY)
-                lineTo(midX + 1f, bottomY + 1f)
-            }
-            val gesture = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 30))
-                .build()
-            dispatchGesture(gesture, null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun executeAntiGravitySwipe() {
-        try {
-            val displayMetrics = resources.displayMetrics
-            val middleX = displayMetrics.widthPixels / 2f
-            val startY  = displayMetrics.heightPixels / 2f
-            val path = Path().apply {
-                moveTo(middleX, startY)
-                lineTo(middleX, 0f)
-            }
-            val gestureBuilder = GestureDescription.Builder()
-                .addStroke(GestureDescription.StrokeDescription(path, 0, 50))
-            dispatchGesture(gestureBuilder.build(), null, null)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun deployAegisShield() {
-        if (isAegisDeployed || windowManager == null) return
-        try {
-            aegisShieldView = View(this).apply {
-                setBackgroundColor(Color.TRANSPARENT)
-                setOnTouchListener { _, _ -> true }
-            }
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                200,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE
-                        or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-            ).apply { gravity = Gravity.TOP }
-            windowManager?.addView(aegisShieldView, params)
-            isAegisDeployed = true
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun removeAegisShield() {
-        if (!isAegisDeployed || windowManager == null || aegisShieldView == null) return
-        try {
-            windowManager?.removeView(aegisShieldView)
-            isAegisDeployed = false
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    @SuppressLint("ClickableViewAccessibility")
-    private fun deployBlackoutShield() {
-        if (blackoutShieldView != null || windowManager == null) return
-        try {
-            blackoutShieldView = View(this).apply {
-                setBackgroundColor(Color.BLACK)
-                setOnTouchListener { _, _ -> true }
-            }
-            val params = WindowManager.LayoutParams(
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.MATCH_PARENT,
-                WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY,
-                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN
-                        or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS
-                        or WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-                PixelFormat.OPAQUE
-            ).apply {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                }
-            }
-            windowManager?.addView(blackoutShieldView, params)
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun removeBlackoutShield() {
-        if (blackoutShieldView == null || windowManager == null) return
-        try {
-            windowManager?.removeView(blackoutShieldView)
-            blackoutShieldView = null
-        } catch (e: Exception) { e.printStackTrace() }
-    }
-
-    private fun getContextHash(text: String): Float {
-        return (kotlin.math.abs(text.hashCode()) % 1000) / 1000f
-    }
+    private fun getContextHash(text: String): Float =
+        (kotlin.math.abs(text.hashCode()) % 1000) / 1000f
 
     private suspend fun runContextualAI(
-        velocity: Float,
-        duration: Float,
-        appName: String,
-        fromApp: String,
+        velocity      : Float,
+        duration      : Float,
+        appName       : String,
+        fromApp       : String,
         transitionTime: Long
     ) {
-        val prefs     = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val isReady   = prefs.getBoolean("ai_ready", false)
-        val isPaused  = prefs.getBoolean("training_paused", true)
+        val prefs    = getSharedPreferences("ai_prefs", MODE_PRIVATE)
+        val isReady  = prefs.getBoolean("ai_ready", false)
+        val isPaused = prefs.getBoolean("training_paused", true)
 
         val globalThreshold = prefs.getFloat("threshold", 0.08f)
         val targetStability = globalThreshold * 1.2f
@@ -744,26 +411,38 @@ class TouchDynamicsService : AccessibilityService() {
 
         if (isReady) {
             if (finalPct >= 75) {
-                val error    = classifier.getError(features)
-                val ratio    = error / globalThreshold
+                val error = classifier.getError(features)
+                val ratio = error / globalThreshold
 
-                // 🚨 NEW LOGIC: Dynamic Penalty per anomaly
                 if (ratio > 1.0f) {
+                    // 🚨 RUTHLESS INTRUDER PENALTIES FOR SWIPES (Equalized to Transitions)
                     val penaltyLevel = prefs.getInt("ai_sensitivity", 1)
-                    val penaltyValue = when(penaltyLevel) {
-                        0 -> 5
-                        2 -> 15
-                        else -> 10
+                    val basePenalty = when (penaltyLevel) {
+                        0    -> 15  // Normal: +15%
+                        2    -> 50  // Strict: +50% (Max 2 bad swipes to lockdown)
+                        else -> 30  // Moderate: +30%
                     }
-                    increaseRisk(penaltyValue)
+
+                    // Multiplier scales from 1.0x to 2.0x based on how unfamiliar the swipe is.
+                    // On Strict, an extremely bad swipe will hit 100% and INSTANTLY lock.
+                    val severityMultiplier = ratio.coerceIn(1.0f, 2.0f)
+                    val finalPenalty = (basePenalty * severityMultiplier).toInt()
+
+                    increaseRisk(finalPenalty)
+                    LiveLogger.log("🚨 INTRUDER SWIPE DETECTED! Ratio: ${"%.2f".format(ratio)}x, Penalty: +$finalPenalty%")
                 } else {
-                    decreaseRisk(2) // Reward good swipes slightly
+                    decreaseRisk(1) // Ruthless forgiveness limit
 
                     val rawLoss = classifier.trainAI(features)
                     appSpecificEma = BehavioralAuthClassifier.emaStep(appSpecificEma, rawLoss)
                     prefs.edit().putFloat("ema_loss_$appName", appSpecificEma).apply()
                     db.dao().insertTouch(
-                        TouchProfile(duration = duration, velocityX = velocity, pressure = normPressure, appName = appName)
+                        TouchProfile(
+                            duration  = duration,
+                            velocityX = velocity,
+                            pressure  = normPressure,
+                            appName   = appName
+                        )
                     )
                 }
             }
@@ -781,7 +460,7 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    private fun startWatchSyncLoop() {
+    internal fun startWatchSyncLoop() {
         if (!isWatchSyncLoopRunning) {
             isWatchSyncLoopRunning = true
             serviceScope.launch {
@@ -795,344 +474,7 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    private fun getReadableAppName(packageName: String): String {
-        if (homeLaunchers.contains(packageName) || packageName.contains("launcher")) return "Home Screen"
-        if (knownAppOverrides.containsKey(packageName)) return knownAppOverrides[packageName]!!
-        return try {
-            val pm      = packageManager
-            val appInfo = pm.getApplicationInfo(packageName, 0)
-            pm.getApplicationLabel(appInfo).toString()
-        } catch (_: Exception) {
-            packageName.split(".").last().replaceFirstChar { it.uppercase() }
-        }
-    }
-
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        startWatchSyncLoop()
-
-        val prefs = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        if (prefs.getBoolean("is_auth_in_progress", false)) return
-
-        val isLocked = prefs.getBoolean("is_system_locked", false)
-        val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
-        val km = getSystemService(KEYGUARD_SERVICE) as KeyguardManager
-
-        val rawPackageName = event?.packageName?.toString()?.lowercase(Locale.ROOT) ?: ""
-        val className      = event?.className?.toString()?.lowercase(Locale.ROOT) ?: ""
-        val eventType      = event?.eventType
-        val textNodes      = event?.text?.toString()?.lowercase(Locale.ROOT) ?: ""
-        val contentDesc    = event?.contentDescription?.toString()?.lowercase(Locale.ROOT) ?: ""
-
-        val combinedText   = "$textNodes $contentDesc"
-
-        val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
-        if (isFakeDeadState) {
-            if (rawPackageName == "com.android.systemui" ||
-                className.contains("panel", true) ||
-                className.contains("notification", true) ||
-                className.contains("expand", true) ||
-                eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
-            ) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    performGlobalAction(GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
-                }
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-                return
-            }
-        }
-
-        val isEnvironmentHostile = km.isKeyguardLocked || isLocked
-
-        val isFalsePositive = className.contains("volume", true) ||
-                combinedText.contains("volume") ||
-                className.contains("notification", true) ||
-                combinedText.contains("emergency")
-
-        val isMiuiPowerAction = rawPackageName.contains("miui.powercenter") ||
-                rawPackageName.contains("powerkeeper") ||
-                className.contains("shutdowncontainer", true) ||
-                className.contains("globalactions", true)
-
-        val hasPowerText = combinedText.contains("power off") ||
-                combinedText.contains("restart") ||
-                combinedText.contains("reboot") ||
-                combinedText.contains("shut down")
-
-        val isGenericSystemPower = (rawPackageName == "android" || rawPackageName.contains("systemui")) && hasPowerText
-
-        val isPowerMenu = !isFalsePositive && (isMiuiPowerAction || isGenericSystemPower)
-
-        val isFakeShutdownEnabled = prefs.getBoolean("enable_fake_shutdown", false)
-
-        if (isPowerMenu) {
-            if (isFakeShutdownEnabled) {
-                performGlobalAction(GLOBAL_ACTION_BACK)
-                try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-
-                try {
-                    val phantomIntent = Intent(
-                        this,
-                        com.example.aisecurity.ui.FakeShutdownActivity::class.java
-                    ).apply {
-                        addFlags(
-                            Intent.FLAG_ACTIVITY_NEW_TASK
-                                    or Intent.FLAG_ACTIVITY_NO_ANIMATION
-                                    or Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
-                                    or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                        )
-                    }
-                    startActivity(phantomIntent)
-                } catch (e: Exception) { e.printStackTrace() }
-                return
-            } else if (isEnvironmentHostile) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    performGlobalAction(GLOBAL_ACTION_LOCK_SCREEN)
-                }
-                return
-            }
-        }
-
-        if (isLocked) {
-            if (defenseType == "OVERLAY") {
-                deployAegisShield()
-                if (rawPackageName.contains("systemui") ||
-                    eventType == AccessibilityEvent.TYPE_NOTIFICATION_STATE_CHANGED
-                ) {
-                    if (!isPoltergeistActive) {
-                        try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) { e.printStackTrace() }
-                        performGlobalAction(GLOBAL_ACTION_BACK)
-                        executeAntiGravitySwipe()
-                        performGlobalAction(GLOBAL_ACTION_HOME)
-                    }
-                } else if (rawPackageName.contains("com.android.settings") ||
-                    rawPackageName.contains("coloros") ||
-                    rawPackageName.contains("oplus") ||
-                    rawPackageName.contains("miui")
-                ) {
-                    if (!isPoltergeistActive) performGlobalAction(GLOBAL_ACTION_HOME)
-                } else if (rawPackageName.isNotEmpty() &&
-                    !rawPackageName.contains("com.example.aisecurity")
-                ) {
-                    performGlobalAction(GLOBAL_ACTION_HOME)
-                }
-            }
-            return
-        } else {
-            removeAegisShield()
-        }
-
-        if (isEnvironmentHostile && rawPackageName == "com.android.systemui" && defenseType == "OVERLAY") {
-            if (className.contains("panel", true) || className.contains("notification", true) ||
-                className.contains("expand", true) || className.contains("settings", true) ||
-                eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED
-            ) {
-                triggerScrimSniper()
-                return
-            }
-        }
-
-        if (eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
-            if (systemNoiseList.contains(rawPackageName)) return
-            updateContext(rawPackageName)
-        }
-
-        if (eventType == AccessibilityEvent.TYPE_VIEW_SCROLLED) {
-            if (!systemNoiseList.contains(rawPackageName) &&
-                !homeLaunchers.contains(rawPackageName) &&
-                !rawPackageName.contains("launcher")
-            ) {
-                val actualApp = getReadableAppName(rawPackageName)
-                if (actualApp != currentVisibleScreen) updateContext(rawPackageName)
-            }
-
-            if (swipeStartTime == 0L) swipeStartTime = System.currentTimeMillis()
-            eventCount++
-            swipeJob?.cancel()
-
-            swipeJob = serviceScope.launch {
-                delay(200)
-                val totalDuration    = System.currentTimeMillis() - swipeStartTime
-                val estimatedPixels  = (eventCount * 100).toFloat()
-                val velocity         = if (totalDuration > 0) (estimatedPixels / totalDuration) * 1000 else 0f
-
-                if (!systemNoiseList.contains(rawPackageName) && currentVisibleScreen.isNotEmpty()) {
-                    processSwipe(totalDuration.toFloat(), velocity, currentVisibleScreen)
-                }
-                swipeStartTime = 0L
-                eventCount     = 0
-            }
-        }
-    }
-
-    private fun updateContext(packageName: String) {
-        val appName = getReadableAppName(packageName)
-        getSharedPreferences("app_icons", MODE_PRIVATE).edit()
-            .putString(appName, packageName).apply()
-
-        val isNoise = appName.contains("System", ignoreCase = true) ||
-                appName.contains("quicksearchbox", ignoreCase = true) ||
-                systemNoiseList.contains(packageName)
-
-        if (isNoise) {
-            isCurrentlyInNoise = true
-            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
-            return
-        }
-
-        isCurrentlyInNoise    = false
-        currentVisibleScreen  = appName
-
-        if (appName == "Home Screen") {
-            if (lastRealAppLeaveTime == 0L) lastRealAppLeaveTime = System.currentTimeMillis()
-            return
-        }
-
-        if (appName != currentRealApp) {
-            val previousApp = currentRealApp
-            currentRealApp  = appName
-            val now         = System.currentTimeMillis()
-
-            val myUid = auth.currentUser?.uid
-            if (myUid != null) {
-                serviceScope.launch(Dispatchers.IO) {
-                    try {
-                        firebaseDb.collection("Users").document(myUid)
-                            .set(hashMapOf("current_active_app" to currentRealApp), SetOptions.merge())
-                    } catch (e: Exception) { e.printStackTrace() }
-                }
-            }
-
-            val timeTaken = if (lastRealAppLeaveTime > 0)
-                now - lastRealAppLeaveTime
-            else
-                now - lastAppSwitchTime
-
-            currentTransitionSpeed = (timeTaken.coerceAtLeast(100L).toFloat() / 10000f).coerceIn(0f, 1f)
-
-            if (previousApp.isNotEmpty() && previousApp != "Home Screen" && timeTaken < 60000L) {
-                lastFromApp = previousApp
-                lastToApp   = currentRealApp
-
-                LiveLogger.log("📱 FLOW: $lastFromApp -> $lastToApp")
-
-                serviceScope.launch { learnTransition(previousApp, currentRealApp, timeTaken) }
-            }
-            lastAppSwitchTime    = now
-            lastRealAppLeaveTime = 0L
-        } else {
-            lastRealAppLeaveTime = 0L
-        }
-    }
-
-    private suspend fun learnTransition(from: String, to: String, timeTaken: Long) {
-        val prefs    = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val isReady  = prefs.getBoolean("ai_ready", false)
-        val isPaused = prefs.getBoolean("training_paused", true)
-
-        if (isPaused && !isReady) return
-        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
-
-        val penaltyLevel = prefs.getInt("ai_sensitivity", 1)
-        val penaltyValue = when(penaltyLevel) {
-            0 -> 5   // Normal
-            2 -> 15  // Strict
-            else -> 10 // Moderate
-        }
-
-        val history = db.dao().getTransition(from, to)
-        if (history == null) {
-            if (isReady) increaseRisk(penaltyValue)
-            db.dao().updateTransition(
-                TransitionProfile(fromApp = from, toApp = to, avgTime = timeTaken, frequency = 1)
-            )
-        } else {
-            if (isReady && kotlin.math.abs(history.avgTime - timeTaken) > 1500)
-                increaseRisk(penaltyValue)
-            else if (isReady)
-                decreaseRisk(2)
-
-            if (!isReady || kotlin.math.abs(history.avgTime - timeTaken) <= 1500) {
-                val newAvgTime = ((history.avgTime * history.frequency) + timeTaken) / (history.frequency + 1)
-                db.dao().updateTransition(history.copy(avgTime = newAvgTime, frequency = history.frequency + 1))
-            }
-        }
-        runContextualAI(
-            velocity       = 0f,
-            duration       = 0f,
-            appName        = to,
-            fromApp        = from,
-            transitionTime = timeTaken
-        )
-    }
-
-    private suspend fun processSwipe(duration: Float, velocity: Float, appLabel: String) {
-        if (duration < 20) return
-        val prefs    = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val isReady  = prefs.getBoolean("ai_ready", false)
-        val isPaused = prefs.getBoolean("training_paused", true)
-
-        if (isPaused && !isReady) return
-        if (System.currentTimeMillis() - lastUnlockTime < 3000) return
-
-        if (!isReady) {
-            val oldStats = db.dao().getAppStats(appLabel)
-            val newStats = if (oldStats == null) {
-                AppUsageProfile(appLabel, velocity, duration, 1)
-            } else {
-                val count      = oldStats.interactionCount
-                val newAvgVel  = ((oldStats.avgVelocity * count) + velocity) / (count + 1)
-                val newAvgDur  = ((oldStats.avgDuration * count) + duration) / (count + 1)
-                AppUsageProfile(appLabel, newAvgVel, newAvgDur, count + 1)
-            }
-            db.dao().updateAppStats(newStats)
-        }
-
-        runContextualAI(
-            velocity       = velocity,
-            duration       = duration,
-            appName        = appLabel,
-            fromApp        = lastFromApp,
-            transitionTime = (lastAppSwitchTime - lastRealAppLeaveTime).coerceAtLeast(100L)
-        )
-        serviceScope.launch { syncBiometricsToWatch(-1) }
-    }
-
-    private fun increaseRisk(amount: Int) {
-        val prefs   = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val current = prefs.getInt("current_risk", 0)
-        val newRisk = (current + amount).coerceIn(0, 100)
-        prefs.edit().putInt("current_risk", newRisk).apply()
-        checkLock(newRisk)
-    }
-
-    private fun decreaseRisk(amount: Int) {
-        val prefs   = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val current = prefs.getInt("current_risk", 0)
-        prefs.edit().putInt("current_risk", (current - amount).coerceAtLeast(0)).apply()
-    }
-
-    // 🚨 NEW LOGIC: Lock Threshold is ALWAYS 100%
-    private fun checkLock(risk: Int) {
-        val prefs       = getSharedPreferences("ai_prefs", MODE_PRIVATE)
-        val lockThreshold = 100 // 🚨 ALWAYS 100% NOW!
-
-        if (risk >= lockThreshold && !isLockdownCooldown) {
-            isLockdownCooldown = true
-            serviceScope.launch(Dispatchers.Main) {
-
-                val title = "AI Intruder Lockdown"
-                val details = "Unrecognized touch biometrics detected. Risk ($risk%) reached maximum limit ($lockThreshold%). Defense protocol engaged."
-
-                com.example.aisecurity.ble.WatchManager.logAndNotify(this@TouchDynamicsService, title, details, 2)
-
-                prefs.edit().putInt("current_risk", 50).apply()
-                enforcer.lockDevice("AI Touch Dynamics Threat Detected")
-            }
-        }
-    }
-
-    private suspend fun syncBiometricsToWatch(loopCount: Int) {
+    internal suspend fun syncBiometricsToWatch(loopCount: Int) {
         if (com.example.aisecurity.ble.WatchManager.isConnected.value != true) return
         val prefs      = getSharedPreferences("ai_prefs", MODE_PRIVATE)
         val isReady    = prefs.getBoolean("ai_ready", false)
@@ -1170,17 +512,16 @@ class TouchDynamicsService : AccessibilityService() {
         }
     }
 
-    override fun onInterrupt() {}
-
-    override fun onDestroy() {
-        super.onDestroy()
-        removeAegisShield()
-        removeBlackoutShield()
-        isWatchSyncLoopRunning = false
-        try {
-            unregisterReceiver(ghostReceiver)
-            unregisterReceiver(osBiometricSyncReceiver)
-        } catch (_: IllegalArgumentException) {}
-        serviceScope.cancel()
+    internal fun getReadableAppName(packageName: String): String {
+        if (homeLaunchers.contains(packageName) || packageName.contains("launcher"))
+            return "Home Screen"
+        if (knownAppOverrides.containsKey(packageName))
+            return knownAppOverrides[packageName]!!
+        return try {
+            val appInfo = packageManager.getApplicationInfo(packageName, 0)
+            packageManager.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            packageName.split(".").last().replaceFirstChar { it.uppercase() }
+        }
     }
 }

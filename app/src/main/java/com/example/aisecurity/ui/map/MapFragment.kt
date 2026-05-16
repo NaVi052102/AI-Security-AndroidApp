@@ -52,7 +52,6 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MapStyleOptions
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.material.card.MaterialCardView
-import com.google.android.material.switchmaterial.SwitchMaterial
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
@@ -643,18 +642,19 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         rootChassis?.setCardBackgroundColor(mainBgColor)
         rootChassis?.strokeColor = strokeColor
 
+        // 🚨 REMOVED R.id.cardConnectivity from this array
         val cardIds = intArrayOf(
-            R.id.cardProfile, R.id.cardConnectivity, R.id.cardAiDetection,
+            R.id.cardProfile, R.id.cardAiDetection,
             R.id.cardLockType, R.id.cardCamera, R.id.cardGallery, R.id.cardLocation
         )
         for (id in cardIds) {
             dialogView.findViewById<CardView>(id)?.setCardBackgroundColor(cardBgColor)
         }
 
+        // 🚨 REMOVED Wi-Fi, Data, Bluetooth, Battery text IDs from this array
         val textPrimaryIds = intArrayOf(
-            R.id.tvTargetName, R.id.tvWifiStatus, R.id.tvMobileDataStatus, R.id.tvLocationStatus,
-            R.id.tvLocationCity, R.id.tvLatitude, R.id.tvLongitude, R.id.tvBluetoothStatus,
-            R.id.tvBatterySaverStatus, R.id.tvRemoteDistance
+            R.id.tvTargetName, R.id.tvLocationCity, R.id.tvLatitude,
+            R.id.tvLongitude, R.id.tvRemoteDistance
         )
         for (id in textPrimaryIds) {
             dialogView.findViewById<TextView>(id)?.setTextColor(textPrimary)
@@ -680,7 +680,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
 
         val tvCurrentActiveApp = dialogView.findViewById<TextView>(R.id.tvCurrentActiveApp)
 
-        setupToggles(dialogView, targetUid, dialog)
+        // 🚨 REMOVED setupToggles call here
         setupCameraDropdown(dialogView, targetUid)
         setupLockDropdown(dialogView, targetUid)
 
@@ -944,141 +944,7 @@ class MapFragment : Fragment(), SensorEventListener, OnMapReadyCallback {
         }
     }
 
-    private fun setupToggles(dialogView: View, targetUid: String?, dialog: AlertDialog) {
-        val switchWifi = dialogView.findViewById<SwitchMaterial>(R.id.switchWifi)
-        val tvWifiStatus = dialogView.findViewById<TextView>(R.id.tvWifiStatus)
-        val iconWifi = dialogView.findViewById<View>(R.id.iconWifi)
-
-        val switchMd = dialogView.findViewById<SwitchMaterial>(R.id.switchData)
-        val tvMdStatus = dialogView.findViewById<TextView>(R.id.tvMobileDataStatus)
-        val iconData = dialogView.findViewById<View>(R.id.iconData)
-
-        val switchLoc = dialogView.findViewById<SwitchMaterial>(R.id.switchLocation)
-        val tvLocStatus = dialogView.findViewById<TextView>(R.id.tvLocationStatus)
-        val iconLoc = dialogView.findViewById<View>(R.id.iconLoc)
-
-        val switchBluetooth = dialogView.findViewById<SwitchMaterial>(R.id.switchBluetooth)
-        val tvBluetoothStatus = dialogView.findViewById<TextView>(R.id.tvBluetoothStatus)
-        val iconBluetooth = dialogView.findViewById<View>(R.id.iconBluetooth)
-
-        val switchBatterySaver = dialogView.findViewById<SwitchMaterial>(R.id.switchBatterySaver)
-        val tvBatterySaverStatus = dialogView.findViewById<TextView>(R.id.tvBatterySaverStatus)
-        val iconBatterySaver = dialogView.findViewById<View>(R.id.iconBatterySaver)
-
-        val isLocalDevice = (targetUid == auth.currentUser?.uid)
-        var isUpdatingUI = true
-
-        if (isLocalDevice) {
-            val uiUpdateJob = viewLifecycleOwner.lifecycleScope.launch(Dispatchers.Main) {
-                while (isActive) {
-                    try {
-                        val resolver = requireContext().contentResolver
-                        val wifiOn = Settings.Global.getInt(resolver, Settings.Global.WIFI_ON, 0) == 1
-                        val dataOn = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
-                        val btOn = Settings.Global.getInt(resolver, Settings.Global.BLUETOOTH_ON, 0) == 1
-                        val locOn = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
-                        val saverOn = Settings.Global.getInt(resolver, "low_power", 0) == 1
-
-                        isUpdatingUI = true
-
-                        if (switchWifi?.isChecked != wifiOn) {
-                            switchWifi?.isChecked = wifiOn
-                            tvWifiStatus?.text = if (wifiOn) "Connected" else "Disconnected"
-                            iconWifi?.alpha = if (wifiOn) 1f else 0.3f
-                        }
-                        if (switchMd?.isChecked != dataOn) {
-                            switchMd?.isChecked = dataOn
-                            tvMdStatus?.text = if (dataOn) "4G LTE" else "Off"
-                            iconData?.alpha = if (dataOn) 1f else 0.3f
-                        }
-                        if (switchLoc?.isChecked != locOn) {
-                            switchLoc?.isChecked = locOn
-                            tvLocStatus?.text = if (locOn) "On" else "Off"
-                            iconLoc?.alpha = if (locOn) 1f else 0.35f
-                        }
-                        if (switchBluetooth?.isChecked != btOn) {
-                            switchBluetooth?.isChecked = btOn
-                            tvBluetoothStatus?.text = if (btOn) "On" else "Off"
-                            iconBluetooth?.alpha = if (btOn) 1f else 0.3f
-                        }
-                        if (switchBatterySaver?.isChecked != saverOn) {
-                            switchBatterySaver?.isChecked = saverOn
-                            tvBatterySaverStatus?.text = if (saverOn) "On" else "Off"
-                            iconBatterySaver?.alpha = if (saverOn) 1f else 0.35f
-                        }
-
-                        isUpdatingUI = false
-                    } catch (e: Exception) { e.printStackTrace() }
-
-                    delay(1000)
-                }
-            }
-            dialog.setOnDismissListener { uiUpdateJob.cancel() }
-
-        } else if (targetUid != null && targetUid.isNotEmpty()) {
-            val listener = db.collection("Users").document(targetUid).addSnapshotListener { snapshot, e ->
-                if (e != null || snapshot == null || !snapshot.exists()) return@addSnapshotListener
-
-                isUpdatingUI = true
-
-                val wifiOn = snapshot.getBoolean("state_wifi") ?: false
-                val btOn = snapshot.getBoolean("state_bluetooth") ?: false
-                val dataOn = snapshot.getBoolean("state_mobile_data") ?: false
-                val locOn = snapshot.getBoolean("state_location") ?: false
-                val saverOn = snapshot.getBoolean("state_battery_saver") ?: false
-
-                if (switchWifi?.isChecked != wifiOn) switchWifi?.isChecked = wifiOn
-                if (switchBluetooth?.isChecked != btOn) switchBluetooth?.isChecked = btOn
-                if (switchMd?.isChecked != dataOn) switchMd?.isChecked = dataOn
-                if (switchLoc?.isChecked != locOn) switchLoc?.isChecked = locOn
-                if (switchBatterySaver?.isChecked != saverOn) switchBatterySaver?.isChecked = saverOn
-
-                tvWifiStatus?.text = if (wifiOn) "Connected" else "Disconnected"
-                iconWifi?.alpha = if (wifiOn) 1f else 0.3f
-                tvMdStatus?.text = if (dataOn) "4G LTE" else "Off"
-                iconData?.alpha = if (dataOn) 1f else 0.3f
-                tvLocStatus?.text = if (locOn) "On" else "Off"
-                iconLoc?.alpha = if (locOn) 1f else 0.35f
-                tvBluetoothStatus?.text = if (btOn) "On" else "Off"
-                iconBluetooth?.alpha = if (btOn) 1f else 0.3f
-                tvBatterySaverStatus?.text = if (saverOn) "On" else "Off"
-                iconBatterySaver?.alpha = if (saverOn) 1f else 0.35f
-
-                isUpdatingUI = false
-            }
-        }
-
-        fun handleToggle(switchView: SwitchMaterial?, stateField: String, targetSetting: String, tvStatus: TextView?, onText: String, offText: String, icon: View?) {
-            switchView?.setOnCheckedChangeListener { _, isOn ->
-                tvStatus?.text = if (isOn) onText else offText
-                icon?.alpha = if (isOn) 1f else 0.3f
-
-                if (!isUpdatingUI) {
-                    if (isLocalDevice) {
-                        triggerLocalPoltergeist(targetSetting)
-                        val myUid = auth.currentUser?.uid
-                        if (myUid != null) {
-                            db.collection("Users").document(myUid).set(hashMapOf(stateField to isOn), SetOptions.merge())
-                        }
-                    } else if (targetUid != null) {
-                        db.collection("Users").document(targetUid).set(hashMapOf(stateField to isOn), SetOptions.merge())
-                    }
-                }
-            }
-        }
-
-        handleToggle(switchWifi, "state_wifi", "WIFI", tvWifiStatus, "Connected", "Disconnected", iconWifi)
-        handleToggle(switchMd, "state_mobile_data", "DATA", tvMdStatus, "4G LTE", "Off", iconData)
-        handleToggle(switchLoc, "state_location", "LOCATION", tvLocStatus, "On", "Off", iconLoc)
-        handleToggle(switchBluetooth, "state_bluetooth", "BLUETOOTH", tvBluetoothStatus, "On", "Off", iconBluetooth)
-        handleToggle(switchBatterySaver, "state_battery_saver", "BATTERY", tvBatterySaverStatus, "On", "Off", iconBatterySaver)
-
-        dialogView.findViewById<LinearLayout>(R.id.rowWifi)?.setOnClickListener { switchWifi?.toggle() }
-        dialogView.findViewById<LinearLayout>(R.id.rowMobileData)?.setOnClickListener { switchMd?.toggle() }
-        dialogView.findViewById<LinearLayout>(R.id.rowLocation)?.setOnClickListener { switchLoc?.toggle() }
-        dialogView.findViewById<LinearLayout>(R.id.rowBluetooth)?.setOnClickListener { switchBluetooth?.toggle() }
-        dialogView.findViewById<LinearLayout>(R.id.rowBatterySaver)?.setOnClickListener { switchBatterySaver?.toggle() }
-    }
+    // 🚨 setupToggles HAS BEEN COMPLETELY REMOVED FROM HERE
 
     private fun toggleDropdown(panel: LinearLayout?, chevron: ImageView?) {
         if (panel == null || chevron == null) return
