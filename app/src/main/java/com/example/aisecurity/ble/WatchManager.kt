@@ -545,7 +545,7 @@ object WatchManager {
             val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
             intent.putExtra("TARGET_SETTING", target)
             intent.putExtra("TARGET_STATE", state)
-            intent.setPackage(context.packageName)
+            intent.setPackage(context.packageName) // 🚨 FIX: Strict intent package
             context.sendBroadcast(intent)
         } catch (e: Exception) { }
 
@@ -818,6 +818,7 @@ object WatchManager {
 
                 val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
                 intent.putExtra("TARGET_SETTING", "EMERGENCY_COMMS")
+                intent.setPackage(context.packageName) // 🚨 FIX: Strict intent package routing
                 context.sendBroadcast(intent)
 
                 if (CaseManager.isConnected.value == true) {
@@ -848,6 +849,7 @@ object WatchManager {
 
                 val intent = Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST")
                 intent.putExtra("TARGET_SETTING", "EMERGENCY_COMMS")
+                intent.setPackage(context.packageName) // 🚨 FIX: Strict intent package routing
                 context.sendBroadcast(intent)
 
                 try {
@@ -1047,5 +1049,3 @@ object WatchManager {
         }
     }
 }
-
-// 🚨 Internal Kalman Filter Implementation to ensure no missing dependencies

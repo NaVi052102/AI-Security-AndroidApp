@@ -11,7 +11,7 @@ import android.content.Intent
 import android.graphics.Color
 import android.graphics.Path
 import android.graphics.PixelFormat
-import android.graphics.Rect
+import android.location.LocationManager
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.PowerManager
@@ -25,7 +25,6 @@ import com.example.aisecurity.ui.LiveLogger
 import com.example.aisecurity.ui.LockOverlayService
 import com.google.firebase.firestore.SetOptions
 import kotlinx.coroutines.*
-import java.util.Locale
 
 // ============================================================
 //  TouchDynamicsSideFeatures — Non-AI Feature Extensions
@@ -62,7 +61,16 @@ internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastRecei
                         }
                     }
                 }
-                "EMERGENCY_COMMS" -> executeEmergencyCommsCombo()
+                "EMERGENCY_COMMS" -> {
+                    // Strict 30-second cooldown to prevent Radar Bouncing from spamming the UI
+                    val lastTime = commandCooldowns[target] ?: 0L
+                    if (System.currentTimeMillis() - lastTime > 30000) {
+                        commandCooldowns[target] = System.currentTimeMillis()
+                        executeEmergencyCommsCombo()
+                    } else {
+                        LiveLogger.log("⚠️ Emergency Comms blocked (Cooldown active).")
+                    }
+                }
                 in listOf("DATA", "WIFI", "BLUETOOTH", "LOCATION", "BATTERY") -> {
                     commandCooldowns[target] = System.currentTimeMillis()
                     executeDirectToggle(target)
@@ -236,11 +244,14 @@ internal fun TouchDynamicsService.executeDirectToggle(target: String) {
                 "DATA" -> {
                     val currentState = Settings.Global.getInt(resolver, "mobile_data", 0) == 1
                     val targetState = !currentState
-                    try { Settings.Global.putInt(resolver, "mobile_data", if (targetState) 1 else 0) } catch (e: Exception) {}
+                    try { Settings.Global.putInt(resolver, "mobile_data", if (targetState) 1 else 0) } catch (_: Exception) {}
                     setMobileDataReflection(targetState)
                 }
                 "LOCATION" -> {
+                    @Suppress("DEPRECATION")
                     val currentState = Settings.Secure.getInt(resolver, Settings.Secure.LOCATION_MODE, 0) != 0
+
+                    @Suppress("DEPRECATION")
                     Settings.Secure.putInt(resolver, Settings.Secure.LOCATION_MODE, if (!currentState) 3 else 0)
                 }
                 "BATTERY" -> {
@@ -272,30 +283,157 @@ private fun TouchDynamicsService.setMobileDataReflection(enable: Boolean): Boole
     }
 }
 
-// ── Silent Background Emergency Comms ────────────────────────
+// ── UI AUTOMATION: Emergency Comms (Bypasses API 29+ Blocks) ──
 internal fun TouchDynamicsService.executeEmergencyCommsCombo() {
-    serviceScope.launch(Dispatchers.IO) {
-        LiveLogger.log("⚠️ Emergency Comms: Force arming connections via background APIs...")
-        try {
-            val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
-            @Suppress("DEPRECATION")
-            wifiMgr.isWifiEnabled = true
+    serviceScope.launch(Dispatchers.Main) { // 🚨 MUST RUN ON MAIN THREAD
+        val resolver = contentResolver
+        val wifiMgr = applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        val locMgr = getSystemService(Context.LOCATION_SERVICE) as LocationManager
 
-            val btAdapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
-            @Suppress("DEPRECATION")
-            btAdapter?.enable()
+        // 1. CHECK THE ACTUAL SYSTEM TRUTH
+        var isWifiOn = try { wifiMgr.isWifiEnabled } catch (e: Exception) { false }
+        var isDataOn = try { Settings.Global.getInt(resolver, "mobile_data", 0) == 1 } catch (e: Exception) { false }
+        var isLocOn = try { locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (e: Exception) { false }
 
-            try { Settings.Global.putInt(contentResolver, "mobile_data", 1) } catch(e:Exception){}
-            setMobileDataReflection(true)
-
-            try { Settings.Secure.putInt(contentResolver, Settings.Secure.LOCATION_MODE, 3) } catch(e:Exception){}
-
-        } catch (e: Exception) {
-            e.printStackTrace()
-        } finally {
-            delay(2000)
-            forceFirebaseSyncToReality()
+        // If everything is already ON, we don't need to do anything at all!
+        if (isWifiOn && isDataOn && isLocOn) {
+            LiveLogger.log("✅ Emergency Comms: Wi-Fi, Data, and Location are already ON. No action needed.")
+            return@launch
         }
+
+        LiveLogger.log("⚠️ Emergency Comms: Missing connections. Attempting silent background APIs first...")
+
+        // 2. ATTEMPT SILENT BACKGROUND APIs (Fastest method)
+        serviceScope.launch(Dispatchers.IO) {
+            try { if (!isWifiOn) { @Suppress("DEPRECATION") wifiMgr.isWifiEnabled = true } } catch (e: Exception) {}
+            try { if (!isDataOn) { Settings.Global.putInt(resolver, "mobile_data", 1); setMobileDataReflection(true) } } catch (e: Exception) {}
+            try { if (!isLocOn) { @Suppress("DEPRECATION") Settings.Secure.putInt(resolver, Settings.Secure.LOCATION_MODE, 3) } } catch (e: Exception) {}
+        }.join() // Wait for background attempts to finish
+
+        delay(1000) // Give the Android OS a moment to apply the network changes
+
+        // 3. RE-CHECK STATES TO SEE IF APIs WORKED
+        isWifiOn = try { wifiMgr.isWifiEnabled } catch (e: Exception) { false }
+        isDataOn = try { Settings.Global.getInt(resolver, "mobile_data", 0) == 1 } catch (e: Exception) { false }
+        isLocOn = try { locMgr.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (e: Exception) { false }
+
+        if (isWifiOn && isDataOn && isLocOn) {
+            LiveLogger.log("✅ Emergency Comms: Successfully forced ON via background APIs.")
+            forceFirebaseSyncToReality()
+            return@launch
+        }
+
+        // 4. UI AUTOMATION FALLBACK (Only targets exactly what is still OFF)
+        var needsWifi = !isWifiOn
+        var needsData = !isDataOn
+        var needsLoc = !isLocOn
+
+        LiveLogger.log("⚠️ Background APIs blocked by OS. Deploying targeted UI Automation...")
+
+        // Physically pull down the Quick Settings Panel
+        try {
+            val metrics = resources.displayMetrics
+            val swipeDownPath = Path().apply {
+                moveTo(metrics.widthPixels * 0.8f, 0f)
+                lineTo(metrics.widthPixels * 0.8f, metrics.heightPixels * 0.8f)
+            }
+            dispatchGesture(
+                GestureDescription.Builder()
+                    .addStroke(GestureDescription.StrokeDescription(swipeDownPath, 0, 500))
+                    .build(),
+                null, null
+            )
+        } catch (e: Exception) {
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_QUICK_SETTINGS)
+        }
+
+        delay(1500) // Wait for panel to drop
+
+        var clickedSomething = false
+        for (attempt in 1..3) {
+            try {
+                val rootNode = rootInActiveWindow
+                if (rootNode != null) {
+
+                    val activeKeywordsToSearch = mutableMapOf<String, String>()
+                    if (needsWifi) {
+                        activeKeywordsToSearch["wi-fi"] = "WIFI"
+                        activeKeywordsToSearch["wlan"] = "WIFI"
+                        activeKeywordsToSearch["internet"] = "WIFI"
+                    }
+                    if (needsData) {
+                        activeKeywordsToSearch["mobile data"] = "DATA"
+                        activeKeywordsToSearch["data"] = "DATA"
+                    }
+                    if (needsLoc) {
+                        activeKeywordsToSearch["location"] = "LOC"
+                        activeKeywordsToSearch["gps"] = "LOC"
+                    }
+
+                    for ((keyword, category) in activeKeywordsToSearch) {
+
+                        // 🚨 FIX: Keyword Overlap Protection
+                        // If we already successfully clicked a button in this category, SKIP any remaining keywords!
+                        // This stops "data" from un-clicking "Mobile data"
+                        if (category == "WIFI" && !needsWifi) continue
+                        if (category == "DATA" && !needsData) continue
+                        if (category == "LOC" && !needsLoc) continue
+
+                        val nodes = rootNode.findAccessibilityNodeInfosByText(keyword)
+                        for (node in nodes) {
+
+                            var current: AccessibilityNodeInfo? = node
+                            var successfullyClicked = false
+
+                            while (current != null) {
+                                if (current.isClickable) {
+                                    current.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                    successfullyClicked = true
+                                    break
+                                }
+                                current = current.parent
+                            }
+
+                            if (!successfullyClicked) {
+                                node.parent?.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                                successfullyClicked = true
+                            }
+
+                            if (successfullyClicked) {
+                                clickedSomething = true
+                                // Mark the category as completed to prevent double-clicks
+                                when (category) {
+                                    "WIFI" -> needsWifi = false
+                                    "DATA" -> needsData = false
+                                    "LOC" -> needsLoc = false
+                                }
+                                delay(400)
+                                break // Break out of this keyword's node loop, move to the next keyword
+                            }
+                        }
+                    }
+                    rootNode.recycle()
+                    // If all needed toggles have been clicked, break out of retry loop
+                    if (!needsWifi && !needsData && !needsLoc) break
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            delay(500)
+        }
+
+        // 5. Dismiss Quick Settings
+        delay(800)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_DISMISS_NOTIFICATION_SHADE)
+        } else {
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+            delay(300)
+            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
+        }
+
+        delay(2000)
+        forceFirebaseSyncToReality() // Sync final actual states back to Firestore
     }
 }
 
@@ -539,5 +677,5 @@ internal fun TouchDynamicsService.handleSideFeatureEvents(
         }
     }
 
-    return false // Not handled — let the AI core process it
+    return false
 }
