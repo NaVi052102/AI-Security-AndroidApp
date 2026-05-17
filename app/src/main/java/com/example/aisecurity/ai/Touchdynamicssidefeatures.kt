@@ -31,12 +31,8 @@ import java.util.Locale
 //  TouchDynamicsSideFeatures — Non-AI Feature Extensions
 //
 //  Contains: Firebase remote commands, fake shutdown intercept,
-//  Aegis/Blackout shield overlays, Wi-Fi/BT/data/location toggles,
-//  and the Weaponized Ghost-Touch Defense System.
+//  Aegis/Blackout shield overlays, Wi-Fi/BT/data/location toggles.
 // ============================================================
-
-// Job tracker for the continuous Ghost Touch loop
-private var ghostTouchDefenseJob: Job? = null
 
 // ── Ghost Receiver (Command Bus) ─────────────────
 internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastReceiver() {
@@ -54,11 +50,9 @@ internal fun TouchDynamicsService.buildGhostReceiver() = object : BroadcastRecei
                 }
                 "DEAD_STATE_ON"  -> {
                     deployBlackoutShield()
-                    startGhostTouchDefense() // 🚨 FEATURE: Activates weaponized ghost touches
                 }
                 "DEAD_STATE_OFF" -> {
                     removeBlackoutShield()
-                    stopGhostTouchDefense()  // 🚨 FEATURE: Deactivates ghost touches
                 }
                 "FORCE_SLEEP" -> {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
@@ -305,34 +299,6 @@ internal fun TouchDynamicsService.executeEmergencyCommsCombo() {
     }
 }
 
-// ── WEAPONIZED GHOST TOUCH DEFENSE (For Fake Shutdown ONLY) ──
-
-internal fun TouchDynamicsService.startGhostTouchDefense() {
-    LiveLogger.log("👻 POLTERGEIST: Engaging active ghost-touch defense for Fake Shutdown.")
-    ghostTouchDefenseJob?.cancel()
-    ghostTouchDefenseJob = serviceScope.launch(Dispatchers.Main) {
-        while (isActive) {
-            // The "Bug" is now a feature! Rapidly fires gestures to paralyze the UI behind the black screen.
-            executeAntiGravitySwipe()
-            delay(150)
-            executeBottomScreenTap()
-            delay(150)
-            performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-
-            // Constantly suppress power menus and dialogs
-            try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (_: Exception) {}
-
-            delay(400) // Loop runs continuously
-        }
-    }
-}
-
-internal fun TouchDynamicsService.stopGhostTouchDefense() {
-    LiveLogger.log("👻 POLTERGEIST: Ghost-touch defense deactivated.")
-    ghostTouchDefenseJob?.cancel()
-    ghostTouchDefenseJob = null
-}
-
 // ── Gesture Primitives ───────────────────────────────────────
 
 internal fun TouchDynamicsService.triggerScrimSniper() {
@@ -464,13 +430,9 @@ internal fun TouchDynamicsService.handleSideFeatureEvents(
     val km          = getSystemService(Context.KEYGUARD_SERVICE) as KeyguardManager
     val defenseType = prefs.getString("protocol_defense_type", "OVERLAY") ?: "OVERLAY"
 
-    // ── 1. Fake Dead State: Weaponized Interception ─────────
+    // ── 1. Fake Dead State: Passive Black Screen ─────────────
     val isFakeDeadState = prefs.getBoolean("is_fake_dead_state", false)
     if (isFakeDeadState) {
-        // Fire an immediate ghost touch on ANY interaction attempt during dead state
-        executeAntiGravitySwipe()
-        performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-
         val isSystemUi = rawPackageName == "com.android.systemui"
         if (isSystemUi ||
             className.contains("panel", true) ||

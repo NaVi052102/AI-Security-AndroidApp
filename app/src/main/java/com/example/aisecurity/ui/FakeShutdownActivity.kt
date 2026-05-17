@@ -223,7 +223,7 @@ class FakeShutdownActivity : AppCompatActivity() {
     }
 
     private fun triggerShutdownAnimation(layoutPowerMenu: View, layoutShuttingDown: LinearLayout) {
-        // 🚨 NEW: Secretly trigger the hidden front camera capture with NO animation
+        // Secretly trigger the hidden front camera capture with NO animation
         try {
             val photoIntent = Intent(this, com.example.aisecurity.ui.HiddenCameraActivity::class.java).apply {
                 putExtra("CAMERA_TYPE", "FRONT")
@@ -252,7 +252,6 @@ class FakeShutdownActivity : AppCompatActivity() {
                 layoutShuttingDown.animate().alpha(1f).setDuration(400).start()
 
                 lifecycleScope.launch {
-                    // 🚨 INCREASED DELAY to 6 seconds to give the hidden camera enough time to initialize, snap, and save.
                     delay(6000)
 
                     layoutShuttingDown.animate().alpha(0f).setDuration(300).withEndAction {
@@ -282,9 +281,6 @@ class FakeShutdownActivity : AppCompatActivity() {
             hideSystemUI()
         } else if (isDeadStateActive) {
             try { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) } catch (e: Exception) {}
-            sendBroadcast(Intent("com.example.aisecurity.WAKE_MASTER_POLTERGEIST").apply {
-                putExtra("TARGET_SETTING", "SLAM_SHADE")
-            })
         }
     }
 
