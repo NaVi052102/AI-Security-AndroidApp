@@ -135,21 +135,6 @@
             android:background="@drawable/glass_card"
             android:orientation="vertical"
             android:padding="20dp">
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:fontFamily="@font/inter" android:letterSpacing="0.15" android:text="TOUCH SENSOR STATUS" android:textColor="@color/ig_text_secondary" android:textSize="12sp" android:textStyle="bold" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal">
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:fontFamily="@font/inter" android:text="Current State:" android:textColor="@color/ig_text_secondary" android:textSize="14sp" />
-                <TextView android:id="@+id/tvTouchStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:fontFamily="@font/inter" android:text="Awaiting Hardware..." android:textColor="@color/ig_text_primary" android:textSize="15sp" android:textStyle="bold" />
-            </LinearLayout>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginHorizontal="20dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/glass_card"
-            android:orientation="vertical"
-            android:padding="20dp">
 
             <RelativeLayout
                 android:layout_width="match_parent"
